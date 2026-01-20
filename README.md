@@ -113,9 +113,9 @@ In Claude Code, run `/subtask:setup`.
 Talk with Claude Code about what you want done, and then ask it to use Subtask.
 
 Examples:
-- "fix the login bug with Subtask"
-- "lets do these 3 features with Subtask"
-- "plan and implement the new API endpoint with Subtask"
+- `"fix the login bug with Subtask"`
+- `"lets do these 3 features with Subtask"`
+- `"plan and implement the new API endpoint with Subtask"`
 
 What happens next:
 1. Claude Code creates tasks and runs subagents to do them simultaneously.<br/>
