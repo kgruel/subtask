@@ -14,6 +14,7 @@ import (
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/zippoxer/subtask/pkg/diffparse"
 	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/gather"
 	"github.com/zippoxer/subtask/pkg/task/history"
@@ -355,7 +356,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case listLoadedMsg:
 		m.listErr = msg.err
 		if msg.err != nil {
+			logging.Error("tui", "refresh list error: "+msg.err.Error())
 			return m, nil
+		}
+		if logging.DebugEnabled() {
+			logging.Debug("tui", fmt.Sprintf("data arrived items=%d (+%s)", len(msg.data.Items), sinceStartup().Round(time.Millisecond)))
 		}
 		m.tasks = msg.data.Items
 		m.availableWorkspaces = msg.data.AvailableWorkspaces
@@ -891,6 +896,7 @@ func (m model) viewWithoutZoneScan() string {
 }
 
 func (m model) View() string {
+	logFirstRenderOnce()
 	out := m.viewWithoutZoneScan()
 	out = zone.Scan(out)
 	return m.applySelection(out)
@@ -898,7 +904,16 @@ func (m model) View() string {
 
 func fetchListCmd() tea.Cmd {
 	return func() tea.Msg {
+		done := logging.DebugTimer("refresh", "start")
 		data, err := gather.List(context.Background(), gather.ListOptions{All: true})
+		if err != nil {
+			logging.Error("refresh", "gather.List error: "+err.Error())
+		}
+		if logging.DebugEnabled() {
+			done(fmt.Sprintf("done items=%d", len(data.Items)))
+		} else {
+			done("")
+		}
 		return listLoadedMsg{data: data, err: err}
 	}
 }

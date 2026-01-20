@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-isatty"
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	subtasktui "github.com/zippoxer/subtask/pkg/tui"
 )
@@ -32,6 +33,10 @@ func runTUIWithInitCheck() error {
 		if err := (&InitCmd{Workspaces: 20}).Run(); err != nil {
 			return err
 		}
+	}
+
+	if logging.DebugEnabled() {
+		_, _ = fmt.Fprintf(os.Stderr, "SUBTASK_DEBUG enabled, writing logs to: %s\n", logging.LogPath())
 	}
 
 	return subtasktui.Run()

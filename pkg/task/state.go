@@ -2,10 +2,13 @@ package task
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/zippoxer/subtask/pkg/logging"
 )
 
 // State is local, runtime-only state for a task.
@@ -66,6 +69,11 @@ func (s *State) Save(taskName string) error {
 
 // LoadState reads state from .subtask/internal/<task>/state.json.
 func LoadState(taskName string) (*State, error) {
+	debug := logging.DebugEnabled()
+	var start time.Time
+	if debug {
+		start = time.Now()
+	}
 	data, err := os.ReadFile(StatePath(taskName))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,6 +85,13 @@ func LoadState(taskName string) (*State, error) {
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
+	}
+
+	if debug {
+		d := time.Since(start)
+		if d >= 5*time.Millisecond {
+			logging.Debug("io", fmt.Sprintf("state.json task=%s bytes=%d (%s)", taskName, len(data), d.Round(time.Millisecond)))
+		}
 	}
 
 	return &s, nil

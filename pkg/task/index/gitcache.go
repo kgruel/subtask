@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
 )
@@ -43,15 +44,28 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 		return nil
 	}
 
+	debug := logging.DebugEnabled()
+	if debug {
+		logging.Debug("git-cache", fmt.Sprintf("refreshGit start mode=%s ttl=%s includeConflicts=%t includeIntegration=%t tasks=%d",
+			gitModeString(p.Mode), p.TTL, p.IncludeConflicts, p.IncludeIntegration, len(p.Tasks)))
+	}
+
 	ttl := p.TTL
 	if ttl <= 0 {
 		ttl = defaultGitTTL
 	}
 	cutoffNS := i.now().Add(-ttl).UnixNano()
 
+	var step time.Time
+	if debug {
+		step = time.Now()
+	}
 	candidates, err := i.gitCandidates(ctx, p, cutoffNS)
 	if err != nil {
 		return err
+	}
+	if debug {
+		logging.Debug("git-cache", fmt.Sprintf("candidates n=%d (%s)", len(candidates), time.Since(step).Round(time.Millisecond)))
 	}
 	// Note: integration refresh is not tied to this candidate list; it has separate caching logic.
 
@@ -77,12 +91,18 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 	nowNS := i.now().UnixNano()
 	results := make([]result, 0, len(candidates))
 
+	var needsAny int
+	var updating []string
 	for _, c := range candidates {
 		needsBase := !c.computedAtValid || c.computedAtNS < cutoffNS
 		needsConflicts := p.IncludeConflicts && (needsBase || !c.conflictsKnown)
 
 		if !needsBase && !needsConflicts {
 			continue
+		}
+		needsAny++
+		if debug && len(updating) < 5 {
+			updating = append(updating, c.name)
 		}
 
 		r := result{
@@ -207,7 +227,21 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 		results = append(results, r)
 	}
 
+	if debug {
+		msg := fmt.Sprintf("%d tasks stale, refreshing", needsAny)
+		if len(updating) > 0 {
+			msg += " tasks=" + strings.Join(updating, ",")
+			if needsAny > len(updating) {
+				msg += ",..."
+			}
+		}
+		logging.Debug("git-cache", msg)
+	}
+
 	if len(results) > 0 {
+		if debug {
+			logging.Debug("git-cache", fmt.Sprintf("writing results n=%d", len(results)))
+		}
 		tx, err := i.db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("index git refresh: begin tx: %w", err)
@@ -262,7 +296,16 @@ WHERE name = ?;
 		}
 	}
 
-	return i.refreshIntegration(ctx, p)
+	var intStart time.Time
+	if debug {
+		intStart = time.Now()
+	}
+	err = i.refreshIntegration(ctx, p)
+	if debug {
+		logging.Debug("git-cache", fmt.Sprintf("refreshIntegration (%s)", time.Since(intStart).Round(time.Millisecond)))
+		logging.Debug("git-cache", "refreshGit done")
+	}
+	return err
 }
 
 type gitCandidate struct {

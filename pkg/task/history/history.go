@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 )
 
@@ -188,6 +189,12 @@ func Tail(taskName string) (TailInfo, error) {
 }
 
 func TailPath(path string) (TailInfo, error) {
+	debug := logging.DebugEnabled()
+	var start time.Time
+	if debug {
+		start = time.Now()
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -361,5 +368,11 @@ func TailPath(path string) (TailInfo, error) {
 		info.TaskStatus = task.TaskStatusOpen
 	}
 
+	if debug {
+		d := time.Since(start)
+		if d >= 5*time.Millisecond {
+			logging.Debug("io", fmt.Sprintf("history.tail path=%s (%s)", path, d.Round(time.Millisecond)))
+		}
+	}
 	return info, nil
 }

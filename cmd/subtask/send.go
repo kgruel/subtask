@@ -15,6 +15,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/harness"
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
 	taskindex "github.com/zippoxer/subtask/pkg/task/index"
@@ -166,6 +167,8 @@ func (c *SendCmd) Run() error {
 				"tool_calls":    int(runToolCalls.Load()),
 			}),
 		})
+		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
+		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, time.Since(started).Round(time.Second)))
 		os.Exit(1)
 	}()
 	defer signal.Stop(sigChan)
@@ -271,6 +274,8 @@ func (c *SendCmd) Run() error {
 			}),
 			TS: finished,
 		})
+		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
+		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 		return runErr
 	}
 
@@ -306,6 +311,7 @@ func (c *SendCmd) Run() error {
 		}),
 		TS: finished,
 	})
+	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 
 	// Snapshot shared files after execution and find changes.
 	sharedAfter := SnapshotTaskFiles(c.Task)
@@ -541,6 +547,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			}),
 			TS: now,
 		})
+		logging.Info("worker", fmt.Sprintf("task=%s started run=%s", c.Task, runID))
 
 		continueFrom = strings.TrimSpace(locked.SessionID)
 		return nil

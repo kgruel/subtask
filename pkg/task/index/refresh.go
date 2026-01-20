@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
 	"github.com/zippoxer/subtask/pkg/task/migrate"
@@ -35,14 +36,35 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 		ctx = context.Background()
 	}
 
+	debug := logging.DebugEnabled()
+	var start time.Time
+	var step time.Time
+	if debug {
+		start = time.Now()
+		logging.Debug("refresh", fmt.Sprintf("index.Refresh start git={mode:%s includeIntegration:%t includeConflicts:%t ttl:%s tasks:%d}",
+			gitModeString(policy.Git.Mode), policy.Git.IncludeIntegration, policy.Git.IncludeConflicts, policy.Git.TTL, len(policy.Git.Tasks)))
+	}
+
+	if debug {
+		step = time.Now()
+	}
 	diskTasks, err := task.List()
 	if err != nil {
 		return err
 	}
+	if debug {
+		logging.Debug("refresh", fmt.Sprintf("task.List n=%d (%s)", len(diskTasks), time.Since(step).Round(time.Millisecond)))
+	}
 
+	if debug {
+		step = time.Now()
+	}
 	existing, err := i.loadFilesSigs(ctx)
 	if err != nil {
 		return err
+	}
+	if debug {
+		logging.Debug("refresh", fmt.Sprintf("index.loadFilesSigs n=%d (%s)", len(existing), time.Since(step).Round(time.Millisecond)))
 	}
 
 	diskSet := make(map[string]struct{}, len(diskTasks))
@@ -62,10 +84,21 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 	var toUpsert []taskUpsert
 	upserted := make(map[string]struct{})
 
+	var sigTotal time.Duration
+	var buildTotal time.Duration
+	var diskLoopErrors int
+
 	for _, name := range diskTasks {
+		if debug {
+			step = time.Now()
+		}
 		sig, err := filesSigForTask(name)
 		if err != nil {
+			diskLoopErrors++
 			return err
+		}
+		if debug {
+			sigTotal += time.Since(step)
 		}
 		if prev, ok := existing[name]; ok {
 			if prev == sig {
@@ -76,9 +109,16 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 			}
 		}
 
+		if debug {
+			step = time.Now()
+		}
 		row, ok, err := buildRowFromDisk(name, sig)
 		if err != nil {
+			diskLoopErrors++
 			return err
+		}
+		if debug {
+			buildTotal += time.Since(step)
 		}
 		if !ok {
 			if _, exists := existing[name]; exists {
@@ -92,9 +132,15 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 	}
 
 	// Staleness is not reflected by mtimes; refresh any tasks whose supervisor PID is now dead.
+	if debug {
+		step = time.Now()
+	}
 	staleNames, err := i.staleSupervisorTasks(ctx)
 	if err != nil {
 		return err
+	}
+	if debug {
+		logging.Debug("refresh", fmt.Sprintf("index.staleSupervisorTasks n=%d (%s)", len(staleNames), time.Since(step).Round(time.Millisecond)))
 	}
 	for _, name := range staleNames {
 		if _, ok := diskSet[name]; !ok {
@@ -122,9 +168,24 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 	}
 
 	if len(toDelete) == 0 && len(toUpsert) == 0 {
-		return i.refreshGit(ctx, policy.Git)
+		if debug {
+			logging.Debug("refresh", fmt.Sprintf("disk unchanged sigTotal=%s buildTotal=%s", sigTotal.Round(time.Millisecond), buildTotal.Round(time.Millisecond)))
+		}
+		var gitStart time.Time
+		if debug {
+			gitStart = time.Now()
+		}
+		err := i.refreshGit(ctx, policy.Git)
+		if debug {
+			logging.Debug("refresh", fmt.Sprintf("refreshGit (%s)", time.Since(gitStart).Round(time.Millisecond)))
+			logging.Debug("refresh", fmt.Sprintf("index.Refresh done (%s)", time.Since(start).Round(time.Millisecond)))
+		}
+		return err
 	}
 
+	if debug {
+		step = time.Now()
+	}
 	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("index refresh: begin tx: %w", err)
@@ -149,7 +210,37 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("index refresh: commit: %w", err)
 	}
-	return i.refreshGit(ctx, policy.Git)
+	if debug {
+		logging.Debug("refresh", fmt.Sprintf("db writes delete=%d upsert=%d invalidateGit=%d (%s)", len(toDelete), len(toUpsert), len(invalidateGit), time.Since(step).Round(time.Millisecond)))
+	}
+
+	var gitStart time.Time
+	if debug {
+		gitStart = time.Now()
+	}
+	err = i.refreshGit(ctx, policy.Git)
+	if debug {
+		logging.Debug("refresh", fmt.Sprintf("refreshGit (%s)", time.Since(gitStart).Round(time.Millisecond)))
+		logging.Debug("refresh", fmt.Sprintf("index.Refresh done (%s) tasks=%d upsert=%d delete=%d invalidateGit=%d staleSupervisor=%d sigTotal=%s buildTotal=%s",
+			time.Since(start).Round(time.Millisecond), len(diskTasks), len(toUpsert), len(toDelete), len(invalidateGit), len(staleNames), sigTotal.Round(time.Millisecond), buildTotal.Round(time.Millisecond)))
+		_ = diskLoopErrors
+	}
+	return err
+}
+
+func gitModeString(m GitMode) string {
+	switch m {
+	case GitNone:
+		return "GitNone"
+	case GitOpenOnly:
+		return "GitOpenOnly"
+	case GitAll:
+		return "GitAll"
+	case GitTasks:
+		return "GitTasks"
+	default:
+		return fmt.Sprintf("GitMode(%d)", int(m))
+	}
 }
 
 type taskRow struct {

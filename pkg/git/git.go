@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 )
 
@@ -19,7 +21,22 @@ func Run(dir string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if !logging.DebugEnabled() {
+		return cmd.Run()
+	}
+	start := time.Now()
+	err := cmd.Run()
+	d := time.Since(start)
+
+	if err != nil {
+		gitCmdBatcher.flushNow()
+		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+		return err
+	}
+
+	logGitCommandTiming(args, d)
+	return nil
 }
 
 // RunWithStderrFilter runs a git command, streaming stdout and filtering stderr (on success only).
@@ -34,7 +51,24 @@ func RunWithStderrFilter(dir string, stderrFilter func(string) string, args ...s
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	var (
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		err = cmd.Run()
+		d = time.Since(start)
+		if err != nil {
+			gitCmdBatcher.flushNow()
+			logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+			logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+		} else {
+			logGitCommandTiming(args, d)
+		}
+	} else {
+		err = cmd.Run()
+	}
 	if stderr.Len() == 0 {
 		return err
 	}
@@ -76,14 +110,38 @@ func FilterLineEndingWarnings(stderr string) string {
 func RunQuiet(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	return cmd.Run()
+	if !logging.DebugEnabled() {
+		return cmd.Run()
+	}
+	start := time.Now()
+	err := cmd.Run()
+	logGitCommandTiming(args, time.Since(start))
+	return err
 }
 
 // RunSilent runs a git command, capturing output and only showing it on error.
 func RunSilent(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	var (
+		out []byte
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		out, err = cmd.CombinedOutput()
+		d = time.Since(start)
+		if err != nil {
+			gitCmdBatcher.flushNow()
+			logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+			logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+		} else {
+			logGitCommandTiming(args, d)
+		}
+	} else {
+		out, err = cmd.CombinedOutput()
+	}
 	if err != nil {
 		// Show the output only when there's an error
 		os.Stderr.Write(out)
@@ -95,7 +153,23 @@ func RunSilent(dir string, args ...string) error {
 func Output(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	if !logging.DebugEnabled() {
+		out, err := cmd.Output()
+		if err != nil {
+			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), err.Error()))
+		}
+		return strings.TrimSpace(string(out)), err
+	}
+	start := time.Now()
 	out, err := cmd.Output()
+	d := time.Since(start)
+	if err != nil {
+		gitCmdBatcher.flushNow()
+		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+	} else {
+		logGitCommandTiming(args, d)
+	}
 	return strings.TrimSpace(string(out)), err
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
 )
@@ -48,23 +49,47 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 		ctx = context.Background()
 	}
 
+	debug := logging.DebugEnabled()
+	var start time.Time
+	if debug {
+		start = time.Now()
+		logging.Debug("integration", fmt.Sprintf("start mode=%s tasks=%d", gitModeString(p.Mode), len(p.Tasks)))
+	}
+
 	// Load tasks (from DB) and prior snapshot.
+	var step time.Time
+	if debug {
+		step = time.Now()
+	}
 	tasks, err := i.integrationTasks(ctx)
 	if err != nil {
 		return err
+	}
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("integrationTasks n=%d (%s)", len(tasks), time.Since(step).Round(time.Millisecond)))
+		step = time.Now()
 	}
 	prevSnap, err := i.loadRefsSnapshot(ctx)
 	if err != nil {
 		return err
 	}
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("loadRefsSnapshot ok hasSnapshot=%t (%s)", strings.TrimSpace(prevSnap.Hash) != "", time.Since(step).Round(time.Millisecond)))
+	}
 
 	// Build a repo-wide view of refs (single git call), then compute a stable snapshot
 	// for the refs we care about.
+	if debug {
+		step = time.Now()
+	}
 	allRefs, err := git.ListRefs(".", "refs/heads", "refs/remotes/origin")
 	if err != nil {
 		return err
 	}
 	nextSnap, desiredRefs := buildRefsSnapshot(tasks, allRefs)
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("git.ListRefs refs=%d desiredRefs=%d (%s)", len(allRefs), len(desiredRefs), time.Since(step).Round(time.Millisecond)))
+	}
 
 	// Decide whether to run a repair pass.
 	forceTasks := p.Mode == GitTasks && len(p.Tasks) > 0
@@ -74,10 +99,16 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 	if !forceTasks && !snapshotMismatch && !noSnapshot {
 		// Snapshot matches and we're not being asked to recompute a specific task.
 		// Keep list/show fast.
+		if debug {
+			logging.Debug("integration", fmt.Sprintf("skip snapshot match (%s)", time.Since(start).Round(time.Millisecond)))
+		}
 		return nil
 	}
 
 	repairPass := noSnapshot && !forceTasks
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("snapshot noSnapshot=%t mismatch=%t forceTasks=%t", noSnapshot, snapshotMismatch, forceTasks))
+	}
 	if forceTasks && snapshotMismatch {
 		// If we're being asked to refresh a specific task, we still must not "paper over"
 		// unrelated external ref changes by blindly updating the snapshot.
@@ -190,9 +221,23 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 			// (e.g. after deleting a task). In that case there can be no target tasks.
 			// Still persist the updated snapshot so list/show stays fast.
 			if len(targetTasks) == 0 {
+				if debug {
+					logging.Debug("integration", fmt.Sprintf("snapshot updated (no target tasks) (%s)", time.Since(start).Round(time.Millisecond)))
+				}
 				return i.persistSnapshotOnly(ctx, nextSnap)
 			}
 		}
+	}
+	if debug {
+		reason := "targeted"
+		if repairPass {
+			reason = "repair-pass"
+		} else if forceTasks {
+			reason = "force-tasks"
+		} else if snapshotMismatch {
+			reason = "snapshot-diff"
+		}
+		logging.Debug("integration", fmt.Sprintf("targetTasks n=%d reason=%s", len(targetTasks), reason))
 	}
 
 	// Group by base branch to amortize target tree lookups.
@@ -217,6 +262,9 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 	}
 	sort.Strings(baseBranches)
 
+	if debug {
+		step = time.Now()
+	}
 	for _, base := range baseBranches {
 		ref := git.EffectiveTarget(".", base)
 		refName := refToFullRefName(ref)
@@ -234,6 +282,9 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 			continue
 		}
 		targetByBase[base] = targetInfo{refName: refName, headSHA: head, treeSHA: strings.TrimSpace(tree)}
+	}
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("baseBranches n=%d (%s)", len(baseBranches), time.Since(step).Round(time.Millisecond)))
 	}
 
 	nowNS := i.now().UnixNano()
@@ -327,6 +378,9 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 		return err
 	}
 
+	if debug {
+		logging.Debug("integration", fmt.Sprintf("done updates=%d (%s)", len(updates), time.Since(start).Round(time.Millisecond)))
+	}
 	return nil
 }
 
