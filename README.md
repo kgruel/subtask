@@ -110,13 +110,17 @@ In Claude Code, run `/subtask:setup`.
 
 ## Use
 
-Ask Claude Code to do things:
+Talk with Claude Code about what you want done, and then ask it to use Subtask.
 
+Examples:
 - "fix the login bug with Subtask"
-- "lets do these 3 features in parallel with Subtask"
+- "lets do these 3 features with Subtask"
 - "plan and implement the new API endpoint with Subtask"
 
-Claude Code will draft tasks and run them simultaneously in isolated Git worktrees, then help you review and merge the changes.
+What happens next:
+1. Claude Code drafts tasks and runs them in isolated Git worktrees.<br/>
+2. Claude gets notified when they're done, and reviews the code.<br/>
+3. Claude asks if you want to merge, or ask for changes.
 
 ## Updating
 ```bash
