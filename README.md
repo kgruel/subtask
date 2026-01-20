@@ -1,6 +1,6 @@
 # Subtask ✨
 
-Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, track progress, review code and request changes.
+Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, track progress, review and request changes.
 
 * Each task gets a Git worktree, so they can be **done in parallel** safely
 * **Claude can interrupt and talk with subagents**!
