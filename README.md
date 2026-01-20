@@ -129,6 +129,13 @@ subtask update --check
 subtask update
 ```
 
+## Subtask is Built with Subtask
+- I use Claude Code to lead the development (i talk, it creates tasks and tracks everything)
+- I use Codex for subagents (just preference, Claude Code works too)
+- ~60 tasks merged in the past week
+- Proof: https://github.com/user-attachments/assets/6c71e34f-b3c6-4372-ac25-dd3eea15932e
+
+
 ## License
 
 MIT
