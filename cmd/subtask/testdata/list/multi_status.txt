@@ -1,0 +1,7 @@
+TASK       STATUS        STAGE      PROGRESS  CHANGES  LAST ACTIVE  TITLE
+b/working  working (2m)  implement  0/2       +1 -0    30s ago      Working task
+a/draft    draft         implement  -         -        -            Draft task
+c/replied  replied       review     2/3       +3 -1    2h ago       Replied task (← ctx/base)
+d/error    error         review     -         -        -            Error task
+e/closed   ✓ merged      ready      -         +2 -0    -            Closed task
+                                                       (1 workspace(s) available)

@@ -1,0 +1,13 @@
+# Task
+Name: prompt/context-same
+Title: Context prompt (same workspace)
+Branch: prompt/context-same
+Directory: .subtask/tasks/prompt--context-same
+Follow-up: continuing from ctx/task
+
+## Description
+Continue the previous work.
+
+--------------------
+
+Continue.

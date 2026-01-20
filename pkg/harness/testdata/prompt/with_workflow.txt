@@ -1,0 +1,22 @@
+# Task
+Name: prompt/workflow
+Title: Workflow prompt task
+Branch: prompt/workflow
+Directory: .subtask/tasks/prompt--workflow
+
+## Description
+Do the workflow thing.
+
+## Workflow
+When applicable, create PROGRESS.json to track your steps:
+```json
+[
+    {"step": "First step", "done": false},
+    {"step": "Second step", "done": false}
+]
+```
+Update `done: true` as you complete each step, or revise as needed. Commit when done.
+
+--------------------
+
+Implement as described.

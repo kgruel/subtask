@@ -1,0 +1,10 @@
+Task: show/behind-conflicts
+Title: Conflict task
+Branch: show/behind-conflicts (based on main)
+Model: gpt-5.2
+Workspace: ws1
+Status: replied (1s)
+Changes: +2 -2
+Conflicts: a.txt, b.txt
+
+Directory: .subtask/tasks/show--behind-conflicts (contains TASK.md, history.jsonl)

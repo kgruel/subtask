@@ -1,0 +1,581 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/harness"
+	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/zippoxer/subtask/pkg/task/history"
+	taskindex "github.com/zippoxer/subtask/pkg/task/index"
+	"github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/zippoxer/subtask/pkg/workspace"
+)
+
+// SendCmd implements 'subtask send'.
+type SendCmd struct {
+	Task   string `arg:"" help:"Task name"`
+	Prompt string `arg:"" optional:"" help:"Message to send (or use stdin)"`
+	Model  string `help:"Override model for this prompt (does not persist)"`
+	// Reasoning is codex-only (maps to model_reasoning_effort); not persisted.
+	Reasoning string `help:"Override reasoning for this prompt (codex-only; does not persist)"`
+	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
+
+	// Internal: injected harness for testing
+	testHarness harness.Harness
+}
+
+// WithHarness returns a copy with injected harness for testing.
+func (c *SendCmd) WithHarness(h harness.Harness) *SendCmd {
+	c.testHarness = h
+	return c
+}
+
+// Run executes the send command.
+func (c *SendCmd) Run() error {
+	prompt := strings.TrimSpace(c.Prompt)
+	if prompt == "" {
+		prompt = readStdinIfAvailable()
+	}
+	if prompt == "" {
+		return fmt.Errorf("prompt is required\n\nProvide a prompt as argument or via stdin (heredoc/pipe)")
+	}
+
+	// Ensure schema/history exist (one-time).
+	if err := migrate.EnsureSchema(c.Task); err != nil {
+		return err
+	}
+
+	t, err := task.Load(c.Task)
+	if err != nil {
+		return fmt.Errorf("task %q not found\n\nCreate it first:\n  subtask draft %s --base-branch <branch> --title \"...\"",
+			c.Task, c.Task)
+	}
+
+	cfg, err := workspace.LoadConfig()
+	if err != nil {
+		return err
+	}
+	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
+		return err
+	}
+
+	// Best-effort cleanup for stale supervisor PIDs.
+	task.CleanupStaleTasks()
+
+	// Ensure the supervisor is in its own process group so that other processes
+	// (harness CLIs, etc.) can be interrupted via a single group signal.
+	task.EnsureOwnProcessGroup()
+
+	// Determine durable task state.
+	tail, _ := history.Tail(c.Task)
+
+	progress, _ := task.LoadProgress(c.Task)
+	if progress == nil {
+		progress = &task.Progress{}
+	}
+
+	// Create harness (needed for context session migration).
+	var h harness.Harness
+	if c.testHarness != nil {
+		h = c.testHarness
+	} else {
+		model := workspace.ResolveModel(cfg, t, c.Model)
+		reasoning := workspace.ResolveReasoning(cfg, t, c.Reasoning)
+		h, err = harness.New(workspace.ConfigWithModelReasoning(cfg, model, reasoning))
+		if err != nil {
+			return err
+		}
+	}
+
+	// Acquire/reuse workspace + mark running + write history start events.
+	runID, err := history.NewRunID()
+	if err != nil {
+		return err
+	}
+
+	wsPath, prevWorkspace, continueFrom, repoStatus, err := c.prepareWorkspaceAndState(cfg, h, t, tail, prompt, runID)
+	if err != nil {
+		return err
+	}
+
+	// If we continued a session and workspace changed, migrate it if supported.
+	if continueFrom != "" && prevWorkspace != "" && filepath.Clean(prevWorkspace) != filepath.Clean(wsPath) {
+		_ = history.Append(c.Task, history.Event{
+			Type: "worker.session",
+			Data: mustJSON(map[string]any{
+				"action":     "migrated",
+				"harness":    cfg.Harness,
+				"session_id": continueFrom,
+			}),
+		})
+		_ = h.MigrateSession(continueFrom, prevWorkspace, wsPath)
+	}
+
+	// Build prompt.
+	fullPrompt := harness.BuildPrompt(t, wsPath, false, prompt, repoStatus)
+
+	var runToolCalls atomic.Int64
+	started := time.Now().UTC()
+
+	// Setup signal handling.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigChan
+		errMsg := "interrupted"
+		_ = task.WithLock(c.Task, func() error {
+			st, _ := task.LoadState(c.Task)
+			if st == nil {
+				st = &task.State{}
+			}
+			st.SupervisorPID = 0
+			st.SupervisorPGID = 0
+			st.StartedAt = time.Time{}
+			st.LastError = errMsg
+			return st.Save(c.Task)
+		})
+		_ = history.Append(c.Task, history.Event{
+			Type: "worker.interrupt",
+			Data: mustJSON(map[string]any{
+				"action":          "received",
+				"run_id":          runID,
+				"signal":          sig.String(),
+				"supervisor_pid":  os.Getpid(),
+				"supervisor_pgid": task.SelfProcessGroupID(),
+			}),
+		})
+		_ = history.Append(c.Task, history.Event{
+			Type: "worker.finished",
+			Data: mustJSON(map[string]any{
+				"run_id":        runID,
+				"duration_ms":   int(time.Since(started).Milliseconds()),
+				"outcome":       "error",
+				"error":         errMsg,
+				"error_message": errMsg,
+				"tool_calls":    int(runToolCalls.Load()),
+			}),
+		})
+		os.Exit(1)
+	}()
+	defer signal.Stop(sigChan)
+
+	// Snapshot shared files before execution (exclude history.jsonl).
+	sharedBefore := SnapshotTaskFiles(c.Task)
+
+	c.info(fmt.Sprintf("Sending to task: %s", c.Task))
+	c.info("[Waiting for worker...]")
+	if !c.Quiet {
+		fmt.Println()
+		fmt.Println()
+		c.info("Tip: Don't check or poll, you'll be notified when done.")
+	}
+
+	// runToolCalls is tracked atomically for accurate interruption accounting.
+
+	callbacks := harness.Callbacks{
+		OnToolCall: func(tm time.Time) {
+			runToolCalls.Add(1)
+			progress.ToolCalls++
+			progress.LastActive = tm
+			_ = progress.Save(c.Task)
+		},
+		OnSessionStart: func(sessionID string) {
+			_ = task.WithLock(c.Task, func() error {
+				st, _ := task.LoadState(c.Task)
+				if st == nil {
+					st = &task.State{}
+				}
+				st.SessionID = sessionID
+				st.Harness = cfg.Harness
+				return st.Save(c.Task)
+			})
+			_ = history.Append(c.Task, history.Event{
+				Type: "worker.session",
+				Data: mustJSON(map[string]any{
+					"action":     "started",
+					"harness":    cfg.Harness,
+					"session_id": sessionID,
+				}),
+			})
+		},
+	}
+
+	result, runErr := h.Run(context.Background(), wsPath, fullPrompt, continueFrom, callbacks)
+	finished := time.Now().UTC()
+	durationMS := int(finished.Sub(started).Milliseconds())
+
+	reply := ""
+	nextSessionID := ""
+	if result != nil {
+		reply = result.Reply
+		nextSessionID = result.SessionID
+	}
+
+	// Defensive: treat "success with empty reply" as an error so we don't write empty
+	// worker messages to history.jsonl. This can happen if a harness/CLI fails to
+	// surface an error (or returns AgentReplied=false without a hard error).
+	if runErr == nil && strings.TrimSpace(reply) == "" {
+		errMsg := "worker produced empty reply"
+		if result != nil && strings.TrimSpace(result.SessionID) != "" {
+			errMsg = fmt.Sprintf("%s (session %s)", errMsg, strings.TrimSpace(result.SessionID))
+		}
+		if result != nil && strings.TrimSpace(result.Error) == "" {
+			result.Error = errMsg
+		}
+		runErr = fmt.Errorf("%s", errMsg)
+	}
+
+	if runErr != nil {
+		errMsg := strings.TrimSpace(runErr.Error())
+		if result != nil && strings.TrimSpace(result.Error) != "" {
+			errMsg = strings.TrimSpace(result.Error)
+		}
+		if errMsg == "" {
+			errMsg = "worker failed"
+		}
+
+		_ = task.WithLock(c.Task, func() error {
+			st, _ := task.LoadState(c.Task)
+			if st == nil {
+				st = &task.State{}
+			}
+			st.SupervisorPID = 0
+			st.SupervisorPGID = 0
+			st.StartedAt = time.Time{}
+			st.LastError = errMsg
+			if nextSessionID != "" {
+				st.SessionID = nextSessionID
+			}
+			return st.Save(c.Task)
+		})
+		_ = history.Append(c.Task, history.Event{
+			Type: "worker.finished",
+			Data: mustJSON(map[string]any{
+				"run_id":        runID,
+				"duration_ms":   durationMS,
+				"tool_calls":    int(runToolCalls.Load()),
+				"outcome":       "error",
+				"error":         errMsg,
+				"error_message": errMsg,
+			}),
+			TS: finished,
+		})
+		return runErr
+	}
+
+	// Success: append worker message + finish event, clear running fields in state.
+	_ = task.WithLock(c.Task, func() error {
+		st, _ := task.LoadState(c.Task)
+		if st == nil {
+			st = &task.State{}
+		}
+		st.SupervisorPID = 0
+		st.SupervisorPGID = 0
+		st.StartedAt = time.Time{}
+		st.LastError = ""
+		if nextSessionID != "" {
+			st.SessionID = nextSessionID
+			st.Harness = cfg.Harness
+		}
+		return st.Save(c.Task)
+	})
+	_ = history.Append(c.Task, history.Event{
+		Type:    "message",
+		Role:    "worker",
+		Content: reply,
+		TS:      finished,
+	})
+	_ = history.Append(c.Task, history.Event{
+		Type: "worker.finished",
+		Data: mustJSON(map[string]any{
+			"run_id":      runID,
+			"duration_ms": durationMS,
+			"tool_calls":  int(runToolCalls.Load()),
+			"outcome":     "replied",
+		}),
+		TS: finished,
+	})
+
+	// Snapshot shared files after execution and find changes.
+	sharedAfter := SnapshotTaskFiles(c.Task)
+	changedFiles := ChangedTaskFiles(sharedBefore, sharedAfter)
+
+	// Refresh git snapshot/integration cache for this task so list/TUI stay fast.
+	if idx, err := taskindex.OpenDefault(); err == nil {
+		defer idx.Close()
+		if err := idx.Refresh(context.Background(), taskindex.RefreshPolicy{
+			Git: taskindex.GitPolicy{
+				Mode:               taskindex.GitTasks,
+				Tasks:              []string{c.Task},
+				IncludeIntegration: true,
+			},
+		}); err != nil && !c.Quiet {
+			printWarning(fmt.Sprintf("failed to refresh git integration cache: %v", err))
+		}
+	} else if !c.Quiet {
+		printWarning(fmt.Sprintf("failed to open index for git integration cache refresh: %v", err))
+	}
+
+	if c.Quiet {
+		if reply != "" {
+			fmt.Print(reply)
+			if !strings.HasSuffix(reply, "\n") {
+				fmt.Println()
+			}
+		}
+		return nil
+	}
+
+	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, "")
+	return nil
+}
+
+func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, _ error) {
+	now := time.Now().UTC()
+
+	var st *task.State
+	if loaded, err := task.LoadState(c.Task); err == nil {
+		st = loaded
+	}
+
+	// Session compatibility: don't attempt to continue a session across harnesses.
+	if st != nil && strings.TrimSpace(st.SessionID) != "" {
+		prevHarness := sessionHarnessForTask(c.Task, st)
+		if prevHarness != "" && prevHarness != cfg.Harness {
+			// Best-effort: persist inferred harness for future runs.
+			if strings.TrimSpace(st.Harness) == "" {
+				_ = task.WithLock(c.Task, func() error {
+					locked, _ := task.LoadState(c.Task)
+					if locked == nil {
+						locked = &task.State{}
+					}
+					if strings.TrimSpace(locked.Harness) == "" {
+						locked.Harness = prevHarness
+						_ = locked.Save(c.Task)
+					}
+					return nil
+				})
+			}
+			return "", "", "", nil, fmt.Errorf("task %q has an existing session from harness %q, but this project is configured for %q\n\n"+
+				"Sessions are not compatible across harnesses.\n"+
+				"Tip: clear the session by deleting state.json, or use a new task.",
+				c.Task, prevHarness, cfg.Harness)
+		}
+	}
+
+	// Hard guard: don't allow two concurrent sends on the same machine.
+	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
+		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nWait for it to finish, or check:\n  subtask list", c.Task)
+	}
+
+	// Reuse workspace when available.
+	if st != nil && st.Workspace != "" {
+		if info, err := os.Stat(st.Workspace); err == nil && info.IsDir() {
+			wsPath = st.Workspace
+			c.info(fmt.Sprintf("Using existing workspace: %s", abbreviatePath(wsPath)))
+		}
+	}
+
+	// Acquire new workspace if needed.
+	if wsPath == "" {
+		pool := workspace.NewPool()
+		acq, err := pool.Acquire()
+		if err != nil {
+			return "", "", "", nil, err
+		}
+		wsPath = acq.Entry.Path
+		defer acq.Release()
+		c.info(fmt.Sprintf("Assigned workspace: %s", abbreviatePath(wsPath)))
+
+		// Ensure task branch exists (open tasks reuse branch; merged tasks reopen from base).
+		branchExists := git.BranchExists(wsPath, t.Name)
+		switch tail.TaskStatus {
+		case task.TaskStatusMerged:
+			branchExists = false
+		}
+
+		if branchExists {
+			if err := git.Checkout(wsPath, t.Name); err != nil {
+				return "", "", "", nil, fmt.Errorf("failed to checkout branch %q: %w", t.Name, err)
+			}
+		} else {
+			baseRef := ""
+			if tail.TaskStatus != task.TaskStatusMerged {
+				baseRef = strings.TrimSpace(tail.BaseCommit)
+			}
+			if err := git.SetupBranch(wsPath, t, baseRef); err != nil {
+				// If the recorded base commit is missing (e.g., rewritten history), fall back to base branch HEAD.
+				if baseRef != "" {
+					if err2 := git.SetupBranch(wsPath, t, ""); err2 == nil {
+						baseRef = ""
+					} else {
+						return "", "", "", nil, fmt.Errorf("git setup failed: %w", err)
+					}
+				} else {
+					return "", "", "", nil, fmt.Errorf("git setup failed: %w", err)
+				}
+			}
+		}
+
+		ensureTaskSymlink(wsPath, c.Task)
+
+		// If reopening from merged/closed, record a task.opened event.
+		if tail.TaskStatus != task.TaskStatusOpen {
+			baseCommit, _ := git.Output(wsPath, "rev-parse", "HEAD")
+			data := mustJSON(map[string]any{
+				"reason":      "reopen",
+				"from":        string(tail.TaskStatus),
+				"branch":      c.Task,
+				"base_branch": t.BaseBranch,
+				"base_commit": baseCommit,
+			})
+			_ = history.Append(c.Task, history.Event{Type: "task.opened", Data: data})
+		}
+	}
+
+	// Compute repoStatus warning (best-effort).
+	if t.BaseBranch != "" {
+		// Local-first: compare against the local base branch only.
+		target := t.BaseBranch
+		if git.BranchExists(wsPath, target) {
+			behind, err := git.CommitsBehind(wsPath, "HEAD", target)
+			if err == nil && behind > 0 {
+				repoStatus = &harness.RepoStatus{CommitsBehind: behind}
+
+				conflicts, err := git.MergeConflictFiles(wsPath, target, "HEAD")
+				if err == nil && len(conflicts) > 0 {
+					repoStatus.ConflictFiles = conflicts
+				}
+			}
+		}
+	}
+
+	// Follow-up: seed session from a previous task/session (before marking running).
+	var followUpSeed *followUpSeed
+	if (st == nil || strings.TrimSpace(st.SessionID) == "") && strings.TrimSpace(t.FollowUp) != "" {
+		seed, err := resolveFollowUpSeed(cfg.Harness, t.FollowUp)
+		if err != nil {
+			return "", "", "", nil, err
+		}
+		followUpSeed = seed
+	}
+
+	// Set running state and append start events.
+	err := task.WithLock(c.Task, func() error {
+		locked, _ := task.LoadState(c.Task)
+		if locked == nil {
+			locked = &task.State{}
+		}
+		prevWorkspace = locked.Workspace
+
+		locked.Workspace = wsPath
+		locked.SupervisorPID = os.Getpid()
+		locked.SupervisorPGID = task.SelfProcessGroupID()
+		locked.StartedAt = now
+		locked.LastError = ""
+		locked.Harness = cfg.Harness
+
+		// If this is a follow-up task, duplicate (or continue) the prior session once
+		// and persist it before running.
+		if strings.TrimSpace(locked.SessionID) == "" && followUpSeed != nil && strings.TrimSpace(followUpSeed.FromSessionID) != "" {
+			newSessionID := ""
+			if cfg.Harness != "opencode" {
+				dup, err := h.DuplicateSession(followUpSeed.FromSessionID, followUpSeed.FromWorkspace, wsPath)
+				if err == nil && strings.TrimSpace(dup) != "" {
+					newSessionID = strings.TrimSpace(dup)
+				} else if cfg.Harness == "claude" {
+					// Claude sessions are stored under a cwd-specific project directory; without
+					// duplication we can't safely resume from a follow-up task.
+					if err == nil {
+						err = fmt.Errorf("duplicate session returned empty session ID")
+					}
+					return fmt.Errorf("failed to duplicate follow-up session from %q: %w\n\nTip: run without --follow-up to start a fresh session.", t.FollowUp, err)
+				}
+			}
+			if strings.TrimSpace(newSessionID) == "" {
+				// Fallback: continue the original session (may modify the original conversation).
+				newSessionID = strings.TrimSpace(followUpSeed.FromSessionID)
+			}
+
+			locked.SessionID = newSessionID
+			locked.Harness = cfg.Harness
+			_ = history.AppendLocked(c.Task, history.Event{
+				Type: "worker.session",
+				Data: mustJSON(map[string]any{
+					"action":       "follow_up",
+					"harness":      cfg.Harness,
+					"session_id":   newSessionID,
+					"from_task":    t.FollowUp,
+					"from_session": followUpSeed.FromSessionID,
+				}),
+				TS: now,
+			})
+		}
+		if err := locked.Save(c.Task); err != nil {
+			return err
+		}
+
+		// Persist the lead message + run start.
+		_ = history.AppendLocked(c.Task, history.Event{
+			Type:    "message",
+			Role:    "lead",
+			Content: prompt,
+			TS:      now,
+		})
+		_ = history.AppendLocked(c.Task, history.Event{
+			Type: "worker.started",
+			Data: mustJSON(map[string]any{
+				"run_id":       runID,
+				"prompt_bytes": len([]byte(prompt)),
+			}),
+			TS: now,
+		})
+
+		continueFrom = strings.TrimSpace(locked.SessionID)
+		return nil
+	})
+	if err != nil {
+		return "", "", "", nil, err
+	}
+
+	return wsPath, prevWorkspace, continueFrom, repoStatus, nil
+}
+
+func (c *SendCmd) info(msg string) {
+	if c.Quiet {
+		return
+	}
+	printInfo(msg)
+}
+
+// readStdinIfAvailable reads from stdin only if data is piped (non-blocking).
+func readStdinIfAvailable() string {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return ""
+	}
+	if (fi.Mode() & os.ModeCharDevice) != 0 {
+		return ""
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}

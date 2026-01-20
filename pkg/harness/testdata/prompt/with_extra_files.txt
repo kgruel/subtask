@@ -1,0 +1,22 @@
+# Task
+Name: prompt/extra-files
+Title: Extra files prompt task
+Branch: prompt/extra-files
+Directory: .subtask/tasks/prompt--extra-files (PLAN.md, PROGRESS.json)
+
+## Description
+Use the extra files in the task folder.
+
+## Workflow
+When applicable, create PROGRESS.json to track your steps:
+```json
+[
+    {"step": "First step", "done": false},
+    {"step": "Second step", "done": false}
+]
+```
+Update `done: true` as you complete each step, or revise as needed. Commit when done.
+
+--------------------
+
+Follow PLAN.md and update PROGRESS.json.

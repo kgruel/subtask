@@ -1,0 +1,70 @@
+version: 2
+
+project_name: subtask
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: subtask
+    main: ./cmd/subtask
+    binary: subtask
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+brews:
+  - name: subtask
+    homepage: "https://github.com/zippoxer/subtask"
+    description: "Parallel task orchestration for AI coding agents."
+    license: "MIT"
+    repository:
+      owner: zippoxer
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    install: |
+      bin.install "subtask"
+    test: |
+      system "#{bin}/subtask", "--version"

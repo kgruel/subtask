@@ -1,0 +1,11 @@
+TASK        STATUS  STAGE      PROGRESS  CHANGES  LAST ACTIVE  TITLE
+z/open05    draft   implement  -         -        -            Open 05
+z/open04    draft   implement  -         -        -            Open 04
+z/open03    draft   implement  -         -        -            Open 03
+z/open02    draft   implement  -         -        -            Open 02
+z/open01    draft   implement  -         -        -            Open 01
+a/closed12  closed  -          -         -        -            Closed 12
+a/closed11  closed  -          -         -        -            Closed 11
+a/closed10  closed  -          -         -        -            Closed 10
+a/closed09  closed  -          -         -        -            Closed 09
+a/closed08  closed  -          -         -        -            Closed 08

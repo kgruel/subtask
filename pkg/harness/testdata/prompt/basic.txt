@@ -1,0 +1,12 @@
+# Task
+Name: prompt/basic
+Title: Basic prompt task
+Branch: prompt/basic
+Directory: .subtask/tasks/prompt--basic
+
+## Description
+Do the basic thing.
+
+--------------------
+
+Please implement it.

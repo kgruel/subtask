@@ -1,0 +1,8 @@
+Task: show/model-reasoning
+Title: Model reasoning task
+Branch: show/model-reasoning (based on main)
+Model: gpt-5.2 (high)
+Status: draft
+Changes: -
+
+Directory: .subtask/tasks/show--model-reasoning (contains TASK.md, history.jsonl)

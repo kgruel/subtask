@@ -1,0 +1,14 @@
+# Task
+Name: prompt/context-new
+Title: Context prompt (new workspace)
+Branch: prompt/context-new
+Directory: .subtask/tasks/prompt--context-new
+Follow-up: continuing from ctx/task
+Note: New workspace, branch checked out fresh.
+
+## Description
+Continue the previous work.
+
+--------------------
+
+Continue.

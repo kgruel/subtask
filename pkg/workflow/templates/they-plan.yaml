@@ -1,0 +1,45 @@
+name: they-plan
+description: Worker drafts the plan, you review and approve
+
+instructions:
+    lead: |
+        **You set goals, worker plans and executes.** Push for simplicity, clarity and elegance. Push back against shortcuts and over-engineering.
+    worker: |
+        When applicable, create PROGRESS.json in the task directory to track your steps:
+        ```json
+        [
+            {"step": "First step", "done": false},
+            {"step": "Second step", "done": false}
+        ]
+        ```
+        Update `done: true` as you complete each step, or revise steps as needed. Commit when done.
+
+stages:
+    - name: plan
+      instructions: |
+          1. Ask worker to draft PLAN.md in the task directory (relative path)
+          2. Review PLAN.md and ask yourself: is this the ideal solution?
+          3. Suggest improvements or ask to explore other solutions, if needed
+          4. Repeat until you're both satisfied
+
+          When approved:
+            `subtask stage <task> implement`
+            `subtask send <task> "Plan approved. Implement it. Update PROGRESS.json as you go, commit when done."`
+
+    - name: implement
+      instructions: |
+          Worker is implementing and updating PROGRESS.json.
+
+          Check progress: `subtask show <task>`
+          When implemented: `subtask stage <task> review` to get instructions
+
+    - name: review
+      instructions: |
+          Review code with `subtask diff --stat <task>` and `subtask diff <task>`.
+
+          Request changes: `subtask send <task> "Please..."`
+          When ready for human to review: `subtask stage <task> ready`
+
+    - name: ready
+      instructions: |
+          Task is ready. Notify human and ask them if they want to merge or create a PR.

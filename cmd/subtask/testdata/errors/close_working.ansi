@@ -1,0 +1,4 @@
+task "err/working" is still working
+
+Wait for it to finish:
+  subtask list

@@ -1,0 +1,23 @@
+# Binary
+/subtask
+dist/
+
+# Project's own subtask data
+.subtask/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Test artifacts
+*.test
+coverage.out
+
+# Personal notes
+ISSUES.md
+TODO.md

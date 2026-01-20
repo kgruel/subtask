@@ -1,0 +1,10 @@
+Task: show/draft
+Title: Draft task
+Branch: show/draft (based on main)
+Model: gpt-5.2
+Status: draft
+Changes: -
+Workflow: default
+Stage: doing → review → ready
+
+Directory: .subtask/tasks/show--draft (contains TASK.md, WORKFLOW.yaml, history.jsonl)

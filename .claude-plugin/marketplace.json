@@ -1,0 +1,20 @@
+{
+  "name": "subtask",
+  "owner": {
+    "name": "zippoxer"
+  },
+  "metadata": {
+    "description": "Parallel task orchestration for AI coding agents"
+  },
+  "plugins": [
+    {
+      "name": "subtask",
+      "source": "./plugin",
+      "description": "Dispatch work to parallel Codex workers in isolated git workspaces",
+      "version": "1.0.0",
+      "repository": "https://github.com/zippoxer/subtask",
+      "license": "MIT",
+      "keywords": ["orchestration", "parallel", "codex", "tasks", "git-worktrees"]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+Using existing workspace: ws1
+Sending to task: send/behind-conflicts
+[Waiting for worker...]
+
+
+Tip: Don't check or poll, you'll be notified when done.
+Worker replied (3 tool calls)
+
+─── Reply ───
+Done
+
+
+─── Workspace ───
+ws1
+
+
+─── Conflicts ───
+Cannot merge cleanly. Conflicting files:
+  - a.txt
+  - b.txt
+
+
+─── History ───
+.subtask/tasks/send--behind-conflicts/history.jsonl
+
+View:
+  subtask log send/behind-conflicts
