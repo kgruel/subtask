@@ -138,7 +138,9 @@ func findProjectDirAbs(startDir string) (string, bool) {
 	dir := startDir
 	for {
 		candidate := filepath.Join(dir, ".subtask")
-		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+		// Check for config.json to distinguish project .subtask from global ~/.subtask
+		configPath := filepath.Join(candidate, "config.json")
+		if _, err := os.Stat(configPath); err == nil {
 			return candidate, true
 		}
 

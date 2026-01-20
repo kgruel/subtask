@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/harness"
-	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
@@ -31,15 +31,19 @@ var (
 
 // Run executes the init command.
 func (c *InitCmd) Run() error {
-	// Check if already initialized
-	if _, err := os.Stat(task.ConfigPath()); err == nil && !c.Force {
-		return fmt.Errorf("already initialized\n\nConfig exists: %s\nUse --force to reinitialize", task.ConfigPath())
-	}
-
 	// Get current directory as project root
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+
+	// For init, always check/create in cwd, don't search ancestors
+	localSubtaskDir := filepath.Join(cwd, ".subtask")
+	localConfigPath := filepath.Join(localSubtaskDir, "config.json")
+
+	// Check if already initialized in this directory
+	if _, err := os.Stat(localConfigPath); err == nil && !c.Force {
+		return fmt.Errorf("already initialized\n\nConfig exists: %s\nUse --force to reinitialize", localConfigPath)
 	}
 
 	insideWorkTree, err := git.Output(cwd, "rev-parse", "--is-inside-work-tree")
@@ -58,7 +62,7 @@ func (c *InitCmd) Run() error {
 
 	// With --force, confirm before overwriting config.
 	if c.Force {
-		if _, err := os.Stat(task.ConfigPath()); err == nil {
+		if _, err := os.Stat(localConfigPath); err == nil {
 			fmt.Println()
 			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("  ⚠ Warning"))
 			fmt.Println("    • existing config will be overwritten")
@@ -80,9 +84,19 @@ func (c *InitCmd) Run() error {
 
 	// Form values
 	numWorkspaces := c.Workspaces
-	harness := "codex"
-	if !codexAvailable {
-		if claudeAvailable {
+
+	// Validate harness is a supported value
+	validHarnesses := map[string]bool{"codex": true, "claude": true, "opencode": true}
+	if !validHarnesses[c.Harness] {
+		return fmt.Errorf("invalid harness %q\n\nSupported harnesses: codex, claude, opencode", c.Harness)
+	}
+
+	harness := c.Harness
+	// Fall back if requested harness isn't available
+	if !isCommandAvailable(harness) {
+		if codexAvailable {
+			harness = "codex"
+		} else if claudeAvailable {
 			harness = "claude"
 		} else {
 			harness = "opencode"
@@ -295,13 +309,24 @@ func (c *InitCmd) Run() error {
 		cfg.Options["reasoning"] = reasoning
 	}
 
-	if err := cfg.Save(); err != nil {
+	// Save config to local directory (not ancestor)
+	if err := os.MkdirAll(localSubtaskDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .subtask directory: %w", err)
+	}
+	if cfg.MaxWorkspaces <= 0 {
+		cfg.MaxWorkspaces = workspace.DefaultMaxWorkspaces
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile(localConfigPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	// Add .subtask to .gitignore if not already present
 	gitignoreAdded := false
-	if err := ensureGitignore(task.ProjectRoot()); err != nil {
+	if err := ensureGitignore(cwd); err != nil {
 		printWarning(fmt.Sprintf("failed to update .gitignore: %v", err))
 	} else {
 		gitignoreAdded = true
@@ -319,7 +344,7 @@ func (c *InitCmd) Run() error {
 		fmt.Printf("    %s %s\n", subtleStyle.Render("Reasoning:"), reasoning)
 	}
 	fmt.Printf("    %s %d\n", subtleStyle.Render("Max workspaces:"), numWorkspaces)
-	fmt.Printf("    %s %s\n", subtleStyle.Render("Config:"), task.ConfigPath())
+	fmt.Printf("    %s %s\n", subtleStyle.Render("Config:"), localConfigPath)
 	if gitignoreAdded {
 		fmt.Printf("    %s added to .gitignore\n", subtleStyle.Render("/.subtask/"))
 	}
