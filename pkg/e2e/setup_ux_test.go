@@ -3,10 +3,12 @@ package e2e
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -155,6 +157,201 @@ func TestSetupUX(t *testing.T) {
 		require.Contains(t, out, "invalid project config")
 		require.Contains(t, out, "subtask config --project")
 	})
+
+	t.Run("FreshInstall_NoInit_DraftAndListWork", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		addStubCommandToPATH(t, "codex")
+
+		// Install + configure (writes global config).
+		cwd := t.TempDir()
+		out, err := runSubtaskWithErr(t, bin, cwd, "install", "--no-prompt")
+		require.NoError(t, err, out)
+		require.FileExists(t, task.ConfigPath())
+
+		// New repo: draft/list should work without any init ceremony.
+		repo := t.TempDir()
+		initGitRepo(t, repo)
+
+		taskName := "setup/test"
+		out, err = runSubtaskWithErr(t, bin, repo, "draft", taskName, "desc", "--base-branch", "main", "--title", "Setup UX")
+		require.NoError(t, err, out)
+		require.FileExists(t, filepath.Join(repo, ".subtask", "tasks", task.EscapeName(taskName), "TASK.md"))
+
+		out, err = runSubtaskWithErr(t, bin, repo, "list")
+		require.NoError(t, err, out)
+		require.Contains(t, out, taskName)
+	})
+
+	t.Run("ConfigProject_NoPrompt_CreatesOverrideFile", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		addStubCommandToPATH(t, "codex")
+
+		// Global config present.
+		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
+		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
+		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
+
+		repo := t.TempDir()
+		initGitRepo(t, repo)
+
+		out, err := runSubtaskWithErr(t, bin, repo, "config", "--project", "--no-prompt")
+		require.NoError(t, err, out)
+		require.FileExists(t, filepath.Join(repo, ".subtask", "config.json"))
+	})
+
+	t.Run("Migration_NoClobber_WhenDestinationExists", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		// Global config present so migration won't promote legacy repo config.
+		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
+		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
+		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
+
+		repo := t.TempDir()
+		initGitRepo(t, repo)
+
+		// Seed repo with legacy runtime layout.
+		fixture := filepath.Join("..", "task", "migrate", "testdata", "legacy", "basic")
+		require.NoError(t, copyDir(fixture, filepath.Join(repo, ".subtask")))
+
+		projectDir := filepath.Join(task.ProjectsDir(), task.EscapePath(repo))
+		destInternalDir := filepath.Join(projectDir, "internal", "legacy--basic")
+		require.NoError(t, os.MkdirAll(destInternalDir, 0o755))
+		destStatePath := filepath.Join(destInternalDir, "state.json")
+		require.NoError(t, os.WriteFile(destStatePath, []byte(`{"session_id":"dest"}`+"\n"), 0o644))
+
+		// Create destination index.db (valid) and tag it with a sentinel table.
+		destIndex := filepath.Join(projectDir, "index.db")
+		require.NoError(t, copyFile(filepath.Join(repo, ".subtask", "index.db"), destIndex))
+		db, err := sql.Open("sqlite", destIndex)
+		require.NoError(t, err)
+		_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS sentinel (value TEXT);`)
+		_, _ = db.Exec(`DELETE FROM sentinel;`)
+		_, _ = db.Exec(`INSERT INTO sentinel(value) VALUES ('dest');`)
+		require.NoError(t, db.Close())
+
+		// Corrupt the legacy index and state; migration must not overwrite destination.
+		require.NoError(t, os.WriteFile(filepath.Join(repo, ".subtask", "index.db"), []byte("legacy-corrupt"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(repo, ".subtask", "internal", "legacy--basic", "state.json"), []byte(`{"session_id":"legacy"}`+"\n"), 0o644))
+
+		out, err := runSubtaskWithErr(t, bin, repo, "list")
+		require.NoError(t, err, out)
+
+		// Destination state should be unchanged (no clobber).
+		gotState, err := os.ReadFile(destStatePath)
+		require.NoError(t, err)
+		require.Contains(t, string(gotState), `"session_id":"dest"`)
+
+		// Destination index should not have been replaced/rebuilt (sentinel preserved).
+		db, err = sql.Open("sqlite", destIndex)
+		require.NoError(t, err)
+		var v string
+		require.NoError(t, db.QueryRow(`SELECT value FROM sentinel LIMIT 1;`).Scan(&v))
+		require.Equal(t, "dest", v)
+		require.NoError(t, db.Close())
+
+		// Legacy runtime should be removed from repo after migration.
+		_, err = os.Stat(filepath.Join(repo, ".subtask", "internal"))
+		require.True(t, os.IsNotExist(err))
+		_, err = os.Stat(filepath.Join(repo, ".subtask", "index.db"))
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("ConfigScope_ProjectOverrideWins_AndOtherRepoUsesGlobal", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		// Repo A has a project override that switches to the external mock harness.
+		repoA := t.TempDir()
+		initGitRepo(t, repoA)
+		require.NoError(t, os.MkdirAll(filepath.Join(repoA, ".subtask"), 0o755))
+		workerPath := mockWorkerPathForSubtask(bin)
+		require.FileExists(t, workerPath)
+
+		projectCfg := &workspace.Config{
+			Harness: "mock",
+			Options: map[string]any{"cli": workerPath},
+		}
+		b, _ := json.MarshalIndent(projectCfg, "", "  ")
+		require.NoError(t, os.WriteFile(filepath.Join(repoA, ".subtask", "config.json"), b, 0o644))
+
+		// Global defaults: builtin mock (in-process).
+		globalCfg := &workspace.Config{
+			Harness:       "builtin-mock",
+			MaxWorkspaces: 3,
+			Options:       map[string]any{"tool_calls": 0},
+		}
+		gb, _ := json.MarshalIndent(globalCfg, "", "  ")
+		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
+		require.NoError(t, os.WriteFile(task.ConfigPath(), gb, 0o644))
+
+		out, err := runSubtaskWithErr(t, bin, repoA, "ask", "hi")
+		require.NoError(t, err, out)
+		require.Contains(t, out, "Mock completed (no commands).")
+
+		// Repo B should use global defaults (no project override).
+		repoB := t.TempDir()
+		initGitRepo(t, repoB)
+
+		out, err = runSubtaskWithErr(t, bin, repoB, "ask", "hi")
+		require.NoError(t, err, out)
+		require.Contains(t, out, "Mock response for:")
+	})
+
+	t.Run("Worktree_AutoResolvesAnchor", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		// Global config present.
+		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
+		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
+		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
+
+		anchor := t.TempDir()
+		initGitRepo(t, anchor)
+		require.NoError(t, os.MkdirAll(filepath.Join(anchor, ".subtask", "tasks"), 0o755)) // helps anchor selection
+
+		escaped := task.EscapePath(anchor)
+		wsPath := filepath.Join(task.WorkspacesDir(), fmt.Sprintf("%s--%d", escaped, 1))
+		require.NoError(t, os.MkdirAll(filepath.Dir(wsPath), 0o755))
+		run(t, anchor, "git", "worktree", "add", "--detach", wsPath)
+
+		out, err := runSubtaskWithErr(t, bin, wsPath, "list")
+		require.NoError(t, err, out)
+
+		// Runtime folder should be for the anchor, not the workspace root.
+		require.DirExists(t, filepath.Join(task.ProjectsDir(), task.EscapePath(anchor)))
+		_, err = os.Stat(filepath.Join(task.ProjectsDir(), task.EscapePath(wsPath)))
+		require.True(t, os.IsNotExist(err))
+	})
 }
 
 func runSubtaskWithErr(t *testing.T, binPath, dir string, args ...string) (string, error) {
@@ -212,4 +409,22 @@ func copyFile(src, dst string) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+func addStubCommandToPATH(t *testing.T, name string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	var path string
+	var content []byte
+
+	if runtime.GOOS == "windows" {
+		path = filepath.Join(binDir, name+".bat")
+		content = []byte("@echo off\r\nexit /B 0\r\n")
+	} else {
+		path = filepath.Join(binDir, name)
+		content = []byte("#!/bin/sh\nexit 0\n")
+	}
+	require.NoError(t, os.WriteFile(path, content, 0o755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
