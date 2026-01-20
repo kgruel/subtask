@@ -98,7 +98,7 @@ In Claude Code, run `/subtask:setup`.
 Ask Claude Code to do things:
 
 - "fix the login bug with Subtask"
-- "run these 3 features in parallel"
+- "lets do these 3 features in parallel with Subtask"
 - "plan and implement the new API endpoint with Subtask"
 
 Claude Code will draft tasks and run them simultaneously in isolated Git worktrees, then help you review and merge the changes.
