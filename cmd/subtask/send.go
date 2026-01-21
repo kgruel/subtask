@@ -404,7 +404,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	// Hard guard: don't allow two concurrent sends on the same machine.
 	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
-		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nWait for it to finish, or check:\n  subtask list", c.Task)
+		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
 	}
 
 	// Reuse workspace when available.
