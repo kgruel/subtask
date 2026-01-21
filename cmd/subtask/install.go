@@ -68,37 +68,35 @@ func (c *InstallCmd) Run() error {
 func printSetupGuide() {
 	fmt.Print(`# Setup Subtask
 
-Subtask is a CLI for orchestrating parallel AI workers. You (the lead agent) use it to dispatch tasks to workers running in isolated git worktrees. Each worker gets its own workspace so they can't conflict with each other.
+Subtask lets you (the lead agent) dispatch tasks to parallel AI workers. Each worker runs in an isolated git worktree, so they can work simultaneously without conflicts. You draft tasks, send prompts to workers, review their output, and merge when ready.
 
-Install the Subtask skill and configure it for use in any Git repository.
+Setup does two things:
+1. Installs the Subtask skill - this teaches you the commands and workflow for orchestrating workers.
+2. Configures which AI harness to use for workers (e.g., Codex, Claude Code).
 
 ## Requirements
 
-Check if we're inside a Git repository. If not, let the user know that Subtask requires a Git repository and stop.
+This must be run inside a Git repository. If not, tell the user and stop.
 
-## Install + configure (global)
+## Install
 
 ` + "```bash\nsubtask install\n```" + `
 
-This installs the Subtask skill to ~/.claude/skills/subtask/ and runs a configuration wizard to set up ~/.subtask/config.json.
+This installs the skill to ~/.claude/skills/subtask/ and runs a configuration wizard for ~/.subtask/config.json. The wizard asks which harness to use for workers.
 
 ## Optional: project overrides
 
 ` + "```bash\nsubtask config --project\n```" + `
 
-Use this only if the current repository needs different settings than your global defaults.
+Only needed if this repository needs different settings than global defaults (e.g., different harness or fewer workspaces).
 
 ## Done
 
-Tell the user:
+Let the user know Subtask is ready. Give examples of what they can ask you to do, like:
+- "fix the login bug with Subtask"
+- "run these 3 features in parallel"
+- "plan and implement the new API endpoint with Subtask"
 
-> Subtask is ready!
->
-> Example usage:
-> - "fix the login bug with Subtask"
-> - "run these 3 features in parallel"
-> - "plan and implement the new API endpoint with Subtask"
->
-> I'll draft tasks, dispatch workers in isolated workspaces and let you know when they're done.
+Adapt these to their project context, tastefully (if relevant).
 `)
 }
