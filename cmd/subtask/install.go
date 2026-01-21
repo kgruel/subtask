@@ -66,20 +66,39 @@ func (c *InstallCmd) Run() error {
 }
 
 func printSetupGuide() {
-	fmt.Println("Subtask setup (Claude Code)")
-	fmt.Println()
-	fmt.Println("Install the Subtask skill:")
-	fmt.Println("  subtask install")
-	fmt.Println()
-	fmt.Println("Optional: project overrides:")
-	fmt.Println("  subtask config --project")
-	fmt.Println()
-	fmt.Println("Optional: install the Claude plugin (skill reminders):")
-	fmt.Println("  /plugin marketplace add zippoxer/subtask")
-	fmt.Println("  /plugin install subtask@subtask")
-	fmt.Println()
-	fmt.Println("Example usage:")
-	fmt.Println(`  "fix the login bug with Subtask"`)
-	fmt.Println(`  "run these 3 features in parallel"`)
-	fmt.Println(`  "plan and implement the new API endpoint with Subtask"`)
+	fmt.Print(`# Setup Subtask
+
+Subtask is a CLI for orchestrating parallel AI workers. You (the lead agent) use it to dispatch tasks to workers running in isolated git worktrees. Each worker gets its own workspace so they can't conflict with each other.
+
+Install the Subtask skill and configure it for use in any Git repository.
+
+## Requirements
+
+Check if we're inside a Git repository. If not, let the user know that Subtask requires a Git repository and stop.
+
+## Install + configure (global)
+
+` + "```bash\nsubtask install\n```" + `
+
+This installs the Subtask skill to ~/.claude/skills/subtask/ and runs a configuration wizard to set up ~/.subtask/config.json.
+
+## Optional: project overrides
+
+` + "```bash\nsubtask config --project\n```" + `
+
+Use this only if the current repository needs different settings than your global defaults.
+
+## Done
+
+Tell the user:
+
+> Subtask is ready!
+>
+> Example usage:
+> - "fix the login bug with Subtask"
+> - "run these 3 features in parallel"
+> - "plan and implement the new API endpoint with Subtask"
+>
+> I'll draft tasks, dispatch workers in isolated workspaces and let you know when they're done.
+`)
 }

@@ -312,7 +312,7 @@ func TestInstall_Guide_DoesNotWriteAnything(t *testing.T) {
 	cwd := t.TempDir()
 
 	out := runSubtask(t, bin, cwd, home, "install", "--guide")
-	require.Contains(t, out, "Subtask setup")
+	require.Contains(t, out, "# Setup Subtask")
 
 	_, err := os.Stat(filepath.Join(home, ".claude"))
 	require.ErrorIs(t, err, os.ErrNotExist)
