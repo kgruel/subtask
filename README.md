@@ -96,15 +96,16 @@ subtask install
 
 > *This asks whether to install to user-scope (`~/.claude/skills`) or project-scope.*
 > 
-> *Plugin is recommended to remind Claude to load skill when Subtask CLI is used.*
+> *You can skip installing the plugin, it isn't working yet.*
 
 Restart Claude Code.
 
 ### Setup Subtask in your Repo
 
-In Claude Code, run `/subtask:setup`.
-
-*Tip: You can set it up manually with `subtask init`.*
+```bash
+cd your-repo
+subtask init
+```
 
 ## Use
 
