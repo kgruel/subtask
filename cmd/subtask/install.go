@@ -216,11 +216,10 @@ func runScopeWizard() (string, error) {
 
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
-			Title("Scope").
-			Description("Where to install the skill").
+			Title("Where to install the Claude Skill?").
 			Options(
-				huh.NewOption("User — available in all projects (recommended)", "user"),
-				huh.NewOption("Project — only this repository", "project"),
+				huh.NewOption("Globally (recommended)", "user"),
+				huh.NewOption("This project only", "project"),
 			).
 			Value(&scope),
 	))
