@@ -95,11 +95,13 @@ Install Subtask with `subtask install --guide`.
 
 <details>
 <summary>Or install manually…</summary>
+
 ```bash
 subtask install
 
 # Tip: Uninstall later with `subtask uninstall`.
 ```
+
 </details>
 
 ### Optional: Install Plugin
