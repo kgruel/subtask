@@ -92,6 +92,7 @@ Tell Claude Code:
 ```bash
 Install Subtask with `subtask install --guide`.
 ```
+Claude will install the Subtask skill at `~/.claude/skills`, and ask you whether subagents should run Claude, Codex or OpenCode.
 
 <details>
 <summary>Or install manually…</summary>
