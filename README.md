@@ -51,7 +51,7 @@ Run `subtask` in your terminal to see everything:
 
 ## Install
 > [!NOTE]  
-> Subtask is in early development. Upcoming releases will simplify installation, solve known bugs, and eliminate common frustrations for Claude.
+> Subtask is in early development. Upcoming releases will simplify installation, solve known bugs, and improve Claude's proficiency.
 
 ### Get the CLI
 
