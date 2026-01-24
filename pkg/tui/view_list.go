@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/gather"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 // Selection indicator character
@@ -249,15 +249,15 @@ func renderSearchBoxWithBg(m model, maxWidth int, bg lipgloss.TerminalColor) str
 }
 
 // stageText returns stage or empty for closed tasks.
-func stageText(t gather.TaskListItem) string {
+func stageText(t store.TaskListItem) string {
 	return t.Stage
 }
 
 // listRowDataLeft returns plain text data for left-column width calculation.
-func listRowDataLeft(t gather.TaskListItem) []string {
+func listRowDataLeft(t store.TaskListItem) []string {
 	return []string{
 		t.Name,
-		unifiedStatusTextPlain(t.TaskStatus, t.WorkerStatus, t.IntegratedReason, t.StartedAt, t.LastRunDurationMS, t.LastError),
+		unifiedStatusTextPlain(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError),
 		stageText(t),
 		changesTextPlain(t),
 	}
@@ -265,11 +265,11 @@ func listRowDataLeft(t gather.TaskListItem) []string {
 
 // buildTaskRow builds a complete row with stretched layout.
 // PROGRESS column stretches to fill space, LAST ACTIVE is right-aligned.
-func buildTaskRow(t gather.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
+func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	// Build left columns (TASK through CHANGES)
 	leftCells := []string{
 		padRight(t.Name, widths[0]),
-		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.IntegratedReason, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
 		padRight(stageText(t), widths[2]),
 		padRightDisplay(changesTextStyled(t), widths[3]),
 	}
@@ -294,11 +294,11 @@ func buildTaskRow(t gather.TaskListItem, widths []int, totalWidth int, spinnerFr
 }
 
 // buildTaskRowSelected builds a row for selected task with blue+bold task name.
-func buildTaskRowSelected(t gather.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
+func buildTaskRowSelected(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	// Build left columns - task name is blue+bold, rest normal
 	leftCells := []string{
 		styleSelectedTaskName.Render(padRight(t.Name, widths[0])),
-		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.IntegratedReason, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
 		padRight(stageText(t), widths[2]),
 		padRightDisplay(changesTextStyled(t), widths[3]),
 	}
@@ -322,11 +322,7 @@ func buildTaskRowSelected(t gather.TaskListItem, widths []int, totalWidth int, s
 	return leftPart + "  " + progressPart + strings.Repeat(" ", gap) + styleDim.Render(lastActivePart)
 }
 
-func unifiedStatusTextPlain(ts task.TaskStatus, ws task.WorkerStatus, integratedReason string, startedAt time.Time, lastRunMS int, lastError string) string {
-	// Don't show "merged" if worker is actively running
-	if ws != task.WorkerStatusRunning && strings.TrimSpace(integratedReason) != "" {
-		return "✓ merged"
-	}
+func unifiedStatusTextPlain(ts task.TaskStatus, ws task.WorkerStatus, startedAt time.Time, lastRunMS int, lastError string) string {
 	switch task.UserStatusFor(ts, ws) {
 	case task.UserStatusMerged:
 		return "✓ merged"
@@ -360,11 +356,7 @@ func unifiedStatusTextPlain(ts task.TaskStatus, ws task.WorkerStatus, integrated
 	}
 }
 
-func unifiedStatusTextStyled(ts task.TaskStatus, ws task.WorkerStatus, integratedReason string, startedAt time.Time, lastRunMS int, lastError string, spinnerFrame int) string {
-	// Don't show "merged" if worker is actively running
-	if ws != task.WorkerStatusRunning && strings.TrimSpace(integratedReason) != "" {
-		return styleStatusMerged.Render("✓ merged")
-	}
+func unifiedStatusTextStyled(ts task.TaskStatus, ws task.WorkerStatus, startedAt time.Time, lastRunMS int, lastError string, spinnerFrame int) string {
 	switch task.UserStatusFor(ts, ws) {
 	case task.UserStatusMerged:
 		return styleStatusMerged.Render("✓ merged")
@@ -431,22 +423,34 @@ func progressBar(done, total int) string {
 	return filledStyle.Render(filled) + emptyStyle.Render(empty)
 }
 
-func changesTextPlain(t gather.TaskListItem) string {
-	if t.LinesAdded == 0 && t.LinesRemoved == 0 {
+func changesTextPlain(t store.TaskListItem) string {
+	switch t.Changes.Status {
+	case store.ChangesStatusMissing:
+		return "missing"
+	case store.ChangesStatusApplied:
+		return "applied"
+	}
+	if t.Changes.Added == 0 && t.Changes.Removed == 0 {
 		return ""
 	}
-	return fmt.Sprintf("+%d -%d", t.LinesAdded, t.LinesRemoved)
+	return fmt.Sprintf("+%d -%d", t.Changes.Added, t.Changes.Removed)
 }
 
-func changesTextStyled(t gather.TaskListItem) string {
-	if t.LinesAdded == 0 && t.LinesRemoved == 0 {
+func changesTextStyled(t store.TaskListItem) string {
+	switch t.Changes.Status {
+	case store.ChangesStatusMissing:
+		return styleDim.Render("missing")
+	case store.ChangesStatusApplied:
+		return styleDim.Render("applied")
+	}
+	if t.Changes.Added == 0 && t.Changes.Removed == 0 {
 		return ""
 	}
-	return styleSuccess.Render(fmt.Sprintf("+%d", t.LinesAdded)) + " " +
-		styleError.Render(fmt.Sprintf("-%d", t.LinesRemoved))
+	return styleSuccess.Render(fmt.Sprintf("+%d", t.Changes.Added)) + " " +
+		styleError.Render(fmt.Sprintf("-%d", t.Changes.Removed))
 }
 
-func lastActiveText(t gather.TaskListItem) string {
+func lastActiveText(t store.TaskListItem) string {
 	if t.LastActive.IsZero() {
 		return ""
 	}

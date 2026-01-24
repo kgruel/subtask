@@ -94,7 +94,7 @@ func renderDetailHeader(m model, leftPad string, contentWidth int) string {
 		startedAt = m.detail.State.StartedAt
 		lastError = m.detail.State.LastError
 	}
-	statusPill := statusPillStyled(m.detail.TaskStatus, m.detail.WorkerStatus, m.detail.IntegratedReason, startedAt, m.detail.LastRunMS, lastError, m.spinnerFrame)
+	statusPill := statusPillStyled(m.detail.TaskStatus, m.detail.WorkerStatus, startedAt, m.detail.LastRunMS, lastError, m.spinnerFrame)
 
 	// Build left side: name + title
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "250"})
@@ -217,8 +217,8 @@ func addPadding(content, leftPad string) string {
 	return strings.Join(lines, "\n")
 }
 
-func statusPillStyled(taskStatus task.TaskStatus, workerStatus task.WorkerStatus, integratedReason string, startedAt time.Time, lastRunMS int, lastError string, spinnerFrame int) string {
-	return unifiedStatusTextStyled(taskStatus, workerStatus, integratedReason, startedAt, lastRunMS, lastError, spinnerFrame)
+func statusPillStyled(taskStatus task.TaskStatus, workerStatus task.WorkerStatus, startedAt time.Time, lastRunMS int, lastError string, spinnerFrame int) string {
+	return unifiedStatusTextStyled(taskStatus, workerStatus, startedAt, lastRunMS, lastError, spinnerFrame)
 }
 
 // formatDurationShort returns a short human-readable duration like "5m" or "2h".

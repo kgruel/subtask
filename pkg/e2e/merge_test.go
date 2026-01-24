@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +87,34 @@ func TestMergeCommand_NoOriginRemote(t *testing.T) {
 	assert.Equal(t, task.TaskStatusMerged, tail.TaskStatus)
 	assert.NotEmpty(t, tail.LastMergedCommit)
 
+	mergedEvents, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+	var mergedEv history.Event
+	for i := len(mergedEvents) - 1; i >= 0; i-- {
+		if mergedEvents[i].Type == "task.merged" {
+			mergedEv = mergedEvents[i]
+			break
+		}
+	}
+	require.Equal(t, "task.merged", mergedEv.Type)
+	var mergedData struct {
+		Via            string `json:"via"`
+		BaseCommit     string `json:"base_commit"`
+		BranchHead     string `json:"branch_head"`
+		ChangesAdded   int    `json:"changes_added"`
+		ChangesRemoved int    `json:"changes_removed"`
+		CommitCount    int    `json:"commit_count"`
+		FrozenError    string `json:"frozen_error"`
+	}
+	require.NoError(t, json.Unmarshal(mergedEv.Data, &mergedData))
+	assert.Equal(t, "subtask", mergedData.Via)
+	assert.NotEmpty(t, mergedData.BaseCommit)
+	assert.NotEmpty(t, mergedData.BranchHead)
+	assert.Equal(t, 2, mergedData.ChangesAdded)
+	assert.Equal(t, 0, mergedData.ChangesRemoved)
+	assert.Equal(t, 2, mergedData.CommitCount)
+	assert.Empty(t, strings.TrimSpace(mergedData.FrozenError))
+
 	finalState, err := task.LoadState(taskName)
 	require.NoError(t, err)
 	require.NotNil(t, finalState)
@@ -98,6 +127,53 @@ func TestMergeCommand_NoOriginRemote(t *testing.T) {
 	// Normalize line endings for cross-platform compatibility
 	normalized := strings.ReplaceAll(string(content), "\r\n", "\n")
 	assert.Equal(t, "line 1\nline 2\n", normalized)
+}
+
+// TestMergeCommand_NoOpAlreadyInBase verifies that when a task's content is already in the base branch
+// (e.g. via squash merge / cherry-pick), `subtask merge` finalizes the task without creating a new commit,
+// and `subtask diff` still shows the task's original contribution rather than an arbitrary base tip commit.
+func TestMergeCommand_NoOpAlreadyInBase_DiffShowsTaskChanges(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "test/noop-merge"
+	env.CreateTask(taskName, "Test no-op merge diff", "main", "Test no-op merge diff")
+	env.CreateTaskHistory(taskName, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}})
+
+	// Create task state (simulating a task that has been run)
+	state := &task.State{Workspace: env.Workspaces[0]}
+	env.CreateTaskState(taskName, state)
+
+	// Create workspace with task branch and a commit.
+	ws := env.Workspaces[0]
+	gitCmd(t, ws, "checkout", "-b", taskName)
+	appliedFile := filepath.Join(ws, "applied.txt")
+	require.NoError(t, os.WriteFile(appliedFile, []byte("hello\n"), 0o644))
+	gitCmd(t, ws, "add", "applied.txt")
+	gitCmd(t, ws, "commit", "-m", "Add applied file")
+
+	// Simulate an external squash merge into main (creates a different commit on main).
+	gitCmd(t, env.RootDir, "checkout", "main")
+	gitCmd(t, env.RootDir, "merge", "--squash", taskName)
+	gitCmd(t, env.RootDir, "commit", "-m", "Squash merge applied")
+
+	subtaskBin := buildSubtask(t)
+
+	// Finalize via `subtask merge` (should take the "already in base" no-op path and delete the branch).
+	cmd := exec.Command(subtaskBin, "merge", taskName, "-m", "Finalize no-op merge")
+	cmd.Dir = env.RootDir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "merge should succeed: %s", out)
+
+	branches := gitCmd(t, env.RootDir, "branch", "--list", taskName)
+	assert.Equal(t, "", strings.TrimSpace(branches), "task branch should be deleted")
+
+	// `subtask diff` should show the task's original change, not an unrelated base tip commit.
+	cmd = exec.Command(subtaskBin, "diff", taskName)
+	cmd.Dir = env.RootDir
+	diffOut, err := cmd.CombinedOutput()
+	require.NoError(t, err, "diff should succeed: %s", diffOut)
+	assert.Contains(t, string(diffOut), "applied.txt")
+	assert.Contains(t, string(diffOut), "+hello")
 }
 
 func TestMergeCommand_LocalMainAheadOfOrigin(t *testing.T) {
@@ -161,6 +237,30 @@ func TestMergeCommand_LocalMainAheadOfOrigin(t *testing.T) {
 	tail, err := history.Tail(taskName)
 	require.NoError(t, err)
 	assert.Equal(t, task.TaskStatusMerged, tail.TaskStatus)
+
+	mergedEvents, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+	var mergedEv history.Event
+	for i := len(mergedEvents) - 1; i >= 0; i-- {
+		if mergedEvents[i].Type == "task.merged" {
+			mergedEv = mergedEvents[i]
+			break
+		}
+	}
+	require.Equal(t, "task.merged", mergedEv.Type)
+	var mergedData struct {
+		Via            string `json:"via"`
+		ChangesAdded   int    `json:"changes_added"`
+		ChangesRemoved int    `json:"changes_removed"`
+		CommitCount    int    `json:"commit_count"`
+		FrozenError    string `json:"frozen_error"`
+	}
+	require.NoError(t, json.Unmarshal(mergedEv.Data, &mergedData))
+	assert.Equal(t, "subtask", mergedData.Via)
+	assert.Equal(t, 2, mergedData.ChangesAdded)
+	assert.Equal(t, 0, mergedData.ChangesRemoved)
+	assert.Equal(t, 2, mergedData.CommitCount)
+	assert.Empty(t, strings.TrimSpace(mergedData.FrozenError))
 }
 
 // TestMergeWithConflicts verifies that merge handles conflicts gracefully

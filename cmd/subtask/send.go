@@ -18,7 +18,6 @@ import (
 	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
 	"github.com/zippoxer/subtask/pkg/task/migrate"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
@@ -339,22 +338,6 @@ func (c *SendCmd) Run() error {
 	sharedAfter := SnapshotTaskFiles(c.Task)
 	changedFiles := ChangedTaskFiles(sharedBefore, sharedAfter)
 
-	// Refresh git snapshot/integration cache for this task so list/TUI stay fast.
-	if idx, err := taskindex.OpenDefault(); err == nil {
-		defer idx.Close()
-		if err := idx.Refresh(context.Background(), taskindex.RefreshPolicy{
-			Git: taskindex.GitPolicy{
-				Mode:               taskindex.GitTasks,
-				Tasks:              []string{c.Task},
-				IncludeIntegration: true,
-			},
-		}); err != nil && !c.Quiet {
-			printWarning(fmt.Sprintf("failed to refresh git integration cache: %v", err))
-		}
-	} else if !c.Quiet {
-		printWarning(fmt.Sprintf("failed to open index for git integration cache refresh: %v", err))
-	}
-
 	if c.Quiet {
 		if reply != "" {
 			fmt.Print(reply)
@@ -477,14 +460,9 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		// Local-first: compare against the local base branch only.
 		target := t.BaseBranch
 		if git.BranchExists(wsPath, target) {
-			behind, err := git.CommitsBehind(wsPath, "HEAD", target)
-			if err == nil && behind > 0 {
-				repoStatus = &harness.RepoStatus{CommitsBehind: behind}
-
-				conflicts, err := git.MergeConflictFiles(wsPath, target, "HEAD")
-				if err == nil && len(conflicts) > 0 {
-					repoStatus.ConflictFiles = conflicts
-				}
+			conflicts, err := git.MergeConflictFiles(wsPath, target, "HEAD")
+			if err == nil && len(conflicts) > 0 {
+				repoStatus = &harness.RepoStatus{ConflictFiles: conflicts}
 			}
 		}
 	}

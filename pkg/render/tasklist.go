@@ -17,7 +17,7 @@ type TaskRow struct {
 	Title         string
 	LinesAdded    int // Git diff stats
 	LinesRemoved  int
-	CommitsBehind int
+	ChangesStatus string // "", "applied", "missing"
 }
 
 // TaskListTable renders a list of tasks.
@@ -161,20 +161,25 @@ func formatChangesColored(added, removed int) string {
 // For closed+merged tasks: shows "✓ merged" in purple
 // For other tasks: shows normal changes
 func formatChangesForTask(task TaskRow, colored bool) string {
+	switch strings.TrimSpace(task.ChangesStatus) {
+	case "missing":
+		if colored {
+			return styleDim.Render("missing")
+		}
+		return "missing"
+	case "applied":
+		if colored {
+			return styleDim.Render("applied")
+		}
+		return fmt.Sprintf("applied (+%d -%d)", task.LinesAdded, task.LinesRemoved)
+	}
+
 	// Normal changes
 	var changes string
 	if colored {
 		changes = formatChangesColored(task.LinesAdded, task.LinesRemoved)
 	} else {
 		changes = formatChanges(task.LinesAdded, task.LinesRemoved)
-	}
-
-	if task.CommitsBehind > 0 {
-		behind := fmt.Sprintf("(%d behind)", task.CommitsBehind)
-		if colored {
-			behind = styleDim.Render(behind)
-		}
-		changes += " " + behind
 	}
 
 	return changes

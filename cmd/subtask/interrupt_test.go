@@ -10,6 +10,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/testutil"
 )
 
@@ -21,7 +22,7 @@ func TestInterrupt_NotRunning(t *testing.T) {
 		Title:       "Not working",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 
 	err := (&InterruptCmd{Task: envTask}).Run()
@@ -38,7 +39,7 @@ func TestInterrupt_AppendsHistoryAndSignals(t *testing.T) {
 		Title:       "Working",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 
 	runIDData, _ := json.Marshal(map[string]any{"run_id": "run123"})
@@ -89,7 +90,7 @@ func TestInterrupt_StaleSupervisorClearsState(t *testing.T) {
 		Title:       "Stale",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 
 	const definitelyDeadPID = 2147483647

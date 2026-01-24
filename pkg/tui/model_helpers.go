@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 const (
@@ -150,13 +151,27 @@ func (m *model) updateOverviewContent() {
 		}
 		detailsLines = append(detailsLines, styleDim.Render(padRight("Model", labelWidth))+modelInfo)
 	}
-	if m.detail.LinesAdded > 0 || m.detail.LinesRemoved > 0 {
-		changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", m.detail.LinesAdded)) +
-			" " + styleError.Render(fmt.Sprintf("-%d", m.detail.LinesRemoved))
+	switch m.detail.Changes.Status {
+	case store.ChangesStatusMissing:
+		detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+styleDim.Render("missing"))
+		detailsLines = append(detailsLines, styleDim.Render(padRight("", labelWidth))+"Branch deleted or commit objects missing.")
+	case store.ChangesStatusApplied:
+		changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", m.detail.Changes.Added)) +
+			" " + styleError.Render(fmt.Sprintf("-%d", m.detail.Changes.Removed))
 		detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+changesInfo)
-		if m.detail.CommitsBehind > 0 {
-			behindMsg := styleStatusReplied.Render(fmt.Sprintf("%d commits behind", m.detail.CommitsBehind))
-			detailsLines = append(detailsLines, strings.Repeat(" ", labelWidth)+behindMsg)
+		detailsLines = append(detailsLines, styleDim.Render(padRight("", labelWidth))+"Already in base branch. Merge to mark as merged.")
+	default:
+		if m.detail.Changes.Added > 0 || m.detail.Changes.Removed > 0 {
+			changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", m.detail.Changes.Added)) +
+				" " + styleError.Render(fmt.Sprintf("-%d", m.detail.Changes.Removed))
+			detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+changesInfo)
+		}
+	}
+	if m.detail.TaskStatus == task.TaskStatusOpen {
+		if m.detail.Commits.Err != nil {
+			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+styleStatusError.Render(m.detail.Commits.Err.Error()))
+		} else {
+			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+fmt.Sprintf("%d", m.detail.Commits.Count))
 		}
 	}
 	if m.detail.ProgressMeta != nil {

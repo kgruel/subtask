@@ -1,8 +1,10 @@
 Task: show/model-reasoning
 Title: Model reasoning task
 Branch: show/model-reasoning (based on main)
+Base commit: a6de1c645da0682a92254a0a454e642f5500a7b9
 Model: gpt-5.2 (high)
 Status: draft
 Changes: -
+Commits: 0
 
 Directory: .subtask/tasks/show--model-reasoning (contains TASK.md, history.jsonl)

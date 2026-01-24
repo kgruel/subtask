@@ -11,7 +11,6 @@ import (
 )
 
 type RepoStatus struct {
-	CommitsBehind int
 	ConflictFiles []string
 }
 
@@ -20,14 +19,6 @@ func FormatRepoStatusWarning(baseBranch string, status *RepoStatus) string {
 		return ""
 	}
 	var lines []string
-
-	if status.CommitsBehind > 0 {
-		commitWord := "commits"
-		if status.CommitsBehind == 1 {
-			commitWord = "commit"
-		}
-		lines = append(lines, fmt.Sprintf("Note: %s is %d %s ahead of this task.", baseBranch, status.CommitsBehind, commitWord))
-	}
 
 	if len(status.ConflictFiles) > 0 {
 		lines = append(lines, fmt.Sprintf(

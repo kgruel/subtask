@@ -112,14 +112,37 @@ func formatHistoryEvent(ev history.Event) string {
 		if d.From != "" || d.To != "" {
 			desc = fmt.Sprintf("stage changed: %s → %s", d.From, d.To)
 		}
+	case "task.commit":
+		var d struct {
+			SHA     string `json:"sha"`
+			Subject string `json:"subject"`
+		}
+		_ = json.Unmarshal(ev.Data, &d)
+		if d.SHA != "" || d.Subject != "" {
+			desc = fmt.Sprintf("commit %s %q", shortSHA(d.SHA), strings.TrimSpace(d.Subject))
+		}
 	case "task.merged":
 		var d struct {
 			Commit string `json:"commit"`
 			Into   string `json:"into"`
+			Via    string `json:"via"`
+			Method string `json:"method"`
 		}
 		_ = json.Unmarshal(ev.Data, &d)
-		if d.Commit != "" || d.Into != "" {
-			desc = fmt.Sprintf("merged %s into %s", shortSHA(d.Commit), d.Into)
+		commit := strings.TrimSpace(d.Commit)
+		into := strings.TrimSpace(d.Into)
+		via := strings.TrimSpace(d.Via)
+		method := strings.TrimSpace(d.Method)
+		if commit != "" && into != "" {
+			desc = fmt.Sprintf("merged %s into %s", shortSHA(commit), into)
+		} else if into != "" {
+			// No-op / detected merges may not have a merge commit SHA. Avoid implying one exists.
+			desc = "marked merged into " + into
+			if method != "" {
+				desc += " (" + method + ")"
+			} else if via != "" {
+				desc += " (" + via + ")"
+			}
 		}
 	case "task.closed":
 		var d struct {

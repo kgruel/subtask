@@ -1,10 +1,12 @@
 Task: show/behind-conflicts
 Title: Conflict task
 Branch: show/behind-conflicts (based on main)
+Base commit: 6f3fdff538d6f9254acbcd16db946e375f877eb5
 Model: gpt-5.2
 Workspace: ws1
 Status: replied (1s)
 Changes: +2 -2
+Commits: 1
 Conflicts: a.txt, b.txt
 
 Directory: .subtask/tasks/show--behind-conflicts (contains TASK.md, history.jsonl)

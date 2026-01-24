@@ -64,6 +64,7 @@ type TaskCard struct {
 	Error         string
 	Branch        string
 	BaseBranch    string
+	BaseCommit    string
 	Model         string
 	Reasoning     string
 	Workspace     string
@@ -75,7 +76,11 @@ type TaskCard struct {
 	Files         []string
 	LinesAdded    int // Git diff stats
 	LinesRemoved  int
-	CommitsBehind int
+	ChangesStatus string // "", "applied", "missing"
+	ChangesError  string
+	CommitCount   int
+	CommitError   string
+	ShowCommits   bool
 	ConflictFiles []string
 }
 
@@ -86,6 +91,9 @@ func (c *TaskCard) RenderPlain() string {
 	fmt.Fprintf(&buf, "Task: %s\n", c.Name)
 	fmt.Fprintf(&buf, "Title: %s\n", c.Title)
 	fmt.Fprintf(&buf, "Branch: %s (based on %s)\n", c.Branch, c.BaseBranch)
+	if c.BaseCommit != "" {
+		fmt.Fprintf(&buf, "Base commit: %s\n", c.BaseCommit)
+	}
 	if c.Model != "" {
 		if c.Reasoning != "" {
 			fmt.Fprintf(&buf, "Model: %s (%s)\n", c.Model, c.Reasoning)
@@ -102,9 +110,32 @@ func (c *TaskCard) RenderPlain() string {
 		fmt.Fprintf(&buf, "Error: %s\n", c.Error)
 	}
 
-	// Git changes
+	// Git changes + commit count
 	if c.TaskStatus != "" {
-		fmt.Fprintf(&buf, "Changes: %s\n", formatChanges(c.LinesAdded, c.LinesRemoved))
+		switch strings.TrimSpace(c.ChangesStatus) {
+		case "missing":
+			fmt.Fprintf(&buf, "Changes: missing\n")
+			indent := strings.Repeat(" ", len("Changes: "))
+			fmt.Fprintf(&buf, "%sBranch was deleted or commit objects are missing.\n", indent)
+			fmt.Fprintf(&buf, "%sRun `subtask close` to close, or restore the branch and retry.\n", indent)
+		default:
+			if c.ChangesError != "" {
+				fmt.Fprintf(&buf, "Changes: %s\n", c.ChangesError)
+			} else {
+				fmt.Fprintf(&buf, "Changes: %s\n", formatChanges(c.LinesAdded, c.LinesRemoved))
+				if strings.TrimSpace(c.ChangesStatus) == "applied" {
+					indent := strings.Repeat(" ", len("Changes: "))
+					fmt.Fprintf(&buf, "%sAlready in base branch. Run `subtask merge` to mark as merged.\n", indent)
+				}
+			}
+		}
+		if c.ShowCommits {
+			if c.CommitError != "" {
+				fmt.Fprintf(&buf, "Commits: %s\n", c.CommitError)
+			} else {
+				fmt.Fprintf(&buf, "Commits: %d\n", c.CommitCount)
+			}
+		}
 	}
 
 	if len(c.ConflictFiles) > 0 {
@@ -178,6 +209,9 @@ func (c *TaskCard) RenderPretty() string {
 	// Branch
 	branchInfo := fmt.Sprintf("%s %s", c.Branch, styleDim.Render("(based on "+c.BaseBranch+")"))
 	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Branch"), branchInfo))
+	if strings.TrimSpace(c.BaseCommit) != "" {
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Base"), styleDim.Render(strings.TrimSpace(c.BaseCommit))))
+	}
 
 	// Model (and reasoning)
 	if c.Model != "" {
@@ -193,9 +227,30 @@ func (c *TaskCard) RenderPretty() string {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Workspace"), c.Workspace))
 	}
 
-	// Changes (git diff stats)
+	// Changes + commits
 	if c.TaskStatus != "" {
-		lines = append(lines, fmt.Sprintf("%s %s", styleBold.Render("Changes"), formatChangesColored(c.LinesAdded, c.LinesRemoved)))
+		switch strings.TrimSpace(c.ChangesStatus) {
+		case "missing":
+			lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleDim.Render("missing")))
+			lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Branch was deleted or commit objects are missing.")))
+			lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Run `subtask close` to close, or restore the branch and retry.")))
+		default:
+			if c.ChangesError != "" {
+				lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleError.Render(c.ChangesError)))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s %s", styleBold.Render("Changes"), formatChangesColored(c.LinesAdded, c.LinesRemoved)))
+				if strings.TrimSpace(c.ChangesStatus) == "applied" {
+					lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Already in base branch. Run `subtask merge` to mark as merged.")))
+				}
+			}
+		}
+		if c.ShowCommits {
+			if c.CommitError != "" {
+				lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Commits"), styleError.Render(c.CommitError)))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s  %d", styleBold.Render("Commits"), c.CommitCount))
+			}
+		}
 	}
 
 	if len(c.ConflictFiles) > 0 {

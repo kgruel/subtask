@@ -16,6 +16,7 @@ import (
 	"github.com/zippoxer/subtask/pkg/render"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/testutil"
 	"github.com/zippoxer/subtask/pkg/workflow"
 )
@@ -267,6 +268,8 @@ func TestGolden_List_SingleTask(t *testing.T) {
   {"step":"Update snapshots","done":false}
 ]`)
 	overwriteWorkspaceReadme(t, env.Workspaces[0], "# Test Repo\nline one\nline two\n")
+	gitCmd(t, env.Workspaces[0], "add", "README.md")
+	gitCmd(t, env.Workspaces[0], "commit", "-m", "Update README")
 
 	for _, pretty := range []bool{false, true} {
 		t.Run(modeName(pretty), func(t *testing.T) {
@@ -315,6 +318,8 @@ func TestGolden_List_MultiStatus(t *testing.T) {
   {"step":"Fix","done":false}
 ]`)
 	overwriteWorkspaceReadme(t, env.Workspaces[0], "# Test Repo\nworking change\n")
+	gitCmd(t, env.Workspaces[0], "add", "README.md")
+	gitCmd(t, env.Workspaces[0], "commit", "-m", "Worker change")
 
 	// c/replied (with context)
 	env.CreateTask("c/replied", "Replied task", "main", "Replied description")
@@ -342,10 +347,13 @@ func TestGolden_List_MultiStatus(t *testing.T) {
   {"step":"Review","done":false}
 ]`)
 	overwriteWorkspaceReadme(t, env.Workspaces[1], "one\ntwo\nthree\n")
+	gitCmd(t, env.Workspaces[1], "add", "README.md")
+	gitCmd(t, env.Workspaces[1], "commit", "-m", "Replied changes")
 
 	// d/error
 	env.CreateTask("d/error", "Error task", "main", "Error description")
 	env.CreateTaskState("d/error", &task.State{
+		Workspace: env.Workspaces[3],
 		LastError: "something went wrong",
 	})
 	env.CreateTaskHistory("d/error", []history.Event{
@@ -387,7 +395,7 @@ func TestGolden_Show_Draft(t *testing.T) {
 		Title:       "Draft task",
 		BaseBranch:  "main",
 		Description: "Draft description",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 	require.NoError(t, workflow.CopyToTask("default", taskName))
 	require.NoError(t, history.WriteAll(taskName, mustHistoryOpen(t, "main")))
@@ -412,6 +420,8 @@ func TestGolden_Show_RepliedWithProgressAndDiff(t *testing.T) {
 	// Use a stable, short workspace path so pretty output box widths are deterministic.
 	gitCmd(t, env.RootDir, "worktree", "add", "--detach", "ws1")
 	overwriteWorkspaceReadme(t, "ws1", "# Test Repo\none\ntwo\nthree\nfour\n")
+	gitCmd(t, "ws1", "add", "README.md")
+	gitCmd(t, "ws1", "commit", "-m", "Replied changes")
 
 	taskName := "show/replied"
 	env.CreateTask(taskName, "Replied task", "main", "Replied description")

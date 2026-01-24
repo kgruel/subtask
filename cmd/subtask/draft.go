@@ -13,6 +13,7 @@ import (
 	"github.com/zippoxer/subtask/pkg/render"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/workflow"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
@@ -78,7 +79,7 @@ func (c *DraftCmd) Run() error {
 		FollowUp:    c.FollowUp,
 		Model:       c.Model,
 		Reasoning:   c.Reasoning,
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}
 
 	if err := t.Save(); err != nil {

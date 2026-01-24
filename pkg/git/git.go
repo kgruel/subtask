@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -388,6 +389,75 @@ func DiffStat(dir, baseRef string) (added, removed int, err error) {
 	return added, removed, nil
 }
 
+// RevListCount returns how many commits are reachable from headRef but not baseCommit.
+// Equivalent to: git rev-list --count <baseCommit>..<headRef>
+func RevListCount(dir, baseCommit, headRef string) (int, error) {
+	out, err := Output(dir, "rev-list", "--count", baseCommit+".."+headRef)
+	if err != nil {
+		return 0, err
+	}
+	if out == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+type CommitMeta struct {
+	SHA         string
+	Subject     string
+	AuthorName  string
+	AuthorEmail string
+	AuthoredAt  int64 // unix seconds
+}
+
+// ListCommitsRange returns commits reachable from to but not from from (from..to),
+// ordered from oldest to newest.
+func ListCommitsRange(dir, from, to string) ([]CommitMeta, error) {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("commit range requires from and to")
+	}
+
+	const fieldSep = "\x1f"
+	format := "%H" + fieldSep + "%an" + fieldSep + "%ae" + fieldSep + "%at" + fieldSep + "%s"
+	out, err := Output(dir, "log", "--reverse", "--format="+format, from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+
+	lines := strings.Split(out, "\n")
+	commits := make([]CommitMeta, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, fieldSep)
+		if len(parts) < 5 {
+			continue
+		}
+		authoredAt, _ := strconv.ParseInt(strings.TrimSpace(parts[3]), 10, 64)
+		commits = append(commits, CommitMeta{
+			SHA:         strings.TrimSpace(parts[0]),
+			AuthorName:  strings.TrimSpace(parts[1]),
+			AuthorEmail: strings.TrimSpace(parts[2]),
+			AuthoredAt:  authoredAt,
+			Subject:     strings.TrimSpace(parts[4]),
+		})
+	}
+	return commits, nil
+}
+
 // CommitsBehind returns how many commits targetRef is ahead of baseCommit.
 // Equivalent to: git rev-list --count <baseCommit>..<targetRef>
 func CommitsBehind(dir, baseCommit, targetRef string) (int, error) {
@@ -471,6 +541,20 @@ func MergeBase(dir, ref1, ref2 string) (string, error) {
 	return Output(dir, "merge-base", ref1, ref2)
 }
 
+// MergeBaseForkPoint returns the fork-point merge-base between upstream and commit.
+//
+// This is useful for finding a stable "PR base" even if the branch tip is already
+// reachable from upstream (e.g., fast-forward merged), as long as upstream's reflog
+// still contains the previous base tip.
+func MergeBaseForkPoint(dir, upstream, commit string) (string, error) {
+	upstream = strings.TrimSpace(upstream)
+	commit = strings.TrimSpace(commit)
+	if upstream == "" || commit == "" {
+		return "", fmt.Errorf("upstream and commit are required")
+	}
+	return Output(dir, "merge-base", "--fork-point", upstream, commit)
+}
+
 // MergeConflictFiles returns the list of files that would conflict when merging headRef into targetRef.
 //
 // This is a non-mutating check intended for preflight/status displays. It uses `git merge-tree` to
@@ -482,38 +566,14 @@ func MergeConflictFiles(dir, targetRef, headRef string) ([]string, error) {
 		return nil, fmt.Errorf("targetRef and headRef are required")
 	}
 
-	mb, err := MergeBase(dir, targetRef, headRef)
+	res, err := simulateMerge(dir, targetRef, headRef)
 	if err != nil {
 		return nil, err
 	}
-	mb = strings.TrimSpace(mb)
-	if mb == "" {
-		return nil, fmt.Errorf("failed to resolve merge-base between %s and %s", targetRef, headRef)
-	}
-
-	// `git merge-tree --write-tree` returns exit status 1 on conflicts. In conflict cases it prints:
-	//   <tree-sha>
-	//   <conflicting path 1>
-	//   <conflicting path 2>
-	//
-	//   Auto-merging ...
-	//   CONFLICT ...
-	cmd := exec.Command("git", "merge-tree", "--write-tree", "--name-only", "--merge-base", mb, targetRef, headRef)
-	cmd.Dir = dir
-	out, runErr := cmd.CombinedOutput()
-	if runErr == nil {
+	if len(res.ConflictFiles) == 0 {
 		return nil, nil
 	}
-
-	s := string(out)
-	files := mergeTreeNameOnlyConflictFiles(s)
-	if len(files) == 0 && strings.Contains(s, "CONFLICT") {
-		files = extractMergeConflictFiles(s)
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("git merge-tree failed: %w", runErr)
-	}
-	return files, nil
+	return res.ConflictFiles, nil
 }
 
 func mergeTreeNameOnlyConflictFiles(output string) []string {
@@ -689,6 +749,30 @@ func BranchExists(dir, branch string) bool {
 	return err == nil
 }
 
+// IsAncestor reports whether ancestor is reachable from descendant.
+//
+// This wraps `git merge-base --is-ancestor`:
+// - returns (true, nil) if ancestor is an ancestor of descendant
+// - returns (false, nil) if ancestor is NOT an ancestor of descendant
+// - returns (false, err) for other git errors (missing commits, not a repo, etc.)
+func IsAncestor(dir, ancestor, descendant string) (bool, error) {
+	err := RunQuiet(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+
+	// Exit code 1 = not ancestor.
+	var gitErr *Error
+	if errors.As(err, &gitErr) {
+		var exitErr *exec.ExitError
+		if errors.As(gitErr.Cause, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+	}
+
+	return false, err
+}
+
 // isSameCommit checks if two refs point to the same commit.
 func isSameCommit(dir, ref1, ref2 string) bool {
 	out, err := Output(dir, "rev-parse", ref1, ref2)
@@ -738,9 +822,8 @@ func treesMatch(dir, ref1, ref2 string) bool {
 // mergeAddsChanges checks if merging branch into target would add any changes.
 // Uses git merge-tree to simulate the merge without actually performing it.
 func mergeAddsChanges(dir, branch, target string) bool {
-	// git merge-tree --write-tree returns the tree SHA of what the merge would produce
-	mergeTree, err := Output(dir, "merge-tree", "--write-tree", target, branch)
-	if err != nil {
+	res, err := simulateMerge(dir, target, branch)
+	if err != nil || len(res.ConflictFiles) > 0 || strings.TrimSpace(res.MergedTree) == "" {
 		return true // Assume has changes on error (including conflicts)
 	}
 
@@ -751,7 +834,7 @@ func mergeAddsChanges(dir, branch, target string) bool {
 	}
 
 	// If merge result equals target tree, merging adds nothing
-	return strings.TrimSpace(mergeTree) != strings.TrimSpace(targetTree)
+	return strings.TrimSpace(res.MergedTree) != strings.TrimSpace(targetTree)
 }
 
 // EffectiveTarget returns target or origin/target if origin is ahead.

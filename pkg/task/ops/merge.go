@@ -85,6 +85,116 @@ func mergeTaskUnlocked(taskName, message string, logger Logger) (MergeResult, er
 		return MergeResult{}, fmt.Errorf("failed to find merge base with %s: %w", t.BaseBranch, err)
 	}
 
+	branchHead := ""
+	if out, err := git.Output(ws, "rev-parse", "HEAD"); err == nil {
+		branchHead = strings.TrimSpace(out)
+	}
+	baseHead := ""
+	if out, err := git.Output(ws, "rev-parse", t.BaseBranch); err == nil {
+		baseHead = strings.TrimSpace(out)
+	}
+
+	// Compute frozen stats relative to a PR-style base for this branch state.
+	// - Default: merge-base(base, head)
+	// - If the branch tip is already reachable from base (ancestor), merge-base == head; in that case
+	//   try fork-point (uses base reflog) and fall back to the task's stored base_commit.
+	baseCommit := strings.TrimSpace(mergeBase)
+	if baseCommit == branchHead && branchHead != "" {
+		if fp, err := git.MergeBaseForkPoint(ws, t.BaseBranch, branchHead); err == nil && strings.TrimSpace(fp) != "" && git.CommitExists(ws, strings.TrimSpace(fp)) {
+			baseCommit = strings.TrimSpace(fp)
+		} else if strings.TrimSpace(tail.BaseCommit) != "" && git.CommitExists(ws, strings.TrimSpace(tail.BaseCommit)) {
+			baseCommit = strings.TrimSpace(tail.BaseCommit)
+		}
+	}
+
+	// If the task branch's content is already in base (e.g. squash merge, cherry-pick, or ancestor),
+	// treat `subtask merge` as a no-op finalize: record task.merged and free the workspace.
+	integrated := git.IsIntegrated(ws, "HEAD", t.BaseBranch)
+	added := 0
+	removed := 0
+	commitCount := 0
+	frozenErr := ""
+	if baseCommit == "" || branchHead == "" {
+		frozenErr = fmt.Sprintf("cannot compute frozen stats (missing base_commit=%t branch_head=%t)", baseCommit == "", branchHead == "")
+	} else if !git.CommitExists(ws, baseCommit) {
+		frozenErr = fmt.Sprintf("cannot compute frozen stats (missing base_commit %s)", baseCommit)
+	} else if !git.CommitExists(ws, branchHead) {
+		frozenErr = fmt.Sprintf("cannot compute frozen stats (missing branch_head %s)", branchHead)
+	} else {
+		if a, r, err := git.DiffStatRange(ws, baseCommit, branchHead); err == nil {
+			added = a
+			removed = r
+		} else {
+			frozenErr = fmt.Sprintf("cannot compute frozen stats: %v", err)
+		}
+		if frozenErr == "" {
+			if n, err := git.RevListCount(ws, baseCommit, branchHead); err == nil {
+				commitCount = n
+			} else {
+				frozenErr = fmt.Sprintf("cannot compute commit_count: %v", err)
+			}
+		}
+	}
+
+	if integrated != "" {
+		logInfo(logger, fmt.Sprintf("Already in %s (%s). Marking task as merged...", t.BaseBranch, integrated))
+
+		// Detach HEAD to free the workspace.
+		taskBranch, _ := git.CurrentBranch(ws)
+		if err := git.RunSilent(ws, "checkout", "--detach", "HEAD"); err != nil {
+			logWarning(logger, fmt.Sprintf("failed to detach HEAD: %v", err))
+		}
+
+		// Delete task branch (cleanup).
+		if taskBranch != "" && taskBranch != t.BaseBranch {
+			if err := git.RunSilent(ws, "branch", "-D", taskBranch); err != nil {
+				logWarning(logger, fmt.Sprintf("failed to delete branch %s: %v", taskBranch, err))
+			}
+		}
+
+		mergedData := map[string]any{
+			// Back-compat
+			// No-op finalize: we didn't create a merge commit, so avoid pretending we did.
+			// `subtask diff` can use base_commit..branch_head when the branch is deleted.
+			"commit": "",
+			"into":   t.BaseBranch,
+			"branch": taskName,
+
+			// Redesign fields
+			"via":             "subtask",
+			"method":          string(integrated),
+			"base_branch":     t.BaseBranch,
+			"base_commit":     baseCommit,
+			"branch_head":     branchHead,
+			"base_head":       baseHead,
+			"target_head":     baseHead,
+			"changes_added":   added,
+			"changes_removed": removed,
+			"commit_count":    commitCount,
+			"detected_at":     time.Now().UTC().Unix(),
+		}
+		if frozenErr != "" {
+			mergedData["frozen_error"] = frozenErr
+		}
+		data, _ := json.Marshal(mergedData)
+		_ = history.AppendLocked(taskName, history.Event{Type: "task.merged", Data: data})
+
+		// Clear runtime state.
+		state.Workspace = ""
+		state.SessionID = ""
+		state.Harness = ""
+		state.SupervisorPID = 0
+		state.SupervisorPGID = 0
+		state.StartedAt = time.Time{}
+		state.LastError = ""
+		if err := state.Save(taskName); err != nil {
+			return MergeResult{}, err
+		}
+
+		logSuccess(logger, fmt.Sprintf("Merged %s into %s. Workspace freed.", taskName, t.BaseBranch))
+		return MergeResult{}, nil
+	}
+
 	// Preflight: detect conflicts the same way `git merge <base>` would fail.
 	//
 	// This avoids rewriting the task branch (squash) only to discover conflicts during integration.
@@ -168,15 +278,27 @@ func mergeTaskUnlocked(taskName, message string, logger Logger) (MergeResult, er
 	}
 
 	// Append history event and clear runtime state.
-	data, _ := json.Marshal(map[string]any{
-		"commit":     strings.TrimSpace(mergedCommit),
-		"into":       t.BaseBranch,
-		"branch":     taskName,
-		"merge_base": mergeBase,
+	mergedData := map[string]any{
+		"commit":          strings.TrimSpace(mergedCommit),
+		"into":            t.BaseBranch,
+		"branch":          taskName,
+		"merge_base":      mergeBase,
+		"via":             "subtask",
+		"method":          "squash",
+		"base_branch":     t.BaseBranch,
+		"base_commit":     baseCommit,
+		"branch_head":     branchHead,
+		"changes_added":   added,
+		"changes_removed": removed,
+		"commit_count":    commitCount,
 		"trailers": map[string]string{
 			"Subtask-Task": taskName,
 		},
-	})
+	}
+	if frozenErr != "" {
+		mergedData["frozen_error"] = frozenErr
+	}
+	data, _ := json.Marshal(mergedData)
 	_ = history.AppendLocked(taskName, history.Event{Type: "task.merged", Data: data})
 
 	state.Workspace = ""

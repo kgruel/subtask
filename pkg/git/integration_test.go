@@ -132,37 +132,51 @@ func TestIsIntegrated_TreesMatch(t *testing.T) {
 }
 
 func TestIsIntegrated_MergeAddsNothing(t *testing.T) {
-	dir := testRepo(t)
+	run := func(t *testing.T, force string) {
+		t.Setenv(mergeSimForceEnvVar, force)
 
-	// Create a file on master
-	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("content"), 0644)
-	gitCmd(t, dir, "add", "file.txt")
-	gitCmd(t, dir, "commit", "-m", "Add file")
+		dir := testRepo(t)
 
-	// Create feature branch and add a second file
-	gitCmd(t, dir, "checkout", "-b", "feature")
-	os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature content"), 0644)
-	gitCmd(t, dir, "add", "feature.txt")
-	gitCmd(t, dir, "commit", "-m", "Add feature file")
+		// Create a file on master
+		os.WriteFile(filepath.Join(dir, "file.txt"), []byte("content"), 0644)
+		gitCmd(t, dir, "add", "file.txt")
+		gitCmd(t, dir, "commit", "-m", "Add file")
 
-	// Squash-merge feature into master (creates different history)
-	gitCmd(t, dir, "checkout", "master")
-	gitCmd(t, dir, "merge", "--squash", "feature")
-	gitCmd(t, dir, "commit", "-m", "Squash merge feature")
+		// Create feature branch and add a second file
+		gitCmd(t, dir, "checkout", "-b", "feature")
+		os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature content"), 0644)
+		gitCmd(t, dir, "add", "feature.txt")
+		gitCmd(t, dir, "commit", "-m", "Add feature file")
 
-	// Add an extra file on master so trees don't match
-	// This prevents TreesMatch from triggering before MergeAddsNothing
-	os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("extra"), 0644)
-	gitCmd(t, dir, "add", "extra.txt")
-	gitCmd(t, dir, "commit", "-m", "Add extra file on master")
+		// Squash-merge feature into master (creates different history)
+		gitCmd(t, dir, "checkout", "master")
+		gitCmd(t, dir, "merge", "--squash", "feature")
+		gitCmd(t, dir, "commit", "-m", "Squash merge feature")
 
-	// Now: master has file.txt, feature.txt, extra.txt
-	// Feature has file.txt, feature.txt
-	// Trees don't match, but merging feature adds nothing
-	reason := IsIntegrated(dir, "feature", "master")
-	if reason != IntegratedMergeAddsNothing {
-		t.Errorf("expected IntegratedMergeAddsNothing, got %q", reason)
+		// Add an extra file on master so trees don't match
+		// This prevents TreesMatch from triggering before MergeAddsNothing
+		os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("extra"), 0644)
+		gitCmd(t, dir, "add", "extra.txt")
+		gitCmd(t, dir, "commit", "-m", "Add extra file on master")
+
+		// Now: master has file.txt, feature.txt, extra.txt
+		// Feature has file.txt, feature.txt
+		// Trees don't match, but merging feature adds nothing
+		reason := IsIntegrated(dir, "feature", "master")
+		if reason != IntegratedMergeAddsNothing {
+			t.Errorf("expected IntegratedMergeAddsNothing, got %q", reason)
+		}
 	}
+
+	t.Run("merge-tree", func(t *testing.T) {
+		if !mergeTreeWriteTreeSupported() {
+			t.Skip("git merge-tree --write-tree not supported")
+		}
+		run(t, "merge-tree")
+	})
+	t.Run("index", func(t *testing.T) {
+		run(t, "index")
+	})
 }
 
 func TestIsIntegrated_NotIntegrated(t *testing.T) {

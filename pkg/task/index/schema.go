@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 func migrateSchema(ctx context.Context, db *sql.DB) error {
 	var v int
@@ -67,6 +67,13 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 		v = 6
+	}
+
+	if v == 6 {
+		if err := migrateToV7(ctx, tx); err != nil {
+			return err
+		}
+		v = 7
 	}
 
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d;", v)); err != nil {
@@ -250,6 +257,37 @@ func migrateToV6(ctx context.Context, tx *sql.Tx) error {
 	// WorkerStatusRunning was renamed from "running" to "working".
 	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET worker_status = 'working' WHERE worker_status = 'running';`); err != nil {
 		return fmt.Errorf("migrate v6: %w", err)
+	}
+	return nil
+}
+
+func migrateToV7(ctx context.Context, tx *sql.Tx) error {
+	// Git redesign: store historical diffs + commit counts with input-based invalidation,
+	// plus basic ref heads for debugging.
+	stmts := []string{
+		`ALTER TABLE tasks ADD COLUMN branch_head TEXT;`,
+		`ALTER TABLE tasks ADD COLUMN base_head TEXT;`,
+
+		`ALTER TABLE tasks ADD COLUMN changes_added INTEGER;`,
+		`ALTER TABLE tasks ADD COLUMN changes_removed INTEGER;`,
+		`ALTER TABLE tasks ADD COLUMN changes_base_commit TEXT;`,
+		`ALTER TABLE tasks ADD COLUMN changes_branch_head TEXT;`,
+
+		`ALTER TABLE tasks ADD COLUMN commit_count INTEGER;`,
+		`ALTER TABLE tasks ADD COLUMN commit_count_base_commit TEXT;`,
+		`ALTER TABLE tasks ADD COLUMN commit_count_branch_head TEXT;`,
+
+		`ALTER TABLE tasks ADD COLUMN commit_log_last_head TEXT;`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			// ALTER TABLE is not idempotent; ignore duplicate column errors.
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("migrate v7: %w", err)
+		}
 	}
 	return nil
 }

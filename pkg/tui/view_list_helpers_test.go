@@ -6,14 +6,14 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/gather"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 func TestStageText_HidesStageForClosedTasks(t *testing.T) {
-	if got := stageText(gather.TaskListItem{TaskStatus: task.TaskStatusClosed, Stage: "review"}); got != "review" {
+	if got := stageText(store.TaskListItem{TaskStatus: task.TaskStatusClosed, Stage: "review"}); got != "review" {
 		t.Fatalf("stageText(closed)=%q want %q", got, "review")
 	}
-	if got := stageText(gather.TaskListItem{TaskStatus: task.TaskStatusOpen, Stage: "review"}); got != "review" {
+	if got := stageText(store.TaskListItem{TaskStatus: task.TaskStatusOpen, Stage: "review"}); got != "review" {
 		t.Fatalf("stageText(open)=%q want %q", got, "review")
 	}
 }

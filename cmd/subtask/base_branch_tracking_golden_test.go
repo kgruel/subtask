@@ -30,36 +30,6 @@ func commitEmpty(t *testing.T, dir, message string) {
 	gitCmd(t, dir, "commit", "--allow-empty", "-m", message)
 }
 
-func TestGolden_List_CommitsBehind(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
-
-	baseCommit := gitCmdOutput(t, env.RootDir, "rev-parse", "HEAD")
-	commitEmpty(t, env.RootDir, "one")
-	commitEmpty(t, env.RootDir, "two")
-
-	taskName := "list/behind"
-	env.CreateTask(taskName, "Behind task", "main", "Description")
-	env.CreateTaskState(taskName, &task.State{
-		Workspace: "",
-	})
-	env.CreateTaskHistory(taskName, []history.Event{
-		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": baseCommit})},
-		{Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "implement"})},
-	})
-
-	for _, pretty := range []bool{false, true} {
-		t.Run(modeName(pretty), func(t *testing.T) {
-			withOutputMode(t, pretty)
-
-			stdout, stderr, err := captureStdoutStderr(t, (&ListCmd{}).Run)
-			require.NoError(t, err)
-			require.Empty(t, stderr)
-			testutil.AssertGoldenOutput(t, "testdata/list/commits_behind", stdout)
-		})
-	}
-}
-
 func TestGolden_Show_Conflicts(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
@@ -151,32 +121,4 @@ func TestGolden_Send_PrintsConflicts(t *testing.T) {
 			testutil.AssertGoldenOutput(t, "testdata/send/behind_conflicts", stdout)
 		})
 	}
-}
-
-func TestIntegration_BaseCommitTracking_DraftThenMainAdvances(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-	withOutputMode(t, false)
-
-	taskName := "integration/base-commit"
-	_, _, err := captureStdoutStderr(t, (&DraftCmd{
-		Task:        taskName,
-		Description: "Test description",
-		Base:        "main",
-		Title:       "Integration test",
-	}).Run)
-	require.NoError(t, err)
-
-	tail, err := history.Tail(taskName)
-	require.NoError(t, err)
-	require.NotEmpty(t, tail.BaseCommit)
-
-	commitEmpty(t, env.RootDir, "one")
-	commitEmpty(t, env.RootDir, "two")
-
-	stdout, _, err := captureStdoutStderr(t, (&ListCmd{}).Run)
-	require.NoError(t, err)
-	require.Contains(t, stdout, "(2 behind)")
-
-	stdout, _, err = captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
-	require.NoError(t, err)
 }

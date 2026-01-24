@@ -16,6 +16,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/testutil"
 )
 
@@ -87,7 +88,7 @@ func TestIndex_Invalidation_TASKmd(t *testing.T) {
 		Title:       "Old title",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 	require.NoError(t, history.WriteAll(name, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}}))
 
@@ -199,7 +200,7 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 		Title:       "Task",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 	require.NoError(t, history.WriteAll(name, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}}))
 

@@ -8,63 +8,91 @@ import (
 )
 
 func TestMergeConflictFiles_NoConflicts(t *testing.T) {
-	dir := testRepo(t)
+	run := func(t *testing.T, force string) {
+		t.Setenv(mergeSimForceEnvVar, force)
 
-	// Base file on master.
-	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", "base.txt")
-	gitCmd(t, dir, "commit", "-m", "add base")
+		dir := testRepo(t)
 
-	// Feature changes a different file.
-	gitCmd(t, dir, "checkout", "-b", "feature")
-	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", "feature.txt")
-	gitCmd(t, dir, "commit", "-m", "feature change")
+		// Base file on master.
+		if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", "base.txt")
+		gitCmd(t, dir, "commit", "-m", "add base")
 
-	conflicts, err := MergeConflictFiles(dir, "master", "feature")
-	if err != nil {
-		t.Fatalf("MergeConflictFiles returned error: %v", err)
+		// Feature changes a different file.
+		gitCmd(t, dir, "checkout", "-b", "feature")
+		if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", "feature.txt")
+		gitCmd(t, dir, "commit", "-m", "feature change")
+
+		conflicts, err := MergeConflictFiles(dir, "master", "feature")
+		if err != nil {
+			t.Fatalf("MergeConflictFiles returned error: %v", err)
+		}
+		if len(conflicts) != 0 {
+			t.Fatalf("expected no conflicts, got %v", conflicts)
+		}
 	}
-	if len(conflicts) != 0 {
-		t.Fatalf("expected no conflicts, got %v", conflicts)
-	}
+
+	t.Run("merge-tree", func(t *testing.T) {
+		if !mergeTreeWriteTreeSupported() {
+			t.Skip("git merge-tree --write-tree not supported")
+		}
+		run(t, "merge-tree")
+	})
+	t.Run("index", func(t *testing.T) {
+		run(t, "index")
+	})
 }
 
 func TestMergeConflictFiles_WithConflicts(t *testing.T) {
-	dir := testRepo(t)
+	run := func(t *testing.T, force string) {
+		t.Setenv(mergeSimForceEnvVar, force)
 
-	// Create a file on master.
-	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("base\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", "file.txt")
-	gitCmd(t, dir, "commit", "-m", "base file")
+		dir := testRepo(t)
 
-	// Feature edits file.txt.
-	gitCmd(t, dir, "checkout", "-b", "feature")
-	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("feature\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", "file.txt")
-	gitCmd(t, dir, "commit", "-m", "feature edit")
+		// Create a file on master.
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("base\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", "file.txt")
+		gitCmd(t, dir, "commit", "-m", "base file")
 
-	// Master edits file.txt differently.
-	gitCmd(t, dir, "checkout", "master")
-	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("master\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", "file.txt")
-	gitCmd(t, dir, "commit", "-m", "master edit")
+		// Feature edits file.txt.
+		gitCmd(t, dir, "checkout", "-b", "feature")
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("feature\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", "file.txt")
+		gitCmd(t, dir, "commit", "-m", "feature edit")
 
-	conflicts, err := MergeConflictFiles(dir, "master", "feature")
-	if err != nil {
-		t.Fatalf("MergeConflictFiles returned error: %v", err)
+		// Master edits file.txt differently.
+		gitCmd(t, dir, "checkout", "master")
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("master\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", "file.txt")
+		gitCmd(t, dir, "commit", "-m", "master edit")
+
+		conflicts, err := MergeConflictFiles(dir, "master", "feature")
+		if err != nil {
+			t.Fatalf("MergeConflictFiles returned error: %v", err)
+		}
+		if strings.Join(conflicts, ",") != "file.txt" {
+			t.Fatalf("expected [file.txt], got %v", conflicts)
+		}
 	}
-	if strings.Join(conflicts, ",") != "file.txt" {
-		t.Fatalf("expected [file.txt], got %v", conflicts)
-	}
+
+	t.Run("merge-tree", func(t *testing.T) {
+		if !mergeTreeWriteTreeSupported() {
+			t.Skip("git merge-tree --write-tree not supported")
+		}
+		run(t, "merge-tree")
+	})
+	t.Run("index", func(t *testing.T) {
+		run(t, "index")
+	})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/zippoxer/subtask/pkg/task"
 	taskmigrate "github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
@@ -17,6 +18,9 @@ func preflightProject() (*preflightProjectResult, error) {
 		return nil, err
 	}
 	if err := taskmigrate.EnsureLayout(repoRoot); err != nil {
+		return nil, err
+	}
+	if err := gitredesign.Ensure(repoRoot); err != nil {
 		return nil, err
 	}
 	cfg, err := workspace.LoadConfig()
@@ -34,6 +38,8 @@ func preflightProjectOnly() (string, error) {
 	if err := taskmigrate.EnsureLayout(repoRoot); err != nil {
 		return "", err
 	}
+	if err := gitredesign.Ensure(repoRoot); err != nil {
+		return "", err
+	}
 	return repoRoot, nil
 }
-

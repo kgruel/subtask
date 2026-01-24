@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
-	"github.com/zippoxer/subtask/pkg/task/gather"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 // ListCmd implements 'subtask list'.
@@ -26,35 +27,42 @@ func (c *ListCmd) Run() error {
 }
 
 func (c *ListCmd) render() (string, error) {
-	data, err := gather.List(context.Background(), gather.ListOptions{All: c.All})
+	st := store.New()
+	data, err := st.List(context.Background(), store.ListOptions{All: c.All})
 	if err != nil {
 		return "", err
 	}
 
-	if len(data.Items) == 0 && len(data.Workspaces) == 0 {
+	for _, e := range data.Errors {
+		if e.Err == nil {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "task %s: %v\n", e.Name, e.Err)
+	}
+
+	if len(data.Tasks) == 0 && len(data.Workspaces) == 0 {
 		return "No tasks.\n", nil
 	}
 
-	tasks := make([]TaskInfo, 0, len(data.Items))
-	for _, it := range data.Items {
+	tasks := make([]TaskInfo, 0, len(data.Tasks))
+	for _, it := range data.Tasks {
 		info := TaskInfo{
-			Name:             it.Name,
-			Title:            it.Title,
-			FollowUp:         it.FollowUp,
-			BaseBranch:       it.BaseBranch,
-			TaskStatus:       it.TaskStatus,
-			WorkerStatus:     it.WorkerStatus,
-			Stage:            it.Stage,
-			Workspace:        it.Workspace,
-			StartedAt:        it.StartedAt,
-			LastActive:       it.LastActive,
-			ToolCalls:        it.ToolCalls,
-			LinesAdded:       it.LinesAdded,
-			LinesRemoved:     it.LinesRemoved,
-			CommitsBehind:    it.CommitsBehind,
-			LastRunMS:        it.LastRunDurationMS,
-			LastError:        it.LastError,
-			IntegratedReason: it.IntegratedReason,
+			Name:          it.Name,
+			Title:         it.Title,
+			FollowUp:      it.FollowUp,
+			BaseBranch:    it.BaseBranch,
+			TaskStatus:    it.TaskStatus,
+			WorkerStatus:  it.WorkerStatus,
+			Stage:         it.Stage,
+			Workspace:     it.Workspace,
+			StartedAt:     it.StartedAt,
+			LastActive:    it.LastActive,
+			ToolCalls:     it.ToolCalls,
+			LinesAdded:    it.Changes.Added,
+			LinesRemoved:  it.Changes.Removed,
+			ChangesStatus: string(it.Changes.Status),
+			LastRunMS:     it.LastRunDurationMS,
+			LastError:     it.LastError,
 		}
 		if it.ProgressTotal > 0 {
 			info.Progress = fmt.Sprintf("%d/%d", it.ProgressDone, it.ProgressTotal)

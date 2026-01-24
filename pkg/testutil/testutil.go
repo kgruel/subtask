@@ -12,6 +12,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
@@ -27,10 +28,34 @@ type TestEnv struct {
 func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 	t.Helper()
 
-	origSubtaskDir := os.Getenv("SUBTASK_DIR")
+	origSubtaskDir, hadSubtaskDir := os.LookupEnv("SUBTASK_DIR")
 	requireSetEnv(t, "SUBTASK_DIR", t.TempDir())
 	t.Cleanup(func() {
-		_ = os.Setenv("SUBTASK_DIR", origSubtaskDir)
+		if hadSubtaskDir {
+			_ = os.Setenv("SUBTASK_DIR", origSubtaskDir)
+		} else {
+			_ = os.Unsetenv("SUBTASK_DIR")
+		}
+	})
+
+	// Make git commit SHAs deterministic for golden tests by pinning author/committer
+	// timestamps. Tests that care about time should use history events (nowFunc), not
+	// git commit metadata.
+	origAuthorDate, hadAuthorDate := os.LookupEnv("GIT_AUTHOR_DATE")
+	origCommitterDate, hadCommitterDate := os.LookupEnv("GIT_COMMITTER_DATE")
+	requireSetEnv(t, "GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+	requireSetEnv(t, "GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+	t.Cleanup(func() {
+		if hadAuthorDate {
+			_ = os.Setenv("GIT_AUTHOR_DATE", origAuthorDate)
+		} else {
+			_ = os.Unsetenv("GIT_AUTHOR_DATE")
+		}
+		if hadCommitterDate {
+			_ = os.Setenv("GIT_COMMITTER_DATE", origCommitterDate)
+		} else {
+			_ = os.Unsetenv("GIT_COMMITTER_DATE")
+		}
 	})
 
 	// Create temp root (git repo)
@@ -104,7 +129,7 @@ func (e *TestEnv) CreateTask(name, title, base, description string) *task.Task {
 		Title:       title,
 		BaseBranch:  base,
 		Description: description,
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}
 	if err := t.Save(); err != nil {
 		e.T.Fatalf("failed to save task: %v", err)

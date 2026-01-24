@@ -33,8 +33,7 @@ type GitPolicy struct {
 	// Tasks is used when Mode == GitTasks.
 	Tasks []string
 
-	IncludeConflicts   bool
-	IncludeIntegration bool
+	IncludeConflicts bool
 }
 
 const defaultGitTTL = 30 * time.Second
@@ -46,8 +45,8 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 
 	debug := logging.DebugEnabled()
 	if debug {
-		logging.Debug("git-cache", fmt.Sprintf("refreshGit start mode=%s ttl=%s includeConflicts=%t includeIntegration=%t tasks=%d",
-			gitModeString(p.Mode), p.TTL, p.IncludeConflicts, p.IncludeIntegration, len(p.Tasks)))
+		logging.Debug("git-cache", fmt.Sprintf("refreshGit start mode=%s ttl=%s includeConflicts=%t tasks=%d",
+			gitModeString(p.Mode), p.TTL, p.IncludeConflicts, len(p.Tasks)))
 	}
 
 	ttl := p.TTL
@@ -77,7 +76,6 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 
 		linesAdded    *int
 		linesRemoved  *int
-		commitsBehind *int
 
 		conflictFilesJSON *string
 
@@ -178,30 +176,6 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 					firstErr = err
 				}
 			}
-
-			if targetRef != "" {
-				// "Behind" means "how many commits the base branch has that the task ref doesn't".
-				//
-				// Prefer comparing base branch vs the task branch (correct after rebases/merges),
-				// and fall back to the pinned base_commit for draft-only tasks where the branch
-				// doesn't exist yet.
-				baseRef := ""
-				if git.BranchExists(repoDir, c.name) {
-					baseRef = c.name
-				} else {
-					baseRef = c.baseCommit
-				}
-
-				baseRef = strings.TrimSpace(baseRef)
-				if baseRef != "" {
-					behind, err := git.CommitsBehind(repoDir, baseRef, targetRef)
-					if err == nil {
-						r.commitsBehind = &behind
-					} else if firstErr == nil {
-						firstErr = err
-					}
-				}
-			}
 		}
 
 		if needsConflicts {
@@ -252,7 +226,6 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 UPDATE tasks SET
 	git_lines_added = CASE WHEN ? THEN ? ELSE git_lines_added END,
 	git_lines_removed = CASE WHEN ? THEN ? ELSE git_lines_removed END,
-	git_commits_behind = CASE WHEN ? THEN ? ELSE git_commits_behind END,
 	git_base_ref = CASE WHEN ? THEN ? ELSE git_base_ref END,
 	git_target_ref = CASE WHEN ? THEN ? ELSE git_target_ref END,
 	git_computed_at_ns = CASE WHEN ? THEN ? ELSE git_computed_at_ns END,
@@ -274,8 +247,6 @@ WHERE name = ?;
 				boolToInt(r.updateBase),
 				nullableInt(r.linesRemoved),
 				boolToInt(r.updateBase),
-				nullableInt(r.commitsBehind),
-				boolToInt(r.updateBase),
 				nullableStringPtr(r.baseRef),
 				boolToInt(r.updateBase),
 				nullableStringPtr(r.targetRef),
@@ -295,17 +266,10 @@ WHERE name = ?;
 			return fmt.Errorf("index git refresh: commit: %w", err)
 		}
 	}
-
-	var intStart time.Time
 	if debug {
-		intStart = time.Now()
-	}
-	err = i.refreshIntegration(ctx, p)
-	if debug {
-		logging.Debug("git-cache", fmt.Sprintf("refreshIntegration (%s)", time.Since(intStart).Round(time.Millisecond)))
 		logging.Debug("git-cache", "refreshGit done")
 	}
-	return err
+	return nil
 }
 
 type gitCandidate struct {
