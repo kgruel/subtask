@@ -105,9 +105,116 @@ func TestEnsure_BackfillsAndBumpsSchema_Idempotent(t *testing.T) {
 	require.Equal(t, string(before2), string(after2))
 }
 
+func TestEnsure_ZeroTimestampMergedUsesCommitDate(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	taskName := "migrate/zero-ts-merged"
+	require.NoError(t, (&task.Task{
+		Name:        taskName,
+		Title:       "Zero TS merged",
+		BaseBranch:  "main",
+		Description: "desc",
+		Schema:      1,
+	}).Save())
+
+	// Create a commit to reference from the legacy merged event.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "merged.txt"), []byte("merged\n"), 0o644))
+	gitCmd(t, repoDir, "add", "merged.txt")
+	gitCmd(t, repoDir, "commit", "-m", "merged commit")
+	mergedCommit := strings.TrimSpace(gitCmd(t, repoDir, "rev-parse", "HEAD"))
+
+	expected := gitCommitDate(t, repoDir, mergedCommit)
+
+	// Write a legacy-ish history where task.merged has a zero timestamp.
+	writeRawHistory(t, taskName, []history.Event{
+		{TS: time.Date(2025, 12, 31, 23, 59, 0, 0, time.UTC), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+		{TS: time.Time{}, Type: "task.merged", Data: mustJSON(map[string]any{"commit": mergedCommit, "into": "main"})},
+	})
+
+	require.NoError(t, gitredesign.Ensure(repoDir))
+
+	events, err := history.Read(taskName, history.ReadOptions{})
+	require.NoError(t, err)
+
+	mergedIdx := -1
+	for i := range events {
+		if events[i].Type == "task.merged" {
+			mergedIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, mergedIdx, 0)
+	require.True(t, events[mergedIdx].TS.Equal(expected))
+}
+
+func TestEnsure_ZeroTimestampClosedUsesBranchHeadCommitDate(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	taskName := "migrate/zero-ts-closed"
+	require.NoError(t, (&task.Task{
+		Name:        taskName,
+		Title:       "Zero TS closed",
+		BaseBranch:  "main",
+		Description: "desc",
+		Schema:      1,
+	}).Save())
+
+	// Create a task branch so the migration can backfill branch_head.
+	gitCmd(t, repoDir, "checkout", "-b", taskName, "main")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "task.txt"), []byte("task\n"), 0o644))
+	gitCmd(t, repoDir, "add", "task.txt")
+	gitCmd(t, repoDir, "commit", "-m", "task commit")
+	branchHead := strings.TrimSpace(gitCmd(t, repoDir, "rev-parse", "HEAD"))
+	gitCmd(t, repoDir, "checkout", "main")
+
+	expected := gitCommitDate(t, repoDir, branchHead)
+
+	// Write a legacy-ish history where task.closed has a zero timestamp and missing frozen stats.
+	writeRawHistory(t, taskName, []history.Event{
+		{TS: time.Date(2025, 12, 31, 23, 59, 0, 0, time.UTC), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+		{TS: time.Time{}, Type: "task.closed", Data: mustJSON(map[string]any{"reason": "close"})},
+	})
+
+	require.NoError(t, gitredesign.Ensure(repoDir))
+
+	events, err := history.Read(taskName, history.ReadOptions{})
+	require.NoError(t, err)
+
+	closedIdx := -1
+	for i := range events {
+		if events[i].Type == "task.closed" {
+			closedIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, closedIdx, 0)
+	require.True(t, events[closedIdx].TS.Equal(expected))
+}
+
 func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+func writeRawHistory(t *testing.T, taskName string, events []history.Event) {
+	t.Helper()
+	var b strings.Builder
+	for _, ev := range events {
+		line, err := json.Marshal(ev)
+		require.NoError(t, err)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	require.NoError(t, os.MkdirAll(task.Dir(taskName), 0o755))
+	require.NoError(t, os.WriteFile(task.HistoryPath(taskName), []byte(b.String()), 0o644))
+}
+
+func gitCommitDate(t *testing.T, dir, commit string) time.Time {
+	t.Helper()
+	out := gitCmd(t, dir, "show", "-s", "--format=%cI", commit)
+	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(out))
+	require.NoError(t, err)
+	return ts.UTC()
 }
 
 func gitCmd(t *testing.T, dir string, args ...string) string {

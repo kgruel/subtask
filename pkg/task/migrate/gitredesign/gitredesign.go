@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/logging"
@@ -184,6 +185,14 @@ func migrateTask(repoDir, taskName string) error {
 		if !dirty {
 			return nil
 		}
+
+		// Legacy histories sometimes have zero timestamps for terminal events. If we let
+		// WriteAllLocked normalize them, they'll become "now" and break recency ordering.
+		//
+		// Best-effort: derive a stable timestamp from git metadata (preferred) or nearby
+		// history events (fallback).
+		backfillZeroTimestampsBestEffort(repoDir, taskName, events)
+
 		return history.WriteAllLocked(taskName, events)
 	})
 }
@@ -204,6 +213,85 @@ func getString(m map[string]any, key string) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+func backfillZeroTimestampsBestEffort(repoDir, taskName string, events []history.Event) {
+	if repoDir == "" || taskName == "" || len(events) == 0 {
+		return
+	}
+
+	for i := range events {
+		if !events[i].TS.IsZero() {
+			continue
+		}
+
+		switch events[i].Type {
+		case "task.merged":
+			var d struct {
+				Commit string `json:"commit"`
+			}
+			_ = json.Unmarshal(events[i].Data, &d)
+			if ts, ok := commitDateUTC(repoDir, strings.TrimSpace(d.Commit)); ok {
+				events[i].TS = ts
+				continue
+			}
+			events[i].TS = fallbackEventTimestamp(events, i)
+		case "task.closed":
+			// Prefer an explicit branch_head (present in schema2) or fall back to the
+			// current task branch head when possible.
+			var d struct {
+				BranchHead string `json:"branch_head"`
+			}
+			_ = json.Unmarshal(events[i].Data, &d)
+			head := strings.TrimSpace(d.BranchHead)
+			if head == "" && git.BranchExists(repoDir, taskName) {
+				if out, err := git.Output(repoDir, "rev-parse", taskName); err == nil {
+					head = strings.TrimSpace(out)
+				}
+			}
+			if ts, ok := commitDateUTC(repoDir, head); ok {
+				events[i].TS = ts
+				continue
+			}
+			events[i].TS = fallbackEventTimestamp(events, i)
+		default:
+			events[i].TS = fallbackEventTimestamp(events, i)
+		}
+	}
+}
+
+func commitDateUTC(repoDir, commit string) (time.Time, bool) {
+	commit = strings.TrimSpace(commit)
+	if repoDir == "" || commit == "" {
+		return time.Time{}, false
+	}
+	if !git.CommitExists(repoDir, commit) {
+		return time.Time{}, false
+	}
+	out, err := git.Output(repoDir, "show", "-s", "--format=%cI", commit)
+	if err != nil {
+		return time.Time{}, false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(out))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return ts.UTC(), true
+}
+
+func fallbackEventTimestamp(events []history.Event, idx int) time.Time {
+	// Prefer to keep this event after earlier ones in the file.
+	for i := idx - 1; i >= 0; i-- {
+		if !events[i].TS.IsZero() {
+			return events[i].TS.Add(time.Nanosecond)
+		}
+	}
+	for i := idx + 1; i < len(events); i++ {
+		if !events[i].TS.IsZero() {
+			return events[i].TS.Add(-time.Nanosecond)
+		}
+	}
+	return time.Unix(0, 0).UTC()
 }
 
 func inferBaseCommit(repoDir, taskName, baseBranch string) string {
