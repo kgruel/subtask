@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/zippoxer/subtask/pkg/logging"
 )
 
 type mergeSimMethod string
@@ -37,15 +39,6 @@ func simulateMerge(dir, targetRef, headRef string) (mergeSimResult, error) {
 		return mergeSimResult{}, fmt.Errorf("targetRef and headRef are required")
 	}
 
-	mb, err := MergeBase(dir, targetRef, headRef)
-	if err != nil {
-		return mergeSimResult{}, err
-	}
-	mb = strings.TrimSpace(mb)
-	if mb == "" {
-		return mergeSimResult{}, fmt.Errorf("failed to resolve merge-base between %s and %s", targetRef, headRef)
-	}
-
 	method, err := selectMergeSimMethod()
 	if err != nil {
 		return mergeSimResult{}, err
@@ -53,8 +46,16 @@ func simulateMerge(dir, targetRef, headRef string) (mergeSimResult, error) {
 
 	switch method {
 	case mergeSimMethodMergeTree:
-		return simulateMergeMergeTree(dir, mb, targetRef, headRef)
+		return simulateMergeMergeTree(dir, targetRef, headRef)
 	case mergeSimMethodIndex:
+		mb, err := MergeBase(dir, targetRef, headRef)
+		if err != nil {
+			return mergeSimResult{}, err
+		}
+		mb = strings.TrimSpace(mb)
+		if mb == "" {
+			return mergeSimResult{}, fmt.Errorf("failed to resolve merge-base between %s and %s", targetRef, headRef)
+		}
 		return simulateMergeTempIndex(dir, mb, targetRef, headRef)
 	default:
 		return mergeSimResult{}, fmt.Errorf("unknown merge simulation method %q", method)
@@ -95,16 +96,18 @@ func mergeTreeWriteTreeSupported() bool {
 		s := string(out)
 
 		// --write-tree is the key feature (introduced in git 2.38).
-		// We also require --merge-base and --name-only since we rely on them.
-		mergeTreeWriteTreeOK = strings.Contains(s, "--write-tree") && strings.Contains(s, "--merge-base") && strings.Contains(s, "--name-only")
+		// We also require --name-only since we rely on it for conflict file extraction.
+		mergeTreeWriteTreeOK = strings.Contains(s, "--write-tree") && strings.Contains(s, "--name-only")
 	})
 	return mergeTreeWriteTreeOK
 }
 
-func simulateMergeMergeTree(dir, mb, targetRef, headRef string) (mergeSimResult, error) {
-	cmd := exec.Command("git", "merge-tree", "--write-tree", "--name-only", "--merge-base", mb, targetRef, headRef)
+func simulateMergeMergeTree(dir, targetRef, headRef string) (mergeSimResult, error) {
+	cmd := exec.Command("git", "merge-tree", "--write-tree", "--name-only", targetRef, headRef)
 	cmd.Dir = dir
+	start := time.Now()
 	out, runErr := cmd.CombinedOutput()
+	logGitCommandTiming(cmd.Args[1:], time.Since(start))
 	s := string(out)
 
 	firstLine := ""
@@ -120,7 +123,6 @@ func simulateMergeMergeTree(dir, mb, targetRef, headRef string) (mergeSimResult,
 		}
 		return mergeSimResult{
 			Method:     mergeSimMethodMergeTree,
-			MergeBase:  mb,
 			MergedTree: firstLine,
 		}, nil
 	}
@@ -130,11 +132,24 @@ func simulateMergeMergeTree(dir, mb, targetRef, headRef string) (mergeSimResult,
 		files = extractMergeConflictFiles(s)
 	}
 	if len(files) == 0 {
+		if logging.DebugEnabled() {
+			exit := -1
+			if cmd.ProcessState != nil {
+				exit = cmd.ProcessState.ExitCode()
+			}
+			logging.Debug("git", fmt.Sprintf("merge-tree failed exit=%d output=%q", exit, strings.TrimSpace(s)))
+		}
 		return mergeSimResult{}, fmt.Errorf("git merge-tree failed: %w", runErr)
+	}
+	if logging.DebugEnabled() {
+		exit := -1
+		if cmd.ProcessState != nil {
+			exit = cmd.ProcessState.ExitCode()
+		}
+		logging.Debug("git", fmt.Sprintf("merge-tree conflicts exit=%d files=%s", exit, strings.Join(files, ",")))
 	}
 	return mergeSimResult{
 		Method:        mergeSimMethodMergeTree,
-		MergeBase:     mb,
 		MergedTree:    firstLine,
 		ConflictFiles: files,
 	}, nil
@@ -173,6 +188,9 @@ func simulateMergeTempIndex(dir, mb, targetRef, headRef string) (mergeSimResult,
 	}
 	conflicts := parseUnmergedFiles(ls)
 	if len(conflicts) > 0 {
+		if logging.DebugEnabled() {
+			logging.Debug("git", fmt.Sprintf("merge-sim index conflicts files=%s", strings.Join(conflicts, ",")))
+		}
 		return mergeSimResult{
 			Method:        mergeSimMethodIndex,
 			MergeBase:     mb,
