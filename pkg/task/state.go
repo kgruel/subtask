@@ -23,6 +23,8 @@ type State struct {
 	SupervisorPGID int       `json:"supervisor_pgid,omitempty"` // current run supervisor process group ID (unix)
 	StartedAt      time.Time `json:"started_at,omitempty"`      // current run start (UTC)
 	LastError      string    `json:"last_error,omitempty"`      // current/last run error
+	RunID          string    `json:"run_id,omitempty"`          // current/last run id (history run_id)
+	OutputPath     string    `json:"output_path,omitempty"`     // current/last async output file path
 }
 
 // Save writes the state to .subtask/internal/<task>/state.json.
@@ -119,6 +121,13 @@ func (s *State) IsStale() bool {
 		return false
 	}
 	return !processAlive(s.SupervisorPID)
+}
+
+// ProcessAlive reports whether the given PID refers to a currently running process.
+//
+// This is best-effort and platform-specific.
+func ProcessAlive(pid int) bool {
+	return processAlive(pid)
 }
 
 // CleanupStaleTasks clears stale supervisor PIDs and records an error.
