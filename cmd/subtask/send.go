@@ -183,6 +183,7 @@ func (c *SendCmd) Run() error {
 		})
 		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, time.Since(started).Round(time.Second)))
+		fmt.Fprintln(os.Stderr, "interrupted")
 		os.Exit(1)
 	}()
 	defer signal.Stop(sigChan)
