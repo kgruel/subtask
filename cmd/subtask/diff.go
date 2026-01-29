@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/task"
@@ -18,6 +19,10 @@ type DiffCmd struct {
 
 // Run executes the diff command.
 func (c *DiffCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
 	}
@@ -33,16 +38,41 @@ func (c *DiffCmd) Run() error {
 	}
 	tail, _ := history.Tail(c.Task)
 
-	// Merged tasks: show the squash commit diff if available.
+	// Merged tasks with deleted branches:
+	// - For squash merges, show the squash commit diff.
+	// - For detected/no-op merges, show the recorded PR-style diff (base_commit..branch_head) if possible.
 	if tail.TaskStatus == task.TaskStatusMerged && !git.BranchExists(".", c.Task) {
-		sha := tail.LastMergedCommit
-		if sha == "" {
-			return fmt.Errorf("diff unavailable: task %s is merged and has no branch (missing merge commit)\n\nSend to reopen:\n  subtask send %s \"<prompt>\"", c.Task, c.Task)
+		mergedCommit := strings.TrimSpace(tail.LastMergedCommit)
+		mergedMethod := strings.TrimSpace(tail.LastMergedMethod)
+
+		// Legacy: older history didn't record method; assume squash commit if commit is present.
+		if mergedCommit != "" && (mergedMethod == "" || mergedMethod == "squash") {
+			if c.Stat {
+				return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", "--stat", "--format=", mergedCommit)
+			}
+			return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", mergedCommit)
 		}
-		if c.Stat {
-			return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", "--stat", "--format=", sha)
+
+		baseCommit := strings.TrimSpace(tail.LastMergedBaseCommit)
+		branchHead := strings.TrimSpace(tail.LastMergedBranchHead)
+		if baseCommit != "" && branchHead != "" {
+			args := []string{"diff"}
+			if c.Stat {
+				args = append(args, "--stat")
+			}
+			args = append(args, baseCommit+".."+branchHead)
+			return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, args...)
 		}
-		return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", sha)
+
+		// Fallback: if we do have a commit, show it, otherwise report unavailable.
+		if mergedCommit != "" {
+			if c.Stat {
+				return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", "--stat", "--format=", mergedCommit)
+			}
+			return git.RunWithStderrFilter(".", git.FilterLineEndingWarnings, "show", mergedCommit)
+		}
+
+		return fmt.Errorf("diff unavailable: task %s is merged and has no branch\n\nSend to reopen:\n  subtask send %s \"<prompt>\"", c.Task, c.Task)
 	}
 
 	// Prefer diffing from the task workspace when available (includes uncommitted changes).

@@ -72,49 +72,54 @@ func AppendLocked(taskName string, ev Event) error {
 
 func WriteAll(taskName string, events []Event) error {
 	return task.WithLock(taskName, func() error {
-		if err := os.MkdirAll(task.Dir(taskName), 0o755); err != nil {
-			return err
-		}
-		path := task.HistoryPath(taskName)
-		tmp := path + ".tmp"
-
-		f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
-		}
-		buf := bufio.NewWriterSize(f, 128*1024)
-		for _, ev := range events {
-			if ev.TS.IsZero() {
-				ev.TS = time.Now().UTC()
-			}
-			b, err := json.Marshal(ev)
-			if err != nil {
-				f.Close()
-				_ = os.Remove(tmp)
-				return err
-			}
-			if _, err := buf.Write(append(b, '\n')); err != nil {
-				f.Close()
-				_ = os.Remove(tmp)
-				return err
-			}
-		}
-		if err := buf.Flush(); err != nil {
-			f.Close()
-			_ = os.Remove(tmp)
-			return err
-		}
-		if err := f.Sync(); err != nil {
-			f.Close()
-			_ = os.Remove(tmp)
-			return err
-		}
-		if err := f.Close(); err != nil {
-			_ = os.Remove(tmp)
-			return err
-		}
-		return os.Rename(tmp, path)
+		return WriteAllLocked(taskName, events)
 	})
+}
+
+// WriteAllLocked rewrites history.jsonl atomically. The caller must hold the task lock.
+func WriteAllLocked(taskName string, events []Event) error {
+	if err := os.MkdirAll(task.Dir(taskName), 0o755); err != nil {
+		return err
+	}
+	path := task.HistoryPath(taskName)
+	tmp := path + ".tmp"
+
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	buf := bufio.NewWriterSize(f, 128*1024)
+	for _, ev := range events {
+		if ev.TS.IsZero() {
+			ev.TS = time.Now().UTC()
+		}
+		b, err := json.Marshal(ev)
+		if err != nil {
+			f.Close()
+			_ = os.Remove(tmp)
+			return err
+		}
+		if _, err := buf.Write(append(b, '\n')); err != nil {
+			f.Close()
+			_ = os.Remove(tmp)
+			return err
+		}
+	}
+	if err := buf.Flush(); err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 type ReadOptions struct {
@@ -168,12 +173,21 @@ func Read(taskName string, opts ReadOptions) ([]Event, error) {
 }
 
 type TailInfo struct {
-	LastTS           time.Time
-	TaskStatus       task.TaskStatus
-	Stage            string
-	LastMergedCommit string
-	BaseBranch       string
-	BaseCommit       string
+	LastTS                 time.Time
+	TaskStatus             task.TaskStatus
+	Stage                  string
+	LastMergedCommit       string
+	LastMergedMethod       string
+	LastMergedBaseCommit   string
+	LastMergedBranchHead   string
+	LastMergedLinesAdded   int
+	LastMergedLinesRemoved int
+	LastMergedFrozenError  string
+	LastClosedLinesAdded   int
+	LastClosedLinesRemoved int
+	LastClosedFrozenError  string
+	BaseBranch             string
+	BaseCommit             string
 
 	LastRunDurationMS int
 	LastRunToolCalls  int
@@ -248,6 +262,8 @@ func TailPath(path string) (TailInfo, error) {
 
 	var info TailInfo
 	var taskStatusSet bool
+	var mergedStatsSet bool
+	var closedStatsSet bool
 
 	// Track run completion by run_id for "running since" detection.
 	finishedByRun := make(map[string]struct{})
@@ -288,17 +304,50 @@ func TailPath(path string) (TailInfo, error) {
 				info.TaskStatus = task.TaskStatusClosed
 				taskStatusSet = true
 			}
+			if !closedStatsSet {
+				var d struct {
+					ChangesAdded   int    `json:"changes_added"`
+					ChangesRemoved int    `json:"changes_removed"`
+					FrozenError    string `json:"frozen_error"`
+				}
+				_ = json.Unmarshal(ev.Data, &d)
+				info.LastClosedLinesAdded = d.ChangesAdded
+				info.LastClosedLinesRemoved = d.ChangesRemoved
+				info.LastClosedFrozenError = strings.TrimSpace(d.FrozenError)
+				closedStatsSet = true
+			}
 		case "task.merged":
 			if !taskStatusSet {
 				info.TaskStatus = task.TaskStatusMerged
 				taskStatusSet = true
 			}
+			var d struct {
+				Commit         string `json:"commit"`
+				Method         string `json:"method"`
+				BaseCommit     string `json:"base_commit"`
+				BranchHead     string `json:"branch_head"`
+				ChangesAdded   int    `json:"changes_added"`
+				ChangesRemoved int    `json:"changes_removed"`
+				FrozenError    string `json:"frozen_error"`
+			}
+			_ = json.Unmarshal(ev.Data, &d)
 			if info.LastMergedCommit == "" {
-				var d struct {
-					Commit string `json:"commit"`
-				}
-				_ = json.Unmarshal(ev.Data, &d)
 				info.LastMergedCommit = strings.TrimSpace(d.Commit)
+			}
+			if info.LastMergedMethod == "" {
+				info.LastMergedMethod = strings.TrimSpace(d.Method)
+			}
+			if info.LastMergedBaseCommit == "" {
+				info.LastMergedBaseCommit = strings.TrimSpace(d.BaseCommit)
+			}
+			if info.LastMergedBranchHead == "" {
+				info.LastMergedBranchHead = strings.TrimSpace(d.BranchHead)
+			}
+			if !mergedStatsSet {
+				info.LastMergedLinesAdded = d.ChangesAdded
+				info.LastMergedLinesRemoved = d.ChangesRemoved
+				info.LastMergedFrozenError = strings.TrimSpace(d.FrozenError)
+				mergedStatsSet = true
 			}
 		case "task.opened":
 			if !taskStatusSet {

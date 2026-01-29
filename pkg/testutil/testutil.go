@@ -12,6 +12,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
@@ -27,19 +28,45 @@ type TestEnv struct {
 func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 	t.Helper()
 
-	// Create temp root
-	root, err := os.MkdirTemp("", "subtask-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
+	origSubtaskDir, hadSubtaskDir := os.LookupEnv("SUBTASK_DIR")
+	requireSetEnv(t, "SUBTASK_DIR", t.TempDir())
+	t.Cleanup(func() {
+		if hadSubtaskDir {
+			_ = os.Setenv("SUBTASK_DIR", origSubtaskDir)
+		} else {
+			_ = os.Unsetenv("SUBTASK_DIR")
+		}
+	})
+
+	// Make git commit SHAs deterministic for golden tests by pinning author/committer
+	// timestamps. Tests that care about time should use history events (nowFunc), not
+	// git commit metadata.
+	origAuthorDate, hadAuthorDate := os.LookupEnv("GIT_AUTHOR_DATE")
+	origCommitterDate, hadCommitterDate := os.LookupEnv("GIT_COMMITTER_DATE")
+	requireSetEnv(t, "GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+	requireSetEnv(t, "GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+	t.Cleanup(func() {
+		if hadAuthorDate {
+			_ = os.Setenv("GIT_AUTHOR_DATE", origAuthorDate)
+		} else {
+			_ = os.Unsetenv("GIT_AUTHOR_DATE")
+		}
+		if hadCommitterDate {
+			_ = os.Setenv("GIT_COMMITTER_DATE", origCommitterDate)
+		} else {
+			_ = os.Unsetenv("GIT_COMMITTER_DATE")
+		}
+	})
+
+	// Create temp root (git repo)
+	root := t.TempDir()
 
 	// Initialize as git repo
 	initGitRepo(t, root)
 
-	// Create .subtask directory structure
+	// Create portable task dir (repo-local only)
 	subtaskDir := filepath.Join(root, ".subtask")
-	os.MkdirAll(filepath.Join(subtaskDir, "tasks"), 0755)
-	os.MkdirAll(filepath.Join(subtaskDir, "internal"), 0755)
+	_ = os.MkdirAll(filepath.Join(subtaskDir, "tasks"), 0o755)
 
 	// Create workspaces (git worktrees) using the standard naming convention
 	// so ListWorkspaces() can discover them
@@ -62,9 +89,10 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 			"model": "gpt-5.2",
 		},
 	}
-	cfgPath := filepath.Join(subtaskDir, "config.json")
+	cfgPath := task.ConfigPath()
 	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.MkdirAll(filepath.Dir(cfgPath), 0o755)
+	_ = os.WriteFile(cfgPath, cfgData, 0o644)
 
 	// Save original cwd and change to test root
 	origCwd, _ := os.Getwd()
@@ -81,18 +109,16 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 
 	t.Cleanup(func() {
 		os.Chdir(origCwd)
-		// Remove all worktrees for this repo from the global workspaces directory
-		// (tests may create additional worktrees lazily).
-		escapedPath := task.EscapePath(root)
-		pattern := filepath.Join(task.WorkspacesDir(), escapedPath+"--*")
-		matches, _ := filepath.Glob(pattern)
-		for _, ws := range matches {
-			os.RemoveAll(ws)
-		}
-		os.RemoveAll(root)
 	})
 
 	return env
+}
+
+func requireSetEnv(t *testing.T, k, v string) {
+	t.Helper()
+	if err := os.Setenv(k, v); err != nil {
+		t.Fatalf("setenv %s: %v", k, err)
+	}
 }
 
 // CreateTask creates a task with TASK.md.
@@ -103,7 +129,7 @@ func (e *TestEnv) CreateTask(name, title, base, description string) *task.Task {
 		Title:       title,
 		BaseBranch:  base,
 		Description: description,
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}
 	if err := t.Save(); err != nil {
 		e.T.Fatalf("failed to save task: %v", err)

@@ -49,11 +49,12 @@ Run `subtask` in your terminal to see everything:
   </tr>
 </table>
 
-## Install
-> [!NOTE]  
+## Setup
+
+> [!NOTE]
 > Subtask is in early development. Upcoming releases will simplify installation, solve known bugs, and improve Claude's proficiency.
 
-### Get the CLI
+### Install the CLI
 
 #### Mac/Linux
 
@@ -88,7 +89,16 @@ go install github.com/zippoxer/subtask/cmd/subtask@latest
 
 </details>
 
-### Install the Claude Code Skill
+### Install the Skill
+
+Tell Claude Code:
+```md
+Setup Subtask with `subtask install --guide`.
+```
+Claude will install the Subtask skill at `~/.claude/skills`, and ask you whether subagents should run Claude, Codex or OpenCode.
+
+<details>
+<summary>Or install manually…</summary>
 
 ```bash
 subtask install
@@ -96,18 +106,16 @@ subtask install
 # Tip: Uninstall later with `subtask uninstall`.
 ```
 
-> *This asks whether to install to user-scope (`~/.claude/skills`) or project-scope.*
-> 
-> *You can skip installing the plugin, it isn't working yet.*
+</details>
 
-Restart Claude Code.
+### Install the Plugin (Optional)
 
-### Setup Subtask in your Repo
-
-```bash
-cd your-repo
-subtask init
+In Claude Code:
 ```
+/plugin marketplace add zippoxer/subtask
+/plugin install subtask@subtask
+```
+This reminds Claude to use the Subtask skill when it invokes the CLI.
 
 ## Use
 
@@ -133,7 +141,7 @@ subtask update
 - I use Claude Code to lead the development (i talk, it creates tasks and tracks everything)
 - I use Codex for subagents (just preference, Claude Code works too)
 - ~60 tasks merged in the past week
-- Proof: https://github.com/user-attachments/assets/6c71e34f-b3c6-4372-ac25-dd3eea15932e
+- [Proof](https://github.com/user-attachments/assets/6c71e34f-b3c6-4372-ac25-dd3eea15932e)
 
 
 ## License

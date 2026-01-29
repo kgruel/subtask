@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 )
@@ -16,10 +17,10 @@ var (
 type CLI struct {
 	Version kong.VersionFlag `help:"Print version information and quit"`
 
-	Init      InitCmd      `cmd:"" help:"Initialize subtask for this project"`
-	Install   InstallCmd   `cmd:"" help:"Install Subtask skill + plugin (Claude Code)"`
-	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill + plugin (Claude Code)"`
-	Status    StatusCmd    `cmd:"" help:"Show installation status (skill + plugin)"`
+	Install   InstallCmd   `cmd:"" help:"Install Subtask skill (Claude Code) and configure defaults"`
+	Config    ConfigCmd    `cmd:"" help:"Edit configuration (user defaults or project overrides)"`
+	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill (Claude Code)"`
+	Status    StatusCmd    `cmd:"" help:"Show installation status (skill)"`
 	Ask       AskCmd       `cmd:"" help:"Ask a question (no task, runs in cwd)"`
 	Draft     DraftCmd     `cmd:"" help:"Create a task without running"`
 	Send      SendCmd      `cmd:"" help:"Send a message to a task"`
@@ -31,7 +32,7 @@ type CLI struct {
 	Close     CloseCmd     `cmd:"" help:"Close a task and free workspace"`
 	Merge     MergeCmd     `cmd:"" help:"Merge task into base branch (marks as merged)"`
 	Workspace WorkspaceCmd `cmd:"" help:"Print workspace path for a task"`
-	Review    ReviewCmd    `cmd:"" help:"Get review of task changes"`
+	Review    ReviewCmd    `cmd:"" help:"Get an AI code review"`
 	Trace     LogsCmd      `cmd:"" help:"Debug worker runs (tool calls, errors)"`
 	Logs      LogsCmd      `cmd:"" help:"Alias for trace" hidden:""`
 	Interrupt InterruptCmd `cmd:"" aliases:"stop" help:"Gracefully stop a working worker for a task"`
@@ -39,8 +40,10 @@ type CLI struct {
 }
 
 func main() {
-	runAutoUpdate()
-	startBinaryAutoUpdate()
+	if !shouldSkipStartupSideEffects(os.Args) {
+		runAutoUpdate()
+		startBinaryAutoUpdate()
+	}
 
 	if len(os.Args) == 1 {
 		if err := runTUIWithInitCheck(); err != nil {
@@ -63,4 +66,16 @@ func main() {
 	)
 	err := ctx.Run()
 	ctx.FatalIfErrorf(err)
+}
+
+func shouldSkipStartupSideEffects(args []string) bool {
+	if len(args) < 3 || args[1] != "install" {
+		return false
+	}
+	for _, a := range args[2:] {
+		if a == "--guide" || strings.HasPrefix(a, "--guide=") {
+			return true
+		}
+	}
+	return false
 }

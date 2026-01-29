@@ -79,12 +79,11 @@ func List(ctx context.Context, opts ListOptions) (TaskListData, error) {
 	}
 
 	if debug {
-		logging.Debug("refresh", "index.Refresh() opts={GitOpenOnly, IncludeIntegration}")
+		logging.Debug("refresh", "index.Refresh() opts={GitOpenOnly}")
 	}
 	if err := idx.Refresh(ctx, index.RefreshPolicy{
 		Git: index.GitPolicy{
-			Mode:               index.GitOpenOnly,
-			IncludeIntegration: true,
+			Mode: index.GitOpenOnly,
 		},
 	}); err != nil {
 		logging.Error("refresh", "index.Refresh error: "+err.Error())

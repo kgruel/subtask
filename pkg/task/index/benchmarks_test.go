@@ -12,6 +12,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 )
 
 func BenchmarkIndex_Refresh_NoChanges_100Tasks(b *testing.B) {
@@ -19,7 +20,7 @@ func BenchmarkIndex_Refresh_NoChanges_100Tasks(b *testing.B) {
 
 	for i := 0; i < 100; i++ {
 		name := fmt.Sprintf("bench/%03d", i)
-		requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: 1}).Save())
+		requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: gitredesign.TaskSchemaVersion}).Save())
 		requireNoError(b, history.WriteAll(name, []history.Event{
 			{TS: time.Now().UTC(), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
 			{TS: time.Now().UTC(), Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "implement"})},
@@ -44,7 +45,7 @@ func BenchmarkIndex_List_NoChanges_100Tasks(b *testing.B) {
 
 	for i := 0; i < 100; i++ {
 		name := fmt.Sprintf("bench/%03d", i)
-		requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: 1}).Save())
+		requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: gitredesign.TaskSchemaVersion}).Save())
 		requireNoError(b, history.WriteAll(name, []history.Event{
 			{TS: time.Now().UTC(), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
 			{TS: time.Now().UTC(), Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "implement"})},
@@ -70,7 +71,7 @@ func BenchmarkIndex_Detail_Cached(b *testing.B) {
 	setupTempProject(b)
 
 	name := "bench/detail"
-	requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: 1}).Save())
+	requireNoError(b, (&task.Task{Name: name, Title: "t", BaseBranch: "main", Description: "d", Schema: gitredesign.TaskSchemaVersion}).Save())
 	requireNoError(b, history.WriteAll(name, []history.Event{
 		{TS: time.Now().UTC(), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
 		{TS: time.Now().UTC(), Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "implement"})},

@@ -27,6 +27,7 @@ func CloseTask(taskName string, abandon bool, logger Logger) (CloseResult, error
 		}
 
 		t, _ := task.Load(taskName) // best-effort (allows closing synced tasks without full metadata)
+		repoDir := task.ProjectRoot()
 
 		state, err := task.LoadState(taskName)
 		if err != nil {
@@ -80,12 +81,97 @@ func CloseTask(taskName string, abandon bool, logger Logger) (CloseResult, error
 			deleteEmptyTaskBranchBestEffort(logger, state.Workspace, taskName, t.BaseBranch)
 		}
 
+		baseBranch := ""
+		if t != nil {
+			baseBranch = strings.TrimSpace(t.BaseBranch)
+		}
+		if baseBranch == "" {
+			baseBranch = strings.TrimSpace(tail.BaseBranch)
+		}
+		baseCommit := strings.TrimSpace(tail.BaseCommit)
+
+		branchHead := ""
+		// Prefer the workspace's HEAD if it exists (covers cases where the branch name ref is missing).
+		if strings.TrimSpace(state.Workspace) != "" {
+			if out, err := git.Output(state.Workspace, "rev-parse", "HEAD"); err == nil {
+				branchHead = strings.TrimSpace(out)
+			}
+		}
+		if branchHead == "" && git.BranchExists(repoDir, taskName) {
+			if out, err := git.Output(repoDir, "rev-parse", taskName); err == nil {
+				branchHead = strings.TrimSpace(out)
+			}
+		}
+		statsDir := repoDir
+		if strings.TrimSpace(state.Workspace) != "" {
+			statsDir = state.Workspace
+		}
+
+		// Compute frozen stats relative to a PR-style base for this branch state.
+		// Use merge-base(base, head) when possible, so rebases don't inflate stats.
+		if strings.TrimSpace(baseBranch) != "" && strings.TrimSpace(branchHead) != "" && git.CommitExists(statsDir, branchHead) {
+			if mb, err := git.MergeBase(statsDir, baseBranch, branchHead); err == nil && strings.TrimSpace(mb) != "" {
+				baseCommit = strings.TrimSpace(mb)
+			}
+		}
+
+		// Back-compat: older tasks may not have base_commit; fall back to merge-base when possible.
+		if baseCommit == "" && baseBranch != "" && (branchHead != "" || git.BranchExists(repoDir, taskName)) {
+			mbDir := repoDir
+			mbBranch := taskName
+			if strings.TrimSpace(state.Workspace) != "" {
+				mbDir = state.Workspace
+				mbBranch = "HEAD"
+			}
+			if mb, err := git.Output(mbDir, "merge-base", mbBranch, baseBranch); err == nil {
+				baseCommit = strings.TrimSpace(mb)
+			}
+		}
+
+		added := 0
+		removed := 0
+		commitCount := 0
+		frozenErr := ""
+		if baseCommit == "" || branchHead == "" {
+			frozenErr = fmt.Sprintf("cannot compute frozen stats (missing base_commit=%t branch_head=%t)", baseCommit == "", branchHead == "")
+		} else if !git.CommitExists(statsDir, baseCommit) {
+			frozenErr = fmt.Sprintf("cannot compute frozen stats (missing base_commit %s)", baseCommit)
+		} else if !git.CommitExists(statsDir, branchHead) {
+			frozenErr = fmt.Sprintf("cannot compute frozen stats (missing branch_head %s)", branchHead)
+		} else {
+			if a, r, err := git.DiffStatRange(statsDir, baseCommit, branchHead); err == nil {
+				added = a
+				removed = r
+			} else {
+				frozenErr = fmt.Sprintf("cannot compute frozen stats: %v", err)
+			}
+			if frozenErr == "" {
+				if n, err := git.RevListCount(statsDir, baseCommit, branchHead); err == nil {
+					commitCount = n
+				} else {
+					frozenErr = fmt.Sprintf("cannot compute commit_count: %v", err)
+				}
+			}
+		}
+
 		// Append history event.
 		reason := "close"
 		if abandon {
 			reason = "abandon"
 		}
-		data, _ := json.Marshal(map[string]any{"reason": reason})
+		closedData := map[string]any{
+			"reason":          reason,
+			"base_branch":     baseBranch,
+			"base_commit":     baseCommit,
+			"branch_head":     branchHead,
+			"changes_added":   added,
+			"changes_removed": removed,
+			"commit_count":    commitCount,
+		}
+		if frozenErr != "" {
+			closedData["frozen_error"] = frozenErr
+		}
+		data, _ := json.Marshal(closedData)
 		_ = history.AppendLocked(taskName, history.Event{Type: "task.closed", Data: data, TS: time.Now().UTC()})
 
 		// Clear runtime state.

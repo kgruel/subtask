@@ -31,10 +31,7 @@ type TaskDetail struct {
 
 	LinesAdded    int
 	LinesRemoved  int
-	CommitsBehind int
 	ConflictFiles []string
-
-	IntegratedReason string
 }
 
 func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
@@ -46,10 +43,9 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 
 	if err := idx.Refresh(ctx, index.RefreshPolicy{
 		Git: index.GitPolicy{
-			Mode:               index.GitTasks,
-			Tasks:              []string{taskName},
-			IncludeConflicts:   true,
-			IncludeIntegration: true,
+			Mode:             index.GitTasks,
+			Tasks:            []string{taskName},
+			IncludeConflicts: true,
 		},
 	}); err != nil {
 		return TaskDetail{}, err
@@ -82,14 +78,12 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		LastHistory:   rec.LastHistory.UnixNano(),
 		LastRunMS:     rec.LastRunDurationMS,
 	}
-	d.IntegratedReason = rec.IntegratedReason
 	if cfg != nil && cfg.Harness == "codex" {
 		d.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 	}
 
 	d.LinesAdded = rec.LinesAdded
 	d.LinesRemoved = rec.LinesRemoved
-	d.CommitsBehind = rec.CommitsBehind
 
 	if rec.ConflictFilesJSON != "" {
 		var conflicts []string

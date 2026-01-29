@@ -57,11 +57,9 @@ type TaskInfo struct {
 	Progress      string // "X/Y" from PROGRESS.json
 	LinesAdded    int    // Git diff stats
 	LinesRemoved  int
-	CommitsBehind int // Commits base branch has that the task ref doesn't
+	ChangesStatus string // "", "applied", "missing"
 	LastRunMS     int
 	LastError     string
-
-	IntegratedReason string
 }
 
 // PrintTaskList prints a formatted table of tasks.
@@ -77,7 +75,7 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 	// Build rows
 	var rows []render.TaskRow
 	for _, t := range tasks {
-		status := userStatusTextWithIntegration(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunMS, t.LastError, t.IntegratedReason)
+		status := userStatusText(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunMS, t.LastError)
 
 		stage := t.Stage
 		if stage == "" {
@@ -110,7 +108,7 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 			Progress:      progress,
 			LinesAdded:    t.LinesAdded,
 			LinesRemoved:  t.LinesRemoved,
-			CommitsBehind: t.CommitsBehind,
+			ChangesStatus: t.ChangesStatus,
 			LastActive:    lastActivity,
 			Title:         title,
 		})
@@ -172,14 +170,6 @@ func userStatusText(ts task.TaskStatus, ws task.WorkerStatus, startedAt time.Tim
 	default:
 		return "—"
 	}
-}
-
-func userStatusTextWithIntegration(ts task.TaskStatus, ws task.WorkerStatus, startedAt time.Time, lastRunMS int, lastError string, integratedReason string) string {
-	// Don't show "merged" if worker is actively running
-	if ws != task.WorkerStatusRunning && strings.TrimSpace(integratedReason) != "" && ts != task.TaskStatusMerged {
-		return "✓ merged"
-	}
-	return userStatusText(ts, ws, startedAt, lastRunMS, lastError)
 }
 
 // formatTimeAgo formats a time as "Xm ago" or "Xs ago".

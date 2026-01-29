@@ -1,9 +1,11 @@
 Task: show/draft
 Title: Draft task
 Branch: show/draft (based on main)
+Base commit: a6de1c645da0682a92254a0a454e642f5500a7b9
 Model: gpt-5.2
 Status: draft
 Changes: -
+Commits: 0
 Workflow: default
 Stage: doing → review → ready
 

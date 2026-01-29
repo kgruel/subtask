@@ -41,8 +41,8 @@ func (i *Index) Refresh(ctx context.Context, policy RefreshPolicy) error {
 	var step time.Time
 	if debug {
 		start = time.Now()
-		logging.Debug("refresh", fmt.Sprintf("index.Refresh start git={mode:%s includeIntegration:%t includeConflicts:%t ttl:%s tasks:%d}",
-			gitModeString(policy.Git.Mode), policy.Git.IncludeIntegration, policy.Git.IncludeConflicts, policy.Git.TTL, len(policy.Git.Tasks)))
+		logging.Debug("refresh", fmt.Sprintf("index.Refresh start git={mode:%s includeConflicts:%t ttl:%s tasks:%d}",
+			gitModeString(policy.Git.Mode), policy.Git.IncludeConflicts, policy.Git.TTL, len(policy.Git.Tasks)))
 	}
 
 	if debug {
@@ -278,6 +278,10 @@ type taskRow struct {
 	progressDone  int
 	progressTotal int
 
+	// Frozen stats (history.jsonl) for merged/closed tasks.
+	linesAdded   *int
+	linesRemoved *int
+
 	// Derived
 	statusRank int
 	filesSig   string
@@ -323,6 +327,18 @@ func buildRowFromDisk(taskName, filesSig string) (taskRow, bool, error) {
 	row.lastHistoryNS = tail.LastTS.UnixNano()
 	row.lastRunDuration = tail.LastRunDurationMS
 	row.baseCommit = tail.BaseCommit
+	switch tail.TaskStatus {
+	case task.TaskStatusMerged:
+		a := tail.LastMergedLinesAdded
+		r := tail.LastMergedLinesRemoved
+		row.linesAdded = &a
+		row.linesRemoved = &r
+	case task.TaskStatusClosed:
+		a := tail.LastClosedLinesAdded
+		r := tail.LastClosedLinesRemoved
+		row.linesAdded = &a
+		row.linesRemoved = &r
+	}
 
 	// Runtime state.
 	state, err := task.LoadState(taskName)
@@ -553,7 +569,8 @@ INSERT INTO tasks (
 	last_run_duration_ms,
 	progress_done, progress_total,
 	status_rank,
-	files_sig
+	files_sig,
+	git_lines_added, git_lines_removed
 ) VALUES (
 	?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?,
@@ -562,7 +579,8 @@ INSERT INTO tasks (
 	?,
 	?, ?,
 	?,
-	?
+	?,
+	?, ?
 )
 ON CONFLICT(name) DO UPDATE SET
 	title=excluded.title,
@@ -587,7 +605,9 @@ ON CONFLICT(name) DO UPDATE SET
 	progress_done=excluded.progress_done,
 	progress_total=excluded.progress_total,
 	status_rank=excluded.status_rank,
-	files_sig=excluded.files_sig;
+	files_sig=excluded.files_sig,
+	git_lines_added=excluded.git_lines_added,
+	git_lines_removed=excluded.git_lines_removed;
 `
 
 	stmt, err := tx.PrepareContext(ctx, q)
@@ -608,6 +628,8 @@ ON CONFLICT(name) DO UPDATE SET
 			row.progressDone, row.progressTotal,
 			row.statusRank,
 			row.filesSig,
+			nullableInt(row.linesAdded),
+			nullableInt(row.linesRemoved),
 		); err != nil {
 			return fmt.Errorf("index refresh: upsert %q: %w", row.name, err)
 		}

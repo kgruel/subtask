@@ -9,8 +9,8 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/render"
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/gather"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 // ShowCmd implements 'subtask show'.
@@ -22,6 +22,9 @@ type ShowCmd struct {
 
 // Run executes the show command.
 func (c *ShowCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
 	if c.JSON {
 		if c.Watch {
 			return fmt.Errorf("--watch cannot be used with --json")
@@ -47,7 +50,8 @@ func (c *ShowCmd) Run() error {
 }
 
 func (c *ShowCmd) render() (string, error) {
-	detail, err := gather.Detail(context.Background(), c.Task)
+	st := store.New()
+	detail, err := st.Get(context.Background(), c.Task, store.GetOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -61,6 +65,7 @@ func (c *ShowCmd) render() (string, error) {
 		Title:      t.Title,
 		Branch:     t.Name,
 		BaseBranch: t.BaseBranch,
+		BaseCommit: detail.BaseCommit,
 	}
 	card.Model = detail.Model
 	card.Reasoning = detail.Reasoning
@@ -69,9 +74,9 @@ func (c *ShowCmd) render() (string, error) {
 	if state != nil {
 		lastError = state.LastError
 	}
-	card.TaskStatus = userStatusTextWithIntegration(detail.TaskStatus, detail.WorkerStatus, time.Time{}, detail.LastRunMS, lastError, detail.IntegratedReason)
+	card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, time.Time{}, detail.LastRunMS, lastError)
 	if state != nil && detail.WorkerStatus == task.WorkerStatusRunning && !state.StartedAt.IsZero() {
-		card.TaskStatus = userStatusTextWithIntegration(detail.TaskStatus, detail.WorkerStatus, state.StartedAt, detail.LastRunMS, lastError, detail.IntegratedReason)
+		card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, state.StartedAt, detail.LastRunMS, lastError)
 	}
 
 	if state != nil {
@@ -81,9 +86,17 @@ func (c *ShowCmd) render() (string, error) {
 		}
 	}
 
-	card.LinesAdded = detail.LinesAdded
-	card.LinesRemoved = detail.LinesRemoved
-	card.CommitsBehind = detail.CommitsBehind
+	card.LinesAdded = detail.Changes.Added
+	card.LinesRemoved = detail.Changes.Removed
+	card.ChangesStatus = string(detail.Changes.Status)
+	if detail.Changes.Err != nil && detail.Changes.Status != store.ChangesStatusMissing {
+		card.ChangesError = detail.Changes.Err.Error()
+	}
+	card.CommitCount = detail.Commits.Count
+	if detail.Commits.Err != nil {
+		card.CommitError = detail.Commits.Err.Error()
+	}
+	card.ShowCommits = detail.TaskStatus == task.TaskStatusOpen
 	card.ConflictFiles = detail.ConflictFiles
 
 	// Workflow and stage if present.
@@ -118,32 +131,33 @@ type showJSONProgressStep struct {
 }
 
 type showJSON struct {
-	Name             string                 `json:"name"`
-	Title            string                 `json:"title,omitempty"`
-	Branch           string                 `json:"branch,omitempty"`
-	BaseBranch       string                 `json:"base_branch,omitempty"`
-	Model            string                 `json:"model,omitempty"`
-	Reasoning        string                 `json:"reasoning,omitempty"`
-	Status           string                 `json:"status,omitempty"`
-	WorkerStatus     string                 `json:"worker_status,omitempty"`
-	Error            string                 `json:"error,omitempty"`
-	Workspace        string                 `json:"workspace,omitempty"`
-	Workflow         string                 `json:"workflow,omitempty"`
-	Stage            string                 `json:"stage,omitempty"`
-	TaskDir          string                 `json:"task_dir,omitempty"`
-	Files            []string               `json:"files,omitempty"`
-	ProgressSteps    []showJSONProgressStep `json:"progress_steps,omitempty"`
-	LinesAdded       int                    `json:"lines_added,omitempty"`
-	LinesRemoved     int                    `json:"lines_removed,omitempty"`
-	CommitsBehind    int                    `json:"commits_behind,omitempty"`
-	ConflictFiles    []string               `json:"conflict_files,omitempty"`
-	IntegratedReason string                 `json:"integrated_reason,omitempty"`
-	HistoryPath      string                 `json:"history_path,omitempty"`
-	LastWorkerReply  string                 `json:"last_worker_reply,omitempty"`
+	Name            string                 `json:"name"`
+	Title           string                 `json:"title,omitempty"`
+	Branch          string                 `json:"branch,omitempty"`
+	BaseBranch      string                 `json:"base_branch,omitempty"`
+	BaseCommit      string                 `json:"base_commit,omitempty"`
+	Model           string                 `json:"model,omitempty"`
+	Reasoning       string                 `json:"reasoning,omitempty"`
+	Status          string                 `json:"status,omitempty"`
+	WorkerStatus    string                 `json:"worker_status,omitempty"`
+	Error           string                 `json:"error,omitempty"`
+	Workspace       string                 `json:"workspace,omitempty"`
+	Workflow        string                 `json:"workflow,omitempty"`
+	Stage           string                 `json:"stage,omitempty"`
+	TaskDir         string                 `json:"task_dir,omitempty"`
+	Files           []string               `json:"files,omitempty"`
+	ProgressSteps   []showJSONProgressStep `json:"progress_steps,omitempty"`
+	LinesAdded      int                    `json:"lines_added,omitempty"`
+	LinesRemoved    int                    `json:"lines_removed,omitempty"`
+	CommitCount     int                    `json:"commit_count,omitempty"`
+	ConflictFiles   []string               `json:"conflict_files,omitempty"`
+	HistoryPath     string                 `json:"history_path,omitempty"`
+	LastWorkerReply string                 `json:"last_worker_reply,omitempty"`
 }
 
 func (c *ShowCmd) renderJSON() (string, error) {
-	detail, err := gather.Detail(context.Background(), c.Task)
+	st := store.New()
+	detail, err := st.Get(context.Background(), c.Task, store.GetOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -152,21 +166,21 @@ func (c *ShowCmd) renderJSON() (string, error) {
 	state := detail.State
 
 	out := showJSON{
-		Name:             t.Name,
-		Title:            t.Title,
-		Branch:           t.Name,
-		BaseBranch:       t.BaseBranch,
-		Model:            detail.Model,
-		Reasoning:        detail.Reasoning,
-		HistoryPath:      task.HistoryPath(c.Task),
-		LastWorkerReply:  lastWorkerReply(c.Task),
-		TaskDir:          task.Dir(c.Task),
-		Files:            detail.TaskFiles,
-		LinesAdded:       detail.LinesAdded,
-		LinesRemoved:     detail.LinesRemoved,
-		CommitsBehind:    detail.CommitsBehind,
-		ConflictFiles:    detail.ConflictFiles,
-		IntegratedReason: detail.IntegratedReason,
+		Name:            t.Name,
+		Title:           t.Title,
+		Branch:          t.Name,
+		BaseBranch:      t.BaseBranch,
+		BaseCommit:      detail.BaseCommit,
+		Model:           detail.Model,
+		Reasoning:       detail.Reasoning,
+		HistoryPath:     task.HistoryPath(c.Task),
+		LastWorkerReply: lastWorkerReply(c.Task),
+		TaskDir:         task.Dir(c.Task),
+		Files:           detail.TaskFiles,
+		LinesAdded:      detail.Changes.Added,
+		LinesRemoved:    detail.Changes.Removed,
+		CommitCount:     detail.Commits.Count,
+		ConflictFiles:   detail.ConflictFiles,
 	}
 
 	out.Status = string(detail.TaskStatus)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/testutil"
 )
 
@@ -87,7 +88,7 @@ func TestIndex_Invalidation_TASKmd(t *testing.T) {
 		Title:       "Old title",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 	require.NoError(t, history.WriteAll(name, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}}))
 
@@ -199,12 +200,12 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 		Title:       "Task",
 		BaseBranch:  "main",
 		Description: "desc",
-		Schema:      1,
+		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
 	require.NoError(t, history.WriteAll(name, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}}))
 
 	// Write a corrupt "db".
-	require.NoError(t, os.WriteFile(filepath.Join(task.ProjectDir(), "index.db"), []byte("not a sqlite db"), 0o644))
+	require.NoError(t, os.WriteFile(task.IndexPath(), []byte("not a sqlite db"), 0o644))
 
 	idx, err := taskindex.OpenDefault()
 	require.NoError(t, err)
@@ -217,7 +218,7 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 	require.True(t, ok)
 
 	// Ensure the corrupt file was moved out of the way.
-	matches, err := filepath.Glob(filepath.Join(task.ProjectDir(), "index.db.corrupt-*"))
+	matches, err := filepath.Glob(task.IndexPath() + ".corrupt-*")
 	require.NoError(t, err)
 	require.NotEmpty(t, matches)
 }

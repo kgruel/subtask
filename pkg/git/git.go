@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,7 @@ import (
 	"time"
 
 	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/zippoxer/subtask/pkg/subtaskerr"
 )
 
 // Run runs a git command in the specified directory.
@@ -22,7 +23,10 @@ func Run(dir string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if !logging.DebugEnabled() {
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return &Error{Dir: dir, Args: args, Cause: err}
+		}
+		return nil
 	}
 	start := time.Now()
 	err := cmd.Run()
@@ -32,7 +36,7 @@ func Run(dir string, args ...string) error {
 		gitCmdBatcher.flushNow()
 		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
 		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
-		return err
+		return &Error{Dir: dir, Args: args, Cause: err}
 	}
 
 	logGitCommandTiming(args, d)
@@ -70,7 +74,10 @@ func RunWithStderrFilter(dir string, stderrFilter func(string) string, args ...s
 		err = cmd.Run()
 	}
 	if stderr.Len() == 0 {
-		return err
+		if err != nil {
+			return &Error{Dir: dir, Args: args, Cause: err}
+		}
+		return nil
 	}
 
 	out := stderr.String()
@@ -80,7 +87,13 @@ func RunWithStderrFilter(dir string, stderrFilter func(string) string, args ...s
 	if out != "" {
 		_, _ = os.Stderr.WriteString(out)
 	}
-	return err
+	if err != nil {
+		if isNotGitRepoOutput(out) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: out, Cause: err}
+	}
+	return nil
 }
 
 // FilterLineEndingWarnings removes common git line-ending conversion warnings.
@@ -110,13 +123,29 @@ func FilterLineEndingWarnings(stderr string) string {
 func RunQuiet(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	if !logging.DebugEnabled() {
-		return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	var (
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		err = cmd.Run()
+		d = time.Since(start)
+		logGitCommandTiming(args, d)
+	} else {
+		err = cmd.Run()
 	}
-	start := time.Now()
-	err := cmd.Run()
-	logGitCommandTiming(args, time.Since(start))
-	return err
+	if err != nil {
+		out := stderr.String()
+		if isNotGitRepoOutput(out) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: out, Cause: err}
+	}
+	return nil
 }
 
 // RunSilent runs a git command, capturing output and only showing it on error.
@@ -144,7 +173,12 @@ func RunSilent(dir string, args ...string) error {
 	}
 	if err != nil {
 		// Show the output only when there's an error
-		os.Stderr.Write(out)
+		_, _ = os.Stderr.Write(out)
+
+		if isNotGitRepoOutput(string(out)) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: string(out), Cause: err}
 	}
 	return err
 }
@@ -153,24 +187,46 @@ func RunSilent(dir string, args ...string) error {
 func Output(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	if !logging.DebugEnabled() {
-		out, err := cmd.Output()
-		if err != nil {
-			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), err.Error()))
-		}
-		return strings.TrimSpace(string(out)), err
-	}
-	start := time.Now()
-	out, err := cmd.Output()
-	d := time.Since(start)
-	if err != nil {
-		gitCmdBatcher.flushNow()
-		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
-		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	var (
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		err = cmd.Run()
+		d = time.Since(start)
 	} else {
+		err = cmd.Run()
+	}
+
+	outStr := strings.TrimSpace(stdout.String())
+	errStr := stderr.String()
+
+	if err != nil {
+		// Check for "not a git repo" first - this is an expected condition, not an error worth logging.
+		if isNotGitRepoOutput(errStr) {
+			return "", subtaskerr.ErrNotGitRepo
+		}
+		if logging.DebugEnabled() {
+			gitCmdBatcher.flushNow()
+			logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+			logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), strings.TrimSpace(errStr), d.Round(time.Millisecond)))
+		} else {
+			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), strings.TrimSpace(errStr)))
+		}
+		return "", &Error{Dir: dir, Args: args, Stderr: errStr, Cause: err}
+	}
+
+	if logging.DebugEnabled() {
 		logGitCommandTiming(args, d)
 	}
-	return strings.TrimSpace(string(out)), err
+	return outStr, nil
 }
 
 // CommitExists returns whether rev resolves to a commit object.
@@ -247,15 +303,15 @@ func Switch(dir, branch, startPoint string) error {
 }
 
 // SetupBranch sets up the git branch for a task (local-first).
-func SetupBranch(dir string, t *task.Task, baseCommit string) error {
+func SetupBranch(dir string, taskBranch string, baseBranch string, baseCommit string) error {
 	// Prefer a pinned base commit when available (stable diffs, staleness detection).
 	if baseCommit != "" {
-		if err := Switch(dir, t.Name, baseCommit); err == nil {
+		if err := Switch(dir, taskBranch, baseCommit); err == nil {
 			return nil
 		}
 	}
 
-	return Switch(dir, t.Name, t.BaseBranch)
+	return Switch(dir, taskBranch, baseBranch)
 }
 
 // IsClean checks if the working directory is clean.
@@ -331,6 +387,75 @@ func DiffStat(dir, baseRef string) (added, removed int, err error) {
 	}
 
 	return added, removed, nil
+}
+
+// RevListCount returns how many commits are reachable from headRef but not baseCommit.
+// Equivalent to: git rev-list --count <baseCommit>..<headRef>
+func RevListCount(dir, baseCommit, headRef string) (int, error) {
+	out, err := Output(dir, "rev-list", "--count", baseCommit+".."+headRef)
+	if err != nil {
+		return 0, err
+	}
+	if out == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+type CommitMeta struct {
+	SHA         string
+	Subject     string
+	AuthorName  string
+	AuthorEmail string
+	AuthoredAt  int64 // unix seconds
+}
+
+// ListCommitsRange returns commits reachable from to but not from from (from..to),
+// ordered from oldest to newest.
+func ListCommitsRange(dir, from, to string) ([]CommitMeta, error) {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("commit range requires from and to")
+	}
+
+	const fieldSep = "\x1f"
+	format := "%H" + fieldSep + "%an" + fieldSep + "%ae" + fieldSep + "%at" + fieldSep + "%s"
+	out, err := Output(dir, "log", "--reverse", "--format="+format, from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+
+	lines := strings.Split(out, "\n")
+	commits := make([]CommitMeta, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, fieldSep)
+		if len(parts) < 5 {
+			continue
+		}
+		authoredAt, _ := strconv.ParseInt(strings.TrimSpace(parts[3]), 10, 64)
+		commits = append(commits, CommitMeta{
+			SHA:         strings.TrimSpace(parts[0]),
+			AuthorName:  strings.TrimSpace(parts[1]),
+			AuthorEmail: strings.TrimSpace(parts[2]),
+			AuthoredAt:  authoredAt,
+			Subject:     strings.TrimSpace(parts[4]),
+		})
+	}
+	return commits, nil
 }
 
 // CommitsBehind returns how many commits targetRef is ahead of baseCommit.
@@ -416,6 +541,20 @@ func MergeBase(dir, ref1, ref2 string) (string, error) {
 	return Output(dir, "merge-base", ref1, ref2)
 }
 
+// MergeBaseForkPoint returns the fork-point merge-base between upstream and commit.
+//
+// This is useful for finding a stable "PR base" even if the branch tip is already
+// reachable from upstream (e.g., fast-forward merged), as long as upstream's reflog
+// still contains the previous base tip.
+func MergeBaseForkPoint(dir, upstream, commit string) (string, error) {
+	upstream = strings.TrimSpace(upstream)
+	commit = strings.TrimSpace(commit)
+	if upstream == "" || commit == "" {
+		return "", fmt.Errorf("upstream and commit are required")
+	}
+	return Output(dir, "merge-base", "--fork-point", upstream, commit)
+}
+
 // MergeConflictFiles returns the list of files that would conflict when merging headRef into targetRef.
 //
 // This is a non-mutating check intended for preflight/status displays. It uses `git merge-tree` to
@@ -427,38 +566,14 @@ func MergeConflictFiles(dir, targetRef, headRef string) ([]string, error) {
 		return nil, fmt.Errorf("targetRef and headRef are required")
 	}
 
-	mb, err := MergeBase(dir, targetRef, headRef)
+	res, err := simulateMerge(dir, targetRef, headRef)
 	if err != nil {
 		return nil, err
 	}
-	mb = strings.TrimSpace(mb)
-	if mb == "" {
-		return nil, fmt.Errorf("failed to resolve merge-base between %s and %s", targetRef, headRef)
-	}
-
-	// `git merge-tree --write-tree` returns exit status 1 on conflicts. In conflict cases it prints:
-	//   <tree-sha>
-	//   <conflicting path 1>
-	//   <conflicting path 2>
-	//
-	//   Auto-merging ...
-	//   CONFLICT ...
-	cmd := exec.Command("git", "merge-tree", "--write-tree", "--name-only", "--merge-base", mb, targetRef, headRef)
-	cmd.Dir = dir
-	out, runErr := cmd.CombinedOutput()
-	if runErr == nil {
+	if len(res.ConflictFiles) == 0 {
 		return nil, nil
 	}
-
-	s := string(out)
-	files := mergeTreeNameOnlyConflictFiles(s)
-	if len(files) == 0 && strings.Contains(s, "CONFLICT") {
-		files = extractMergeConflictFiles(s)
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("git merge-tree failed: %w", runErr)
-	}
-	return files, nil
+	return res.ConflictFiles, nil
 }
 
 func mergeTreeNameOnlyConflictFiles(output string) []string {
@@ -571,13 +686,115 @@ func extractConflictLines(output string) string {
 	return strings.Join(lines, "\n")
 }
 
-// LocalPush fast-forwards targetBranch to current HEAD via local push.
-// Uses receive.denyCurrentBranch=updateInstead to allow pushing to a checked-out branch.
-// This works even if targetBranch is checked out in the main worktree.
+func worktreePathsForBranch(dir, branch string) ([]string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil, nil
+	}
+
+	out, err := Output(dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+
+	want := "refs/heads/" + branch
+
+	var (
+		currentPath   string
+		currentBranch string
+		paths         []string
+	)
+	flush := func() {
+		if currentPath != "" && currentBranch == want {
+			paths = append(paths, currentPath)
+		}
+		currentPath = ""
+		currentBranch = ""
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flush()
+			continue
+		}
+
+		if strings.HasPrefix(line, "worktree ") {
+			// New record (flush previous, then start).
+			flush()
+			currentPath = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+			continue
+		}
+		if strings.HasPrefix(line, "branch ") {
+			currentBranch = strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+			continue
+		}
+	}
+	flush()
+
+	return paths, nil
+}
+
+// LocalPush fast-forwards targetBranch to current HEAD.
+//
+// If targetBranch is checked out in another worktree (e.g. the user's main worktree),
+// update it using a fast-forward merge so local uncommitted changes are preserved when
+// they don't overlap (git-like behavior).
+//
+// If targetBranch is not checked out anywhere, update only the ref.
 func LocalPush(dir, targetBranch string) error {
-	return RunSilent(dir, "push",
-		"--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack",
-		".", "HEAD:"+targetBranch)
+	targetBranch = strings.TrimSpace(targetBranch)
+	if targetBranch == "" {
+		return fmt.Errorf("targetBranch is required")
+	}
+
+	head, err := Output(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	head = strings.TrimSpace(head)
+	if head == "" {
+		return fmt.Errorf("failed to resolve HEAD")
+	}
+
+	old, err := Output(dir, "rev-parse", targetBranch)
+	if err != nil {
+		return err
+	}
+	old = strings.TrimSpace(old)
+	if old == "" {
+		return fmt.Errorf("failed to resolve %s", targetBranch)
+	}
+
+	ok, err := IsAncestor(dir, old, head)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("cannot fast-forward %s to %s (not a descendant)", targetBranch, head)
+	}
+
+	paths, err := worktreePathsForBranch(dir, targetBranch)
+	if err != nil {
+		return err
+	}
+	if len(paths) > 1 {
+		return fmt.Errorf("cannot fast-forward %s: branch is checked out in multiple worktrees (%s)", targetBranch, strings.Join(paths, ", "))
+	}
+	if len(paths) == 1 {
+		wt := paths[0]
+		if err := RunSilent(wt, "merge", "--ff-only", head); err != nil {
+			return fmt.Errorf("failed to fast-forward %s in %s: %w", targetBranch, wt, err)
+		}
+		return nil
+	}
+
+	// Ref-only update (not checked out anywhere). Use the expected old SHA to avoid races.
+	return RunSilent(dir, "update-ref", "-m", "subtask merge", "refs/heads/"+targetBranch, head, old)
 }
 
 // IntegrationReason describes why a branch is considered integrated into target.
@@ -634,6 +851,30 @@ func BranchExists(dir, branch string) bool {
 	return err == nil
 }
 
+// IsAncestor reports whether ancestor is reachable from descendant.
+//
+// This wraps `git merge-base --is-ancestor`:
+// - returns (true, nil) if ancestor is an ancestor of descendant
+// - returns (false, nil) if ancestor is NOT an ancestor of descendant
+// - returns (false, err) for other git errors (missing commits, not a repo, etc.)
+func IsAncestor(dir, ancestor, descendant string) (bool, error) {
+	err := RunQuiet(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+
+	// Exit code 1 = not ancestor.
+	var gitErr *Error
+	if errors.As(err, &gitErr) {
+		var exitErr *exec.ExitError
+		if errors.As(gitErr.Cause, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+	}
+
+	return false, err
+}
+
 // isSameCommit checks if two refs point to the same commit.
 func isSameCommit(dir, ref1, ref2 string) bool {
 	out, err := Output(dir, "rev-parse", ref1, ref2)
@@ -683,9 +924,8 @@ func treesMatch(dir, ref1, ref2 string) bool {
 // mergeAddsChanges checks if merging branch into target would add any changes.
 // Uses git merge-tree to simulate the merge without actually performing it.
 func mergeAddsChanges(dir, branch, target string) bool {
-	// git merge-tree --write-tree returns the tree SHA of what the merge would produce
-	mergeTree, err := Output(dir, "merge-tree", "--write-tree", target, branch)
-	if err != nil {
+	res, err := simulateMerge(dir, target, branch)
+	if err != nil || len(res.ConflictFiles) > 0 || strings.TrimSpace(res.MergedTree) == "" {
 		return true // Assume has changes on error (including conflicts)
 	}
 
@@ -696,7 +936,7 @@ func mergeAddsChanges(dir, branch, target string) bool {
 	}
 
 	// If merge result equals target tree, merging adds nothing
-	return strings.TrimSpace(mergeTree) != strings.TrimSpace(targetTree)
+	return strings.TrimSpace(res.MergedTree) != strings.TrimSpace(targetTree)
 }
 
 // EffectiveTarget returns target or origin/target if origin is ahead.

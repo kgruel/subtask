@@ -16,8 +16,8 @@ import (
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/gather"
 	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/zippoxer/subtask/pkg/task/store"
 )
 
 type viewMode int
@@ -69,7 +69,7 @@ type toastState struct {
 func (t toastState) active() bool { return t.kind != toastNone && t.text != "" }
 
 type listLoadedMsg struct {
-	data gather.TaskListData
+	data store.ListResult
 	err  error
 }
 
@@ -81,7 +81,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 type detailLoadedMsg struct {
 	taskName string
-	detail   gather.TaskDetail
+	detail   store.TaskView
 	err      error
 }
 
@@ -129,8 +129,8 @@ type model struct {
 	width  int
 	height int
 
-	tasks               []gather.TaskListItem
-	filteredTasks       []gather.TaskListItem // filtered view when searching
+	tasks               []store.TaskListItem
+	filteredTasks       []store.TaskListItem // filtered view when searching
 	availableWorkspaces int
 	selected            int
 	offset              int
@@ -157,7 +157,7 @@ type model struct {
 
 	// detail data (refreshed on demand)
 	detailTaskName string
-	detail         gather.TaskDetail
+	detail         store.TaskView
 	detailErr      error
 
 	// viewports (one per tab; diff uses split-pane viewport)
@@ -360,9 +360,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if logging.DebugEnabled() {
-			logging.Debug("tui", fmt.Sprintf("data arrived items=%d (+%s)", len(msg.data.Items), sinceStartup().Round(time.Millisecond)))
+			logging.Debug("tui", fmt.Sprintf("data arrived items=%d (+%s)", len(msg.data.Tasks), sinceStartup().Round(time.Millisecond)))
 		}
-		m.tasks = msg.data.Items
+		m.tasks = msg.data.Tasks
 		m.availableWorkspaces = msg.data.AvailableWorkspaces
 
 		// Re-filter if search is active (without resetting selection)
@@ -905,12 +905,13 @@ func (m model) View() string {
 func fetchListCmd() tea.Cmd {
 	return func() tea.Msg {
 		done := logging.DebugTimer("refresh", "start")
-		data, err := gather.List(context.Background(), gather.ListOptions{All: true})
+		st := store.New()
+		data, err := st.List(context.Background(), store.ListOptions{All: true})
 		if err != nil {
-			logging.Error("refresh", "gather.List error: "+err.Error())
+			logging.Error("refresh", "store.List error: "+err.Error())
 		}
 		if logging.DebugEnabled() {
-			done(fmt.Sprintf("done items=%d", len(data.Items)))
+			done(fmt.Sprintf("done items=%d", len(data.Tasks)))
 		} else {
 			done("")
 		}
@@ -950,7 +951,7 @@ func (m model) refreshSelected() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func clampSelection(tasks []gather.TaskListItem, idx int, preferredName string) int {
+func clampSelection(tasks []store.TaskListItem, idx int, preferredName string) int {
 	if len(tasks) == 0 {
 		return 0
 	}
@@ -971,7 +972,7 @@ func clampSelection(tasks []gather.TaskListItem, idx int, preferredName string) 
 }
 
 // visibleTasks returns the filtered tasks if search is active, otherwise all tasks.
-func (m model) visibleTasks() []gather.TaskListItem {
+func (m model) visibleTasks() []store.TaskListItem {
 	if m.searchActive && m.searchInput.Value() != "" {
 		return m.filteredTasks
 	}
@@ -1009,7 +1010,8 @@ func (m *model) refilterTasks() {
 
 func fetchDetailCmd(taskName string) tea.Cmd {
 	return func() tea.Msg {
-		d, err := gather.Detail(context.Background(), taskName)
+		st := store.New()
+		d, err := st.Get(context.Background(), taskName, store.GetOptions{})
 		return detailLoadedMsg{taskName: taskName, detail: d, err: err}
 	}
 }
@@ -1161,7 +1163,7 @@ func fetchConversationCmd(taskName string) tea.Cmd {
 	}
 }
 
-func fetchDiffFilesCmd(taskName string, detail gather.TaskDetail) tea.Cmd {
+func fetchDiffFilesCmd(taskName string, detail store.TaskView) tea.Cmd {
 	return func() tea.Msg {
 		ctx, err := computeDiffCtx(taskName, detail)
 		if err != nil {
@@ -1193,7 +1195,7 @@ func fetchDiffFilesCmd(taskName string, detail gather.TaskDetail) tea.Cmd {
 	}
 }
 
-func computeDiffCtx(taskName string, detail gather.TaskDetail) (diffCtx, error) {
+func computeDiffCtx(taskName string, detail store.TaskView) (diffCtx, error) {
 	if detail.Task == nil {
 		return diffCtx{}, fmt.Errorf("diff unavailable")
 	}

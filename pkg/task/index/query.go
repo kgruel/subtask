@@ -15,6 +15,7 @@ type ListItem struct {
 	Title      string
 	FollowUp   string
 	BaseBranch string
+	BaseCommit string
 
 	TaskStatus   task.TaskStatus
 	WorkerStatus task.WorkerStatus
@@ -33,16 +34,15 @@ type ListItem struct {
 	ProgressDone  int
 	ProgressTotal int
 
-	LinesAdded    int
-	LinesRemoved  int
-	CommitsBehind int
-
-	IntegratedReason string
+	LinesAdded   int
+	LinesRemoved int
 }
 
 // Record is the cached file-backed data for a single task.
 type Record struct {
 	Task *task.Task
+
+	BaseCommit string
 
 	TaskStatus   task.TaskStatus
 	WorkerStatus task.WorkerStatus
@@ -60,9 +60,28 @@ type Record struct {
 
 	LinesAdded        int
 	LinesRemoved      int
-	CommitsBehind     int
 	ConflictFilesJSON string
-	IntegratedReason  string
+
+	// Integration (content detection) cache keyed by (base_head, branch_head).
+	IntegratedReason      string
+	IntegratedBranchHead  string
+	IntegratedTargetHead  string
+	IntegratedCheckedAtNS int64
+
+	// Git redesign cache fields (input-based invalidation).
+	BranchHead string
+	BaseHead   string
+
+	ChangesAdded      int
+	ChangesRemoved    int
+	ChangesBaseCommit string
+	ChangesBranchHead string
+
+	CommitCount           int
+	CommitCountBaseCommit string
+	CommitCountBranchHead string
+
+	CommitLogLastHead string
 }
 
 func (i *Index) ListAll(ctx context.Context) ([]ListItem, error) {
@@ -71,15 +90,14 @@ func (i *Index) ListAll(ctx context.Context) ([]ListItem, error) {
 	}
 	const q = `
 SELECT
-	name, title, follow_up, base_branch,
+	name, title, follow_up, base_branch, base_commit,
 	task_status, worker_status, stage,
 	workspace, started_at_ns, last_error,
 	last_history_ns,
 	last_active_ns, tool_calls,
 	last_run_duration_ms,
 	progress_done, progress_total,
-	git_lines_added, git_lines_removed, git_commits_behind,
-	git_integrated_reason
+	git_lines_added, git_lines_removed
 FROM tasks
 ORDER BY last_history_ns DESC, name ASC;
 `
@@ -92,15 +110,14 @@ func (i *Index) ListOpen(ctx context.Context) ([]ListItem, error) {
 	}
 	const q = `
 SELECT
-	name, title, follow_up, base_branch,
+	name, title, follow_up, base_branch, base_commit,
 	task_status, worker_status, stage,
 	workspace, started_at_ns, last_error,
 	last_history_ns,
 	last_active_ns, tool_calls,
 	last_run_duration_ms,
 	progress_done, progress_total,
-	git_lines_added, git_lines_removed, git_commits_behind,
-	git_integrated_reason
+	git_lines_added, git_lines_removed
 FROM tasks
 WHERE task_status != 'closed'
 ORDER BY last_history_ns DESC, name ASC;
@@ -114,15 +131,14 @@ func (i *Index) ListClosed(ctx context.Context) ([]ListItem, error) {
 	}
 	const q = `
 SELECT
-	name, title, follow_up, base_branch,
+	name, title, follow_up, base_branch, base_commit,
 	task_status, worker_status, stage,
 	workspace, started_at_ns, last_error,
 	last_history_ns,
 	last_active_ns, tool_calls,
 	last_run_duration_ms,
 	progress_done, progress_total,
-	git_lines_added, git_lines_removed, git_commits_behind,
-	git_integrated_reason
+	git_lines_added, git_lines_removed
 FROM tasks
 WHERE task_status = 'closed'
 ORDER BY last_history_ns DESC, name ASC;
@@ -140,30 +156,27 @@ func (i *Index) queryList(ctx context.Context, q string) ([]ListItem, error) {
 	var out []ListItem
 	for rows.Next() {
 		var (
-			name, title, followUp, baseBranch string
-			taskStatus, workerStatus, stage   string
-			workspace                         string
-			startedAtNS                       int64
-			lastError                         sql.NullString
-			lastHistoryNS                     int64
-			lastActiveNS                      int64
-			toolCalls                         int
-			lastRunDurationMS                 int
-			progressDone, progressTotal       int
-			linesAdded, linesRemoved          sql.NullInt64
-			commitsBehind                     sql.NullInt64
-			integratedReason                  sql.NullString
+			name, title, followUp, baseBranch, baseCommit string
+			taskStatus, workerStatus, stage               string
+			workspace                                     string
+			startedAtNS                                   int64
+			lastError                                     sql.NullString
+			lastHistoryNS                                 int64
+			lastActiveNS                                  int64
+			toolCalls                                     int
+			lastRunDurationMS                             int
+			progressDone, progressTotal                   int
+			linesAdded, linesRemoved                      sql.NullInt64
 		)
 		if err := rows.Scan(
-			&name, &title, &followUp, &baseBranch,
+			&name, &title, &followUp, &baseBranch, &baseCommit,
 			&taskStatus, &workerStatus, &stage,
 			&workspace, &startedAtNS, &lastError,
 			&lastHistoryNS,
 			&lastActiveNS, &toolCalls,
 			&lastRunDurationMS,
 			&progressDone, &progressTotal,
-			&linesAdded, &linesRemoved, &commitsBehind,
-			&integratedReason,
+			&linesAdded, &linesRemoved,
 		); err != nil {
 			return nil, fmt.Errorf("index list: scan: %w", err)
 		}
@@ -173,6 +186,7 @@ func (i *Index) queryList(ctx context.Context, q string) ([]ListItem, error) {
 			Title:             title,
 			FollowUp:          followUp,
 			BaseBranch:        baseBranch,
+			BaseCommit:        baseCommit,
 			TaskStatus:        task.TaskStatus(taskStatus),
 			WorkerStatus:      task.ParseWorkerStatus(workerStatus),
 			Stage:             stage,
@@ -186,13 +200,9 @@ func (i *Index) queryList(ctx context.Context, q string) ([]ListItem, error) {
 			ProgressTotal:     progressTotal,
 			LinesAdded:        intOrZero(linesAdded),
 			LinesRemoved:      intOrZero(linesRemoved),
-			CommitsBehind:     intOrZero(commitsBehind),
 		}
 		if lastError.Valid {
 			item.LastError = lastError.String
-		}
-		if integratedReason.Valid {
-			item.IntegratedReason = integratedReason.String
 		}
 
 		out = append(out, item)
@@ -209,49 +219,64 @@ func (i *Index) Get(ctx context.Context, taskName string) (Record, bool, error) 
 	}
 	const q = `
 SELECT
-	name, title, base_branch, follow_up, model, reasoning, description,
+	name, title, base_branch, base_commit, follow_up, model, reasoning, description,
 	task_schema, task_status, worker_status, stage,
 	workspace, started_at_ns, supervisor_pid, last_error,
 	last_history_ns,
 	tool_calls, last_active_ns,
 	last_run_duration_ms,
 	progress_done, progress_total,
-	git_lines_added, git_lines_removed, git_commits_behind,
+	git_lines_added, git_lines_removed,
 	git_conflict_files_json,
-	git_integrated_reason
+	git_integrated_reason, git_integrated_branch_head, git_integrated_target_head, git_integrated_checked_at_ns,
+	branch_head, base_head,
+	changes_added, changes_removed, changes_base_commit, changes_branch_head,
+	commit_count, commit_count_base_commit, commit_count_branch_head,
+	commit_log_last_head
 FROM tasks
 WHERE name = ?;
 `
 
 	var (
-		name, title, baseBranch, followUp, model, reasoning, description string
-		taskSchema                                                       int
-		taskStatus, workerStatus, stage                                  string
-		workspace                                                        string
-		startedAtNS                                                      int64
-		supervisorPID                                                    int
-		lastError                                                        sql.NullString
-		lastHistoryNS                                                    int64
-		toolCalls                                                        int
-		lastActiveNS                                                     int64
-		lastRunDurationMS                                                int
-		progressDone, progressTotal                                      int
-		linesAdded, linesRemoved, commitsBehind                          sql.NullInt64
-		conflictFilesJSON                                                sql.NullString
-		integratedReason                                                 sql.NullString
+		name, title, baseBranch, baseCommit, followUp, model, reasoning, description string
+		taskSchema                                                                   int
+		taskStatus, workerStatus, stage                                              string
+		workspace                                                                    string
+		startedAtNS                                                                  int64
+		supervisorPID                                                                int
+		lastError                                                                    sql.NullString
+		lastHistoryNS                                                                int64
+		toolCalls                                                                    int
+		lastActiveNS                                                                 int64
+		lastRunDurationMS                                                            int
+		progressDone, progressTotal                                                  int
+		linesAdded, linesRemoved                                                     sql.NullInt64
+		conflictFilesJSON                                                            sql.NullString
+		integratedReason, integratedBranchHead, integratedTargetHead                 sql.NullString
+		integratedCheckedAtNS                                                        sql.NullInt64
+		branchHead, baseHead                                                         sql.NullString
+		changesAdded, changesRemoved                                                 sql.NullInt64
+		changesBaseCommit, changesBranchHead                                         sql.NullString
+		commitCount                                                                  sql.NullInt64
+		commitCountBaseCommit, commitCountBranchHead                                 sql.NullString
+		commitLogLastHead                                                            sql.NullString
 	)
 
 	err := i.db.QueryRowContext(ctx, q, taskName).Scan(
-		&name, &title, &baseBranch, &followUp, &model, &reasoning, &description,
+		&name, &title, &baseBranch, &baseCommit, &followUp, &model, &reasoning, &description,
 		&taskSchema, &taskStatus, &workerStatus, &stage,
 		&workspace, &startedAtNS, &supervisorPID, &lastError,
 		&lastHistoryNS,
 		&toolCalls, &lastActiveNS,
 		&lastRunDurationMS,
 		&progressDone, &progressTotal,
-		&linesAdded, &linesRemoved, &commitsBehind,
+		&linesAdded, &linesRemoved,
 		&conflictFilesJSON,
-		&integratedReason,
+		&integratedReason, &integratedBranchHead, &integratedTargetHead, &integratedCheckedAtNS,
+		&branchHead, &baseHead,
+		&changesAdded, &changesRemoved, &changesBaseCommit, &changesBranchHead,
+		&commitCount, &commitCountBaseCommit, &commitCountBranchHead,
+		&commitLogLastHead,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -271,6 +296,7 @@ WHERE name = ?;
 			Schema:      taskSchema,
 			Description: description,
 		},
+		BaseCommit:        baseCommit,
 		TaskStatus:        task.TaskStatus(taskStatus),
 		WorkerStatus:      task.ParseWorkerStatus(workerStatus),
 		Stage:             stage,
@@ -280,7 +306,6 @@ WHERE name = ?;
 		LastRunDurationMS: lastRunDurationMS,
 		LinesAdded:        intOrZero(linesAdded),
 		LinesRemoved:      intOrZero(linesRemoved),
-		CommitsBehind:     intOrZero(commitsBehind),
 	}
 
 	st := &task.State{
@@ -304,6 +329,41 @@ WHERE name = ?;
 	}
 	if integratedReason.Valid {
 		rec.IntegratedReason = integratedReason.String
+	}
+	if integratedBranchHead.Valid {
+		rec.IntegratedBranchHead = integratedBranchHead.String
+	}
+	if integratedTargetHead.Valid {
+		rec.IntegratedTargetHead = integratedTargetHead.String
+	}
+	if integratedCheckedAtNS.Valid {
+		rec.IntegratedCheckedAtNS = integratedCheckedAtNS.Int64
+	}
+	if branchHead.Valid {
+		rec.BranchHead = branchHead.String
+	}
+	if baseHead.Valid {
+		rec.BaseHead = baseHead.String
+	}
+
+	rec.ChangesAdded = intOrZero(changesAdded)
+	rec.ChangesRemoved = intOrZero(changesRemoved)
+	if changesBaseCommit.Valid {
+		rec.ChangesBaseCommit = changesBaseCommit.String
+	}
+	if changesBranchHead.Valid {
+		rec.ChangesBranchHead = changesBranchHead.String
+	}
+
+	rec.CommitCount = intOrZero(commitCount)
+	if commitCountBaseCommit.Valid {
+		rec.CommitCountBaseCommit = commitCountBaseCommit.String
+	}
+	if commitCountBranchHead.Valid {
+		rec.CommitCountBranchHead = commitCountBranchHead.String
+	}
+	if commitLogLastHead.Valid {
+		rec.CommitLogLastHead = commitLogLastHead.String
 	}
 
 	return rec, true, nil

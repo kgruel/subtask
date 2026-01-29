@@ -125,6 +125,24 @@ func DiffNumstatRange(dir, baseRef, branchRef string) ([]DiffFileStat, error) {
 	return parseNumstat(out), nil
 }
 
+// DiffStatRange returns summed added/removed lines for base..branch.
+//
+// This is committed-history only (does not include uncommitted workspace changes).
+func DiffStatRange(dir, baseRef, branchRef string) (added, removed int, err error) {
+	stats, err := DiffNumstatRange(dir, baseRef, branchRef)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, s := range stats {
+		if s.Binary {
+			continue
+		}
+		added += s.Added
+		removed += s.Removed
+	}
+	return added, removed, nil
+}
+
 // DiffFile returns the unified diff for a single file path compared to baseRef.
 func DiffFile(dir, baseRef, path string) (string, error) {
 	return Output(dir, "diff", baseRef, "--", path)

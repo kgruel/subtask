@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/gather"
+	"github.com/zippoxer/subtask/pkg/task/store"
 	"github.com/zippoxer/subtask/pkg/workflow"
 )
 
@@ -28,7 +28,7 @@ func TestUpdateOverviewContent_RendersProgressAndWorkflow(t *testing.T) {
 	m := newModel()
 	m.vpOverview = viewport.New(80, 30)
 
-	m.detail = gather.TaskDetail{
+	m.detail = store.TaskView{
 		Task: &task.Task{
 			Name:        "fix/overview",
 			Title:       "Overview Task",

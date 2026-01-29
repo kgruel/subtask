@@ -15,13 +15,6 @@ import (
 //go:embed SKILL.md
 var embeddedSkill []byte
 
-type Scope string
-
-const (
-	ScopeUser    Scope = "user"
-	ScopeProject Scope = "project"
-)
-
 // SkillStatus describes the installation state of the embedded skill.
 type SkillStatus struct {
 	Path            string
@@ -36,11 +29,8 @@ func Embedded() []byte {
 	return bytes.Clone(embeddedSkill)
 }
 
-// SkillPath returns the Claude Code skill path for the given base directory.
-// For user scope, baseDir should be the user's home directory.
-// For project scope, baseDir should be the project root directory.
-func SkillPath(scope Scope, baseDir string) string {
-	_ = scope // for symmetry with other install targets
+// SkillPath returns the Claude Code skill path for the given base directory (usually the user's home directory).
+func SkillPath(baseDir string) string {
 	if baseDir == "" {
 		return ""
 	}
@@ -48,18 +38,31 @@ func SkillPath(scope Scope, baseDir string) string {
 }
 
 // Install writes the embedded skill to the Claude Code skill location (user scope).
-func Install() (string, error) {
+func Install() (string, bool, error) {
 	homeDir, err := homedir.Dir()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return InstallTo(ScopeUser, homeDir)
+	return InstallTo(homeDir)
 }
 
-// InstallTo writes the embedded skill to the Claude Code skill location under baseDir.
-func InstallTo(scope Scope, baseDir string) (string, error) {
-	path, _, err := syncSkillTo(scope, baseDir)
-	return path, err
+// InstallTo writes the embedded skill to the Claude Code skill location under baseDir (user scope).
+func InstallTo(baseDir string) (string, bool, error) {
+	return syncSkillTo(baseDir)
+}
+
+// InstallToProject writes the embedded skill to the project-scoped Claude Code skill location.
+// projectRoot should be the git root of the project.
+func InstallToProject(projectRoot string) (string, bool, error) {
+	return syncSkillToProject(projectRoot)
+}
+
+// ProjectSkillPath returns the Claude Code skill path for project scope.
+func ProjectSkillPath(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+	return filepath.Join(projectRoot, ".claude", "skills", "subtask", "SKILL.md")
 }
 
 // Uninstall removes the skill from the Claude Code skill location (user scope).
@@ -68,12 +71,12 @@ func Uninstall() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return UninstallFrom(ScopeUser, homeDir)
+	return UninstallFrom(homeDir)
 }
 
 // UninstallFrom removes the skill from the Claude Code skill location under baseDir.
-func UninstallFrom(scope Scope, baseDir string) (string, error) {
-	path := SkillPath(scope, baseDir)
+func UninstallFrom(baseDir string) (string, error) {
+	path := SkillPath(baseDir)
 	if path == "" {
 		return "", errors.New("invalid base directory")
 	}
@@ -89,12 +92,12 @@ func GetSkillStatus() (SkillStatus, error) {
 	if err != nil {
 		return SkillStatus{}, err
 	}
-	return GetSkillStatusFor(ScopeUser, homeDir)
+	return GetSkillStatusFor(homeDir)
 }
 
-// GetSkillStatusFor returns status for baseDir/scope without consulting environment.
-func GetSkillStatusFor(scope Scope, baseDir string) (SkillStatus, error) {
-	path := SkillPath(scope, baseDir)
+// GetSkillStatusFor returns status for baseDir without consulting environment.
+func GetSkillStatusFor(baseDir string) (SkillStatus, error) {
+	path := SkillPath(baseDir)
 	if path == "" {
 		return SkillStatus{}, errors.New("invalid base directory")
 	}
@@ -126,8 +129,8 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func syncSkillTo(scope Scope, baseDir string) (string, bool, error) {
-	path := SkillPath(scope, baseDir)
+func syncSkillTo(baseDir string) (string, bool, error) {
+	path := SkillPath(baseDir)
 	if path == "" {
 		return "", false, errors.New("invalid base directory")
 	}
@@ -146,11 +149,31 @@ func syncSkillTo(scope Scope, baseDir string) (string, bool, error) {
 	return path, true, nil
 }
 
-func isSkillInstalled(scope Scope, baseDir string) bool {
-	path := SkillPath(scope, baseDir)
+func isSkillInstalled(baseDir string) bool {
+	path := SkillPath(baseDir)
 	if path == "" {
 		return false
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func syncSkillToProject(projectRoot string) (string, bool, error) {
+	path := ProjectSkillPath(projectRoot)
+	if path == "" {
+		return "", false, errors.New("invalid project root")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", false, err
+	}
+
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, embeddedSkill) {
+		return path, false, nil
+	}
+
+	if err := os.WriteFile(path, embeddedSkill, 0o644); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
 }

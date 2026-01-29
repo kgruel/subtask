@@ -17,6 +17,7 @@ type Result struct {
 	PromptDelivered bool   // True if session started (thread.started seen)
 	AgentReplied    bool   // True if agent sent a message
 	Error           string // Non-empty if execution failed
+	TurnFailed      bool   // True if a turn.failed event was observed (Codex)
 }
 
 // Callbacks for harness events.
@@ -27,10 +28,14 @@ type Callbacks struct {
 
 // ReviewTarget specifies what to review.
 type ReviewTarget struct {
-	// Exactly one of these should be set:
+	// Exactly one review *mode* should be set:
 	Uncommitted bool   // Review staged, unstaged, and untracked changes
 	BaseBranch  string // Review changes against this base branch
 	Commit      string // Review changes introduced by this commit SHA
+
+	// Optional metadata for prompt construction.
+	// When set, the review prompt should mention the task name (Subtask-only mode).
+	TaskName string
 }
 
 // Harness is the interface for worker backends.
@@ -168,9 +173,8 @@ func getStringOpt(opts map[string]any, key string) string {
 	return ""
 }
 
-// buildReviewPrompt constructs a review prompt for harnesses that don't have
-// built-in review target support (Claude, OpenCode).
-// Mirrors the prompt format from Codex's review_prompts.rs.
+// buildReviewPrompt constructs a review prompt for code review.
+// For uncommitted/base/commit it mirrors Codex's codex-rs/core/src/review_prompts.rs strings.
 func buildReviewPrompt(cwd string, target ReviewTarget, instructions string) string {
 	var parts []string
 
@@ -178,33 +182,34 @@ func buildReviewPrompt(cwd string, target ReviewTarget, instructions string) str
 	case target.Uncommitted:
 		parts = append(parts, "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.")
 
-	case target.BaseBranch != "":
-		// Try to get merge base for more accurate diff
+	case target.TaskName != "" && target.BaseBranch != "":
 		mergeBase, err := git.MergeBase(cwd, "HEAD", target.BaseBranch)
 		if err == nil && mergeBase != "" {
 			parts = append(parts, fmt.Sprintf(
-				"Review the code changes against the base branch '%s'. "+
-					"The merge base commit for this comparison is %s. "+
-					"Run `git diff %s` to inspect the changes relative to %s. "+
-					"Provide prioritized, actionable findings.",
+				"Review the code changes for subtask task '%s' against the base branch '%s'. The merge base commit for this comparison is %s. Run `git diff %s` to inspect the changes relative to %s. Provide prioritized, actionable findings.",
+				target.TaskName, target.BaseBranch, mergeBase, mergeBase, target.BaseBranch))
+		} else {
+			parts = append(parts, fmt.Sprintf(
+				"Review the code changes for subtask task '%s' against the base branch '%s'. Start by finding the merge diff between the current branch and %s's upstream e.g. (`git merge-base HEAD \"$(git rev-parse --abbrev-ref \"%s@{upstream}\")\"`), then run `git diff` against that SHA to see what changes we would merge into the %s branch. Provide prioritized, actionable findings.",
+				target.TaskName, target.BaseBranch, target.BaseBranch, target.BaseBranch, target.BaseBranch))
+		}
+
+	case target.BaseBranch != "":
+		mergeBase, err := git.MergeBase(cwd, "HEAD", target.BaseBranch)
+		if err == nil && mergeBase != "" {
+			parts = append(parts, fmt.Sprintf(
+				"Review the code changes against the base branch '%s'. The merge base commit for this comparison is %s. Run `git diff %s` to inspect the changes relative to %s. Provide prioritized, actionable findings.",
 				target.BaseBranch, mergeBase, mergeBase, target.BaseBranch))
 		} else {
-			// Fallback: let the reviewer figure out the merge base
 			parts = append(parts, fmt.Sprintf(
-				"Review the code changes against the base branch '%s'. "+
-					"Start by finding the merge diff between the current branch and %s "+
-					"(e.g., `git merge-base HEAD %s`), then run `git diff` against that SHA "+
-					"to see what changes we would merge into the %s branch. "+
-					"Provide prioritized, actionable findings.",
+				"Review the code changes against the base branch '%s'. Start by finding the merge diff between the current branch and %s's upstream e.g. (`git merge-base HEAD \"$(git rev-parse --abbrev-ref \"%s@{upstream}\")\"`), then run `git diff` against that SHA to see what changes we would merge into the %s branch. Provide prioritized, actionable findings.",
 				target.BaseBranch, target.BaseBranch, target.BaseBranch, target.BaseBranch))
 		}
 
 	case target.Commit != "":
 		parts = append(parts, fmt.Sprintf(
-			"Review the code changes introduced by commit %s. "+
-				"Run `git show %s` to inspect the changes. "+
-				"Provide prioritized, actionable findings.",
-			target.Commit, target.Commit))
+			"Review the code changes introduced by commit %s. Provide prioritized, actionable findings.",
+			target.Commit))
 
 	default:
 		// Fallback to uncommitted

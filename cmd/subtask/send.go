@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -18,7 +19,6 @@ import (
 	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
 	"github.com/zippoxer/subtask/pkg/task/migrate"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
@@ -52,6 +52,13 @@ func (c *SendCmd) Run() error {
 		return fmt.Errorf("prompt is required\n\nProvide a prompt as argument or via stdin (heredoc/pipe)")
 	}
 
+	// Requirements: git + global config (config may be migrated on first access).
+	res, err := preflightProject()
+	if err != nil {
+		return err
+	}
+	cfg := res.Config
+
 	// Ensure schema/history exist (one-time).
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
@@ -63,10 +70,6 @@ func (c *SendCmd) Run() error {
 			c.Task, c.Task)
 	}
 
-	cfg, err := workspace.LoadConfig()
-	if err != nil {
-		return err
-	}
 	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
 		return err
 	}
@@ -105,6 +108,86 @@ func (c *SendCmd) Run() error {
 		return err
 	}
 
+	var runToolCalls atomic.Int64
+
+	// Start time is stored atomically so the SIGINT handler can read it safely. We update
+	// it later once the worker is about to run (excluding workspace prep time).
+	var startedUnixNano atomic.Int64
+	startedUnixNano.Store(time.Now().UTC().UnixNano())
+
+	// Setup signal handling early so an interrupt during workspace prep doesn't leave a
+	// stuck SupervisorPID claim.
+	sigChan := make(chan os.Signal, 1)
+	sigStop := make(chan struct{})
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		var sig os.Signal
+		select {
+		case sig = <-sigChan:
+		case <-sigStop:
+			return
+		}
+		finished := time.Now().UTC()
+		started := time.Unix(0, startedUnixNano.Load()).UTC()
+		durationMS := int(finished.Sub(started).Milliseconds())
+		if durationMS < 0 {
+			durationMS = 0
+		}
+		errMsg := "interrupted"
+
+		owned := false
+		_ = task.WithLock(c.Task, func() error {
+			st, _ := task.LoadState(c.Task)
+			if st == nil {
+				return nil
+			}
+			if st.SupervisorPID != os.Getpid() {
+				return nil
+			}
+
+			owned = true
+			_ = history.AppendLocked(c.Task, history.Event{
+				Type: "worker.interrupt",
+				Data: mustJSON(map[string]any{
+					"action":          "received",
+					"run_id":          runID,
+					"signal":          sig.String(),
+					"supervisor_pid":  os.Getpid(),
+					"supervisor_pgid": task.SelfProcessGroupID(),
+				}),
+				TS: finished,
+			})
+			_ = history.AppendLocked(c.Task, history.Event{
+				Type: "worker.finished",
+				Data: mustJSON(map[string]any{
+					"run_id":        runID,
+					"duration_ms":   durationMS,
+					"outcome":       "error",
+					"error":         errMsg,
+					"error_message": errMsg,
+					"tool_calls":    int(runToolCalls.Load()),
+				}),
+				TS: finished,
+			})
+
+			st.SupervisorPID = 0
+			st.SupervisorPGID = 0
+			st.StartedAt = time.Time{}
+			st.LastError = errMsg
+			return st.Save(c.Task)
+		})
+
+		if owned {
+			logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
+			logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
+		}
+		os.Exit(1)
+	}()
+	defer func() {
+		close(sigStop)
+		signal.Stop(sigChan)
+	}()
+
 	wsPath, prevWorkspace, continueFrom, repoStatus, err := c.prepareWorkspaceAndState(cfg, h, t, tail, prompt, runID)
 	if err != nil {
 		return err
@@ -126,52 +209,8 @@ func (c *SendCmd) Run() error {
 	// Build prompt.
 	fullPrompt := harness.BuildPrompt(t, wsPath, false, prompt, repoStatus)
 
-	var runToolCalls atomic.Int64
-	started := time.Now().UTC()
-
-	// Setup signal handling.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigChan
-		errMsg := "interrupted"
-		_ = task.WithLock(c.Task, func() error {
-			st, _ := task.LoadState(c.Task)
-			if st == nil {
-				st = &task.State{}
-			}
-			st.SupervisorPID = 0
-			st.SupervisorPGID = 0
-			st.StartedAt = time.Time{}
-			st.LastError = errMsg
-			return st.Save(c.Task)
-		})
-		_ = history.Append(c.Task, history.Event{
-			Type: "worker.interrupt",
-			Data: mustJSON(map[string]any{
-				"action":          "received",
-				"run_id":          runID,
-				"signal":          sig.String(),
-				"supervisor_pid":  os.Getpid(),
-				"supervisor_pgid": task.SelfProcessGroupID(),
-			}),
-		})
-		_ = history.Append(c.Task, history.Event{
-			Type: "worker.finished",
-			Data: mustJSON(map[string]any{
-				"run_id":        runID,
-				"duration_ms":   int(time.Since(started).Milliseconds()),
-				"outcome":       "error",
-				"error":         errMsg,
-				"error_message": errMsg,
-				"tool_calls":    int(runToolCalls.Load()),
-			}),
-		})
-		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
-		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, time.Since(started).Round(time.Second)))
-		os.Exit(1)
-	}()
-	defer signal.Stop(sigChan)
+	// Reset start time for the worker run (exclude workspace preparation).
+	startedUnixNano.Store(time.Now().UTC().UnixNano())
 
 	// Snapshot shared files before execution (exclude history.jsonl).
 	sharedBefore := SnapshotTaskFiles(c.Task)
@@ -216,6 +255,7 @@ func (c *SendCmd) Run() error {
 
 	result, runErr := h.Run(context.Background(), wsPath, fullPrompt, continueFrom, callbacks)
 	finished := time.Now().UTC()
+	started := time.Unix(0, startedUnixNano.Load()).UTC()
 	durationMS := int(finished.Sub(started).Milliseconds())
 
 	reply := ""
@@ -267,6 +307,20 @@ func (c *SendCmd) Run() error {
 			})
 		}
 
+		_ = history.Append(c.Task, history.Event{
+			Type: "worker.finished",
+			Data: mustJSON(map[string]any{
+				"run_id":        runID,
+				"duration_ms":   durationMS,
+				"tool_calls":    int(runToolCalls.Load()),
+				"outcome":       "error",
+				"error":         errMsg,
+				"error_message": errMsg,
+			}),
+			TS: finished,
+		})
+
+		// Clear running fields after history is written, before printing/returning.
 		_ = task.WithLock(c.Task, func() error {
 			st, _ := task.LoadState(c.Task)
 			if st == nil {
@@ -281,39 +335,17 @@ func (c *SendCmd) Run() error {
 			}
 			return st.Save(c.Task)
 		})
-		_ = history.Append(c.Task, history.Event{
-			Type: "worker.finished",
-			Data: mustJSON(map[string]any{
-				"run_id":        runID,
-				"duration_ms":   durationMS,
-				"tool_calls":    int(runToolCalls.Load()),
-				"outcome":       "error",
-				"error":         errMsg,
-				"error_message": errMsg,
-			}),
-			TS: finished,
-		})
+
 		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 		return runErr
 	}
 
-	// Success: append worker message + finish event, clear running fields in state.
-	_ = task.WithLock(c.Task, func() error {
-		st, _ := task.LoadState(c.Task)
-		if st == nil {
-			st = &task.State{}
-		}
-		st.SupervisorPID = 0
-		st.SupervisorPGID = 0
-		st.StartedAt = time.Time{}
-		st.LastError = ""
-		if nextSessionID != "" {
-			st.SessionID = nextSessionID
-			st.Harness = cfg.Harness
-		}
-		return st.Save(c.Task)
-	})
+	// Snapshot shared files after execution and find changes.
+	sharedAfter := SnapshotTaskFiles(c.Task)
+	changedFiles := ChangedTaskFiles(sharedBefore, sharedAfter)
+
+	// Success: append worker message + finish event.
 	_ = history.Append(c.Task, history.Event{
 		Type:    "message",
 		Role:    "worker",
@@ -330,27 +362,25 @@ func (c *SendCmd) Run() error {
 		}),
 		TS: finished,
 	})
-	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 
-	// Snapshot shared files after execution and find changes.
-	sharedAfter := SnapshotTaskFiles(c.Task)
-	changedFiles := ChangedTaskFiles(sharedBefore, sharedAfter)
-
-	// Refresh git snapshot/integration cache for this task so list/TUI stay fast.
-	if idx, err := taskindex.OpenDefault(); err == nil {
-		defer idx.Close()
-		if err := idx.Refresh(context.Background(), taskindex.RefreshPolicy{
-			Git: taskindex.GitPolicy{
-				Mode:               taskindex.GitTasks,
-				Tasks:              []string{c.Task},
-				IncludeIntegration: true,
-			},
-		}); err != nil && !c.Quiet {
-			printWarning(fmt.Sprintf("failed to refresh git integration cache: %v", err))
+	// Clear running fields after history is written, before printing output.
+	_ = task.WithLock(c.Task, func() error {
+		st, _ := task.LoadState(c.Task)
+		if st == nil {
+			st = &task.State{}
 		}
-	} else if !c.Quiet {
-		printWarning(fmt.Sprintf("failed to open index for git integration cache refresh: %v", err))
-	}
+		st.SupervisorPID = 0
+		st.SupervisorPGID = 0
+		st.StartedAt = time.Time{}
+		st.LastError = ""
+		if nextSessionID != "" {
+			st.SessionID = nextSessionID
+			st.Harness = cfg.Harness
+		}
+		return st.Save(c.Task)
+	})
+
+	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 
 	if c.Quiet {
 		if reply != "" {
@@ -366,7 +396,7 @@ func (c *SendCmd) Run() error {
 	return nil
 }
 
-func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, _ error) {
+func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, err error) {
 	now := time.Now().UTC()
 
 	var st *task.State
@@ -401,8 +431,60 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	// Hard guard: don't allow two concurrent sends on the same machine.
 	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
-		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nWait for it to finish, or check:\n  subtask list", c.Task)
+		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
 	}
+
+	// Test-only: deterministic barrier to coordinate concurrent send attempts.
+	if err := maybeWaitSendBarrier(); err != nil {
+		return "", "", "", nil, err
+	}
+
+	claimedPID := os.Getpid()
+	claimed := false
+	defer func() {
+		if !claimed || err == nil {
+			return
+		}
+		errMsg := strings.TrimSpace(err.Error())
+		if errMsg == "" {
+			errMsg = "send failed"
+		}
+		_ = task.WithLock(c.Task, func() error {
+			locked, _ := task.LoadState(c.Task)
+			if locked == nil {
+				return nil
+			}
+			if locked.SupervisorPID != claimedPID {
+				return nil
+			}
+			locked.SupervisorPID = 0
+			locked.SupervisorPGID = 0
+			locked.StartedAt = time.Time{}
+			locked.LastError = errMsg
+			return locked.Save(c.Task)
+		})
+	}()
+
+	// Claim the task early (before git worktree operations) to prevent a race where two sends
+	// concurrently try to check out the same branch in different worktrees.
+	if err := task.WithLock(c.Task, func() error {
+		locked, _ := task.LoadState(c.Task)
+		if locked == nil {
+			locked = &task.State{}
+		}
+		if locked.SupervisorPID != 0 && !locked.IsStale() {
+			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
+		}
+		locked.SupervisorPID = claimedPID
+		locked.SupervisorPGID = task.SelfProcessGroupID()
+		locked.StartedAt = now
+		locked.LastError = ""
+		locked.Harness = cfg.Harness
+		return locked.Save(c.Task)
+	}); err != nil {
+		return "", "", "", nil, err
+	}
+	claimed = true
 
 	// Reuse workspace when available.
 	if st != nil && st.Workspace != "" {
@@ -439,10 +521,10 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			if tail.TaskStatus != task.TaskStatusMerged {
 				baseRef = strings.TrimSpace(tail.BaseCommit)
 			}
-			if err := git.SetupBranch(wsPath, t, baseRef); err != nil {
+			if err := git.SetupBranch(wsPath, t.Name, t.BaseBranch, baseRef); err != nil {
 				// If the recorded base commit is missing (e.g., rewritten history), fall back to base branch HEAD.
 				if baseRef != "" {
-					if err2 := git.SetupBranch(wsPath, t, ""); err2 == nil {
+					if err2 := git.SetupBranch(wsPath, t.Name, t.BaseBranch, ""); err2 == nil {
 						baseRef = ""
 					} else {
 						return "", "", "", nil, fmt.Errorf("git setup failed: %w", err)
@@ -474,14 +556,9 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		// Local-first: compare against the local base branch only.
 		target := t.BaseBranch
 		if git.BranchExists(wsPath, target) {
-			behind, err := git.CommitsBehind(wsPath, "HEAD", target)
-			if err == nil && behind > 0 {
-				repoStatus = &harness.RepoStatus{CommitsBehind: behind}
-
-				conflicts, err := git.MergeConflictFiles(wsPath, target, "HEAD")
-				if err == nil && len(conflicts) > 0 {
-					repoStatus.ConflictFiles = conflicts
-				}
+			conflicts, err := git.MergeConflictFiles(wsPath, target, "HEAD")
+			if err == nil && len(conflicts) > 0 {
+				repoStatus = &harness.RepoStatus{ConflictFiles: conflicts}
 			}
 		}
 	}
@@ -497,10 +574,13 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	}
 
 	// Set running state and append start events.
-	err := task.WithLock(c.Task, func() error {
+	err = task.WithLock(c.Task, func() error {
 		locked, _ := task.LoadState(c.Task)
 		if locked == nil {
 			locked = &task.State{}
+		}
+		if locked.SupervisorPID != 0 && !locked.IsStale() && locked.SupervisorPID != os.Getpid() {
+			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
 		}
 		prevWorkspace = locked.Workspace
 
@@ -576,6 +656,53 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	}
 
 	return wsPath, prevWorkspace, continueFrom, repoStatus, nil
+}
+
+const (
+	testSendBarrierDirEnv       = "SUBTASK_TEST_SEND_BARRIER_DIR"
+	testSendBarrierNEnv         = "SUBTASK_TEST_SEND_BARRIER_N"
+	testSendBarrierTimeoutMSEnv = "SUBTASK_TEST_SEND_BARRIER_TIMEOUT_MS"
+)
+
+func maybeWaitSendBarrier() error {
+	dir := strings.TrimSpace(os.Getenv(testSendBarrierDirEnv))
+	if dir == "" {
+		return nil
+	}
+
+	n := 2
+	if s := strings.TrimSpace(os.Getenv(testSendBarrierNEnv)); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			n = v
+		}
+	}
+	timeout := 5 * time.Second
+	if s := strings.TrimSpace(os.Getenv(testSendBarrierTimeoutMSEnv)); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			timeout = time.Duration(v) * time.Millisecond
+		}
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	// Signal arrival.
+	p := filepath.Join(dir, fmt.Sprintf("%d", os.Getpid()))
+	if f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644); err == nil {
+		_, _ = f.WriteString("ok\n")
+		_ = f.Close()
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ents, err := os.ReadDir(dir)
+		if err == nil && len(ents) >= n {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("send barrier timed out waiting for %d participants (%s)", n, dir)
 }
 
 func (c *SendCmd) info(msg string) {

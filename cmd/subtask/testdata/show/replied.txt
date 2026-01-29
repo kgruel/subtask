@@ -1,10 +1,12 @@
 Task: show/replied
 Title: Replied task
 Branch: show/replied (based on main)
+Base commit: a6de1c645da0682a92254a0a454e642f5500a7b9
 Model: gpt-5.2
 Workspace: ws1
 Status: replied
 Changes: +4 -0
+Commits: 1
 Workflow: default
 Stage: doing → (review) → ready
 

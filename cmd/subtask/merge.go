@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
 	"github.com/zippoxer/subtask/pkg/task/ops"
 )
 
@@ -16,25 +14,13 @@ type MergeCmd struct {
 
 // Run executes the merge command.
 func (c *MergeCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	res, err := ops.MergeTask(c.Task, c.Message, cliOpsLogger{})
 	if err != nil {
 		return err
-	}
-	// Best-effort: refresh integration snapshot so list doesn't need a repair pass
-	// after a subtask-driven merge advances the base branch.
-	if idx, err := taskindex.OpenDefault(); err == nil {
-		defer idx.Close()
-		if err := idx.Refresh(context.Background(), taskindex.RefreshPolicy{
-			Git: taskindex.GitPolicy{
-				Mode:               taskindex.GitTasks,
-				Tasks:              []string{c.Task},
-				IncludeIntegration: true,
-			},
-		}); err != nil {
-			printWarning(fmt.Sprintf("failed to refresh git integration cache: %v", err))
-		}
-	} else {
-		printWarning(fmt.Sprintf("failed to open index for git integration cache refresh: %v", err))
 	}
 	if res.AlreadyClosed {
 		if res.AlreadyMerged {
