@@ -68,7 +68,7 @@ func processCodexJSONLLine(line []byte, result *Result, cb Callbacks) {
 			}
 		}
 
-		case "item.completed":
+	case "item.completed":
 		if event.Item != nil && event.Item.Type == "agent_message" {
 			result.AgentReplied = true
 			// Note: We also read from -o file, but capture here too.
@@ -317,10 +317,9 @@ func (c *CodexHarness) runCodexCommand(ctx context.Context, cwd string, flags, p
 	return result, nil
 }
 
-// Review runs codex exec review using the shared command infrastructure.
-func (c *CodexHarness) Review(cwd string, target ReviewTarget, instructions string) (string, error) {
+func (c *CodexHarness) buildReviewCommandArgs(cwd string, target ReviewTarget, instructions string) (flags []string, positionals []string) {
 	// exec-level flags come before the "review" subcommand
-	flags := []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox"}
+	flags = []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox"}
 
 	if c.Model != "" {
 		flags = append(flags, "-m", c.Model)
@@ -329,25 +328,21 @@ func (c *CodexHarness) Review(cwd string, target ReviewTarget, instructions stri
 		flags = append(flags, "-c", "model_reasoning_effort="+c.Reasoning)
 	}
 
-	// "review" subcommand and its flags/positionals
+	// "review" subcommand.
 	flags = append(flags, "review")
 
-	switch {
-	case target.Uncommitted:
-		flags = append(flags, "--uncommitted")
-	case target.BaseBranch != "":
-		flags = append(flags, "--base", target.BaseBranch)
-	case target.Commit != "":
-		flags = append(flags, "--commit", target.Commit)
-	default:
-		flags = append(flags, "--uncommitted")
-	}
+	// Codex's CLI rejects combining mode flags (e.g. --uncommitted/--base/--commit)
+	// with a positional PROMPT. To support optional user instructions, Subtask
+	// always builds the full prompt and passes only the positional argument.
+	prompt := buildReviewPrompt(cwd, target, instructions)
+	positionals = []string{prompt}
 
-	// Instructions are the positional prompt for review
-	var positionals []string
-	if instructions != "" {
-		positionals = []string{instructions}
-	}
+	return flags, positionals
+}
+
+// Review runs codex exec review using the shared command infrastructure.
+func (c *CodexHarness) Review(cwd string, target ReviewTarget, instructions string) (string, error) {
+	flags, positionals := c.buildReviewCommandArgs(cwd, target, instructions)
 
 	result, err := c.runCodexCommand(context.Background(), cwd, flags, positionals, Callbacks{}, false)
 	if err != nil {

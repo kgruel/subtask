@@ -98,7 +98,7 @@ func (c *ReviewCmd) Run() error {
 		}
 
 		cwd = state.Workspace
-		target = harness.ReviewTarget{BaseBranch: t.BaseBranch}
+		target = harness.ReviewTarget{TaskName: taskName, BaseBranch: t.BaseBranch}
 
 	case strings.TrimSpace(c.Base) != "":
 		cwd, err = os.Getwd()
