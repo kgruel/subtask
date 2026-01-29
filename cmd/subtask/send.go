@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -31,10 +30,6 @@ type SendCmd struct {
 	// Reasoning is codex-only (maps to model_reasoning_effort); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (codex-only; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
-	Async     bool   `help:"Dispatch and return immediately (capture child output to a file)"`
-
-	// Internal: used by --async parent to force a known run id for the child.
-	RunID string `hidden:"" help:"Internal: run id to use for this send"`
 
 	// Internal: injected harness for testing
 	testHarness harness.Harness
@@ -78,10 +73,6 @@ func (c *SendCmd) Run() error {
 		return err
 	}
 
-	if c.Async {
-		return c.runAsync(prompt)
-	}
-
 	// Best-effort cleanup for stale supervisor PIDs.
 	task.CleanupStaleTasks()
 
@@ -111,12 +102,9 @@ func (c *SendCmd) Run() error {
 	}
 
 	// Acquire/reuse workspace + mark running + write history start events.
-	runID := strings.TrimSpace(c.RunID)
-	if runID == "" {
-		runID, err = history.NewRunID()
-		if err != nil {
-			return err
-		}
+	runID, err := history.NewRunID()
+	if err != nil {
+		return err
 	}
 
 	wsPath, prevWorkspace, continueFrom, repoStatus, err := c.prepareWorkspaceAndState(cfg, h, t, tail, prompt, runID)
@@ -183,7 +171,6 @@ func (c *SendCmd) Run() error {
 		})
 		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, time.Since(started).Round(time.Second)))
-		fmt.Fprintln(os.Stderr, "interrupted")
 		os.Exit(1)
 	}()
 	defer signal.Stop(sigChan)
@@ -297,6 +284,7 @@ func (c *SendCmd) Run() error {
 		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 
+		// Clear running fields in state last, after all history is written.
 		_ = task.WithLock(c.Task, func() error {
 			st, _ := task.LoadState(c.Task)
 			if st == nil {
@@ -308,7 +296,6 @@ func (c *SendCmd) Run() error {
 			st.LastError = errMsg
 			if nextSessionID != "" {
 				st.SessionID = nextSessionID
-				st.Harness = cfg.Harness
 			}
 			return st.Save(c.Task)
 		})
@@ -345,25 +332,9 @@ func (c *SendCmd) Run() error {
 				fmt.Println()
 			}
 		}
-		_ = task.WithLock(c.Task, func() error {
-			st, _ := task.LoadState(c.Task)
-			if st == nil {
-				st = &task.State{}
-			}
-			st.SupervisorPID = 0
-			st.SupervisorPGID = 0
-			st.StartedAt = time.Time{}
-			st.LastError = ""
-			if nextSessionID != "" {
-				st.SessionID = nextSessionID
-				st.Harness = cfg.Harness
-			}
-			return st.Save(c.Task)
-		})
-		return nil
+	} else {
+		PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, "")
 	}
-
-	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, "")
 
 	// Clear running fields in state last, after all output is written.
 	_ = task.WithLock(c.Task, func() error {
@@ -418,7 +389,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	}
 
 	// Hard guard: don't allow two concurrent sends on the same machine.
-	if st != nil && st.SupervisorPID != 0 && !st.IsStale() && st.SupervisorPID != os.Getpid() {
+	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
 		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
 	}
 
@@ -515,12 +486,10 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		if locked == nil {
 			locked = &task.State{}
 		}
-		if locked.SupervisorPID != 0 && !locked.IsStale() && locked.SupervisorPID != os.Getpid() {
+		if locked.SupervisorPID != 0 && !locked.IsStale() {
 			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
 		}
-
 		prevWorkspace = locked.Workspace
-		prevRunID := strings.TrimSpace(locked.RunID)
 
 		locked.Workspace = wsPath
 		locked.SupervisorPID = os.Getpid()
@@ -528,10 +497,6 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		locked.StartedAt = now
 		locked.LastError = ""
 		locked.Harness = cfg.Harness
-		locked.RunID = runID
-		if strings.TrimSpace(locked.OutputPath) != "" && prevRunID != runID {
-			locked.OutputPath = ""
-		}
 
 		// If this is a follow-up task, duplicate (or continue) the prior session once
 		// and persist it before running.
@@ -631,86 +596,4 @@ func mustJSON(v any) json.RawMessage {
 func isLikelyInterruptedError(msg string) bool {
 	msg = strings.ToLower(strings.TrimSpace(msg))
 	return strings.Contains(msg, "signal: interrupt") || strings.Contains(msg, "interrupted")
-}
-
-func (c *SendCmd) runAsync(prompt string) error {
-	now := time.Now().UTC()
-
-	// Best-effort cleanup for stale supervisor PIDs.
-	task.CleanupStaleTasks()
-
-	runID := strings.TrimSpace(c.RunID)
-	if runID != "" {
-		return fmt.Errorf("--run-id is internal and cannot be combined with --async")
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-
-	var outputPath string
-	if err := task.WithLock(c.Task, func() error {
-		st, _ := task.LoadState(c.Task)
-		if st == nil {
-			st = &task.State{}
-		}
-		if st.SupervisorPID != 0 && !st.IsStale() {
-			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
-		}
-
-		id, err := history.NewRunID()
-		if err != nil {
-			return err
-		}
-		runID = id
-
-		outputDir := filepath.Join(task.InternalDir(), task.EscapeName(c.Task), "output")
-		if err := os.MkdirAll(outputDir, 0o755); err != nil {
-			return err
-		}
-		outputPath = filepath.Join(outputDir, runID+".txt")
-
-		f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-
-		args := []string{"send", c.Task, "--run-id", runID}
-		if strings.TrimSpace(c.Model) != "" {
-			args = append(args, "--model", c.Model)
-		}
-		if strings.TrimSpace(c.Reasoning) != "" {
-			args = append(args, "--reasoning", c.Reasoning)
-		}
-		if c.Quiet {
-			args = append(args, "--quiet")
-		}
-
-		cmd := exec.Command(exe, args...)
-		cmd.Stdout = f
-		cmd.Stderr = f
-		cmd.Stdin = strings.NewReader(prompt)
-
-		if err := cmd.Start(); err != nil {
-			_ = os.Remove(outputPath)
-			return err
-		}
-
-		st.SupervisorPID = cmd.Process.Pid
-		st.SupervisorPGID = 0
-		st.StartedAt = now
-		st.LastError = ""
-		st.RunID = runID
-		st.OutputPath = outputPath
-		// Leave workspace/session/harness to the child send (which will claim them).
-		return st.Save(c.Task)
-	}); err != nil {
-		return err
-	}
-
-	fmt.Printf("Dispatched to task %s\n", c.Task)
-	fmt.Printf("Output: %s\n", outputPath)
-	return nil
 }
