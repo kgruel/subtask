@@ -1,0 +1,17 @@
+name: opencode
+cli: opencode
+args:
+  - "run"
+  - "--format"
+  - "json"
+  - "--model"
+  - "{{model}}"
+prompt_via: stdin
+continue_args:
+  - "--session"
+  - "{{session_id}}"
+output_parser: opencode
+capabilities:
+  continue_session: true
+  review: true
+session_handler: none

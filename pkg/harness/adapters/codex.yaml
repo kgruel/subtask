@@ -1,0 +1,19 @@
+name: codex
+cli: codex
+args:
+  - "exec"
+  - "--json"
+  - "--dangerously-bypass-approvals-and-sandbox"
+  - "--enable"
+  - "web_search_request"
+  - "-m"
+  - "{{model}}"
+prompt_via: arg
+continue_args:
+  - "resume"
+  - "{{session_id}}"
+output_parser: codex
+capabilities:
+  continue_session: true
+  review: true
+session_handler: codex

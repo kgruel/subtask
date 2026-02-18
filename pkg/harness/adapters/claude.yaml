@@ -1,0 +1,19 @@
+name: claude
+cli: claude
+args:
+  - "--print"
+  - "--verbose"
+  - "--output-format=stream-json"
+  - "--permission-mode"
+  - "{{permission_mode}}"
+  - "--model"
+  - "{{model}}"
+prompt_via: arg
+continue_args:
+  - "--resume"
+  - "{{session_id}}"
+output_parser: claude
+capabilities:
+  continue_session: true
+  review: true
+session_handler: claude
