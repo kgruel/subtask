@@ -1,16 +1,12 @@
 package harness
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/zippoxer/subtask/internal/homedir"
 )
@@ -21,31 +17,6 @@ type ClaudeHarness struct {
 	Model          string
 	PermissionMode string // default: bypassPermissions
 	Tools          string // optional, maps to --tools
-}
-
-type claudeStreamEvent struct {
-	Type      string `json:"type"`
-	Subtype   string `json:"subtype,omitempty"`
-	CWD       string `json:"cwd,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-
-	// assistant events
-	Message *struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-	} `json:"message,omitempty"`
-
-	// result event
-	Result string `json:"result,omitempty"`
-}
-
-type claudeMessagePart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-
-	// tool_use
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
 }
 
 // Run executes Claude with the given prompt. Blocks until completion.
@@ -300,67 +271,6 @@ func (c *ClaudeHarness) DuplicateSession(sessionID, oldCwd, newCwd string) (stri
 	}
 
 	return newSessionID, nil
-}
-
-func parseClaudeStream(r io.Reader, result *Result, cb Callbacks) error {
-	scanner := bufio.NewScanner(r)
-	// Claude can emit large JSON lines.
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 10*1024*1024)
-
-	seenSessionStart := false
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-
-		var ev claudeStreamEvent
-		if err := json.Unmarshal(line, &ev); err != nil {
-			continue // ignore non-JSON / noise
-		}
-
-		// Session start
-		if ev.Type == "system" && ev.Subtype == "init" {
-			if ev.SessionID != "" && !seenSessionStart {
-				seenSessionStart = true
-				result.SessionID = ev.SessionID
-				result.PromptDelivered = true
-				if cb.OnSessionStart != nil {
-					cb.OnSessionStart(ev.SessionID)
-				}
-			}
-			continue
-		}
-
-		// Tool call detection
-		if ev.Type == "assistant" && ev.Message != nil && len(ev.Message.Content) > 0 {
-			var parts []claudeMessagePart
-			if err := json.Unmarshal(ev.Message.Content, &parts); err == nil {
-				for _, p := range parts {
-					if p.Type == "tool_use" {
-						if cb.OnToolCall != nil {
-							cb.OnToolCall(time.Now())
-						}
-					}
-				}
-			}
-		}
-
-		// Final result
-		if ev.Type == "result" {
-			if ev.SessionID != "" && result.SessionID == "" {
-				result.SessionID = ev.SessionID
-			}
-			if ev.Result != "" {
-				result.Reply = ev.Result
-				result.AgentReplied = true
-			}
-		}
-	}
-
-	return scanner.Err()
 }
 
 func escapeClaudeProjectDir(cwd string) string {

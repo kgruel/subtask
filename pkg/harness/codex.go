@@ -5,14 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/zippoxer/subtask/internal/homedir"
 )
@@ -22,159 +20,6 @@ type CodexHarness struct {
 	cli       cliSpec
 	Model     string
 	Reasoning string
-}
-
-// CodexEvent represents a JSONL event from codex exec --json.
-type CodexEvent struct {
-	Type     string `json:"type"`
-	ThreadID string `json:"thread_id,omitempty"` // in thread.started
-	Message  string `json:"message,omitempty"`   // in error event
-	Item     *struct {
-		ID      string `json:"id,omitempty"`
-		Type    string `json:"type,omitempty"` // command_execution, agent_message, reasoning
-		Text    string `json:"text,omitempty"`
-		Command string `json:"command,omitempty"`
-	} `json:"item,omitempty"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"` // in turn.failed
-}
-
-const codexMaxJSONLLineBytes = 32 * 1024 * 1024 // 32MB
-
-func processCodexJSONLLine(line []byte, result *Result, cb Callbacks) {
-	if len(bytes.TrimSpace(line)) == 0 {
-		return
-	}
-
-	var event CodexEvent
-	if err := json.Unmarshal(line, &event); err != nil {
-		// Not JSON, skip.
-		return
-	}
-
-	switch event.Type {
-	case "thread.started":
-		result.SessionID = event.ThreadID
-		result.PromptDelivered = true
-		if cb.OnSessionStart != nil {
-			cb.OnSessionStart(event.ThreadID)
-		}
-
-	case "item.started":
-		if event.Item != nil && event.Item.Type == "command_execution" {
-			if cb.OnToolCall != nil {
-				cb.OnToolCall(time.Now())
-			}
-		}
-
-	case "item.completed":
-		if event.Item != nil && event.Item.Type == "agent_message" {
-			result.AgentReplied = true
-			// Note: We also read from -o file, but capture here too.
-			if event.Item.Text != "" {
-				result.Reply = event.Item.Text
-			}
-		}
-
-	case "error":
-		result.Error = event.Message
-
-	case "turn.completed":
-		// Codex may emit transient "error" events (e.g. brief network failures)
-		// even when the overall turn succeeds. If the turn completed, treat any
-		// prior stream error as recovered.
-		result.Error = ""
-		result.TurnFailed = false
-
-	case "turn.failed":
-		if event.Error != nil {
-			result.Error = event.Error.Message
-		}
-		result.TurnFailed = true
-	}
-}
-
-func parseCodexExecJSONL(r io.Reader, result *Result, cb Callbacks, maxLineBytes int) error {
-	// Codex can emit large JSONL lines (reasoning and/or aggregated tool output).
-	//
-	// bufio.Scanner has a hard token limit; exceeding it can silently stop parsing and can
-	// deadlock the process (stdout pipe fills, codex blocks on write, subtask blocks on Wait()).
-	//
-	// Use bufio.Reader + ReadSlice to keep draining stdout even if a line is unexpectedly huge.
-	if maxLineBytes <= 0 {
-		maxLineBytes = codexMaxJSONLLineBytes
-	}
-
-	br := bufio.NewReaderSize(r, 256*1024)
-
-	var (
-		firstErr error
-
-		accum   []byte
-		tooLong bool
-	)
-
-	for {
-		frag, err := br.ReadSlice('\n')
-		switch {
-		case err == nil:
-			if tooLong {
-				// Discard the remainder of an overlong line; reset at newline boundary.
-				tooLong = false
-				accum = accum[:0]
-				continue
-			}
-			if len(accum)+len(frag) > maxLineBytes {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("codex json stream line exceeded %d bytes", maxLineBytes)
-				}
-				accum = accum[:0]
-				continue
-			}
-			accum = append(accum, frag...)
-			processCodexJSONLLine(bytes.TrimSpace(accum), result, cb)
-			accum = accum[:0]
-			continue
-
-		case errors.Is(err, bufio.ErrBufferFull):
-			if tooLong {
-				// Keep draining until newline.
-				continue
-			}
-			if len(accum)+len(frag) > maxLineBytes {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("codex json stream line exceeded %d bytes", maxLineBytes)
-				}
-				tooLong = true
-				accum = accum[:0]
-				continue
-			}
-			accum = append(accum, frag...)
-			continue
-
-		case errors.Is(err, io.EOF):
-			// Process any trailing data (may be a partial last line without newline).
-			if len(frag) > 0 && !tooLong {
-				if len(accum)+len(frag) > maxLineBytes {
-					if firstErr == nil {
-						firstErr = fmt.Errorf("codex json stream line exceeded %d bytes", maxLineBytes)
-					}
-				} else {
-					accum = append(accum, frag...)
-					processCodexJSONLLine(bytes.TrimSpace(accum), result, cb)
-				}
-			}
-			return firstErr
-
-		default:
-			// A real read error.
-			if firstErr == nil {
-				firstErr = err
-			}
-			return firstErr
-		}
-	}
 }
 
 // Run executes Codex with the given prompt. Blocks until completion.

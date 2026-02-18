@@ -1,14 +1,10 @@
 package harness
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
-	"time"
 )
 
 // OpenCodeHarness implements Harness for the OpenCode CLI ("opencode").
@@ -17,17 +13,6 @@ type OpenCodeHarness struct {
 	Model   string
 	Variant string
 	Agent   string
-}
-
-type openCodeStreamEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"sessionID,omitempty"`
-
-	Part *struct {
-		ID   string `json:"id,omitempty"`
-		Type string `json:"type,omitempty"`
-		Text string `json:"text,omitempty"`
-	} `json:"part,omitempty"`
 }
 
 func (o *OpenCodeHarness) Run(ctx context.Context, cwd, prompt, continueFrom string, cb Callbacks) (*Result, error) {
@@ -130,47 +115,4 @@ func (o *OpenCodeHarness) effectiveCLI() cliSpec {
 	return o.cli
 }
 
-func parseOpenCodeStream(r io.Reader, result *Result, cb Callbacks) error {
-	scanner := bufio.NewScanner(r)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 10*1024*1024)
 
-	seenSessionStart := false
-	var reply strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-
-		var ev openCodeStreamEvent
-		if err := json.Unmarshal(line, &ev); err != nil {
-			continue
-		}
-
-		if ev.SessionID != "" && !seenSessionStart {
-			seenSessionStart = true
-			result.SessionID = ev.SessionID
-			result.PromptDelivered = true
-			if cb.OnSessionStart != nil {
-				cb.OnSessionStart(ev.SessionID)
-			}
-		}
-
-		if ev.Type == "tool_use" {
-			if cb.OnToolCall != nil {
-				cb.OnToolCall(time.Now())
-			}
-			continue
-		}
-
-		if ev.Type == "text" && ev.Part != nil && ev.Part.Text != "" {
-			reply.WriteString(ev.Part.Text)
-			result.Reply = reply.String()
-			result.AgentReplied = result.Reply != ""
-		}
-	}
-
-	return scanner.Err()
-}
