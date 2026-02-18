@@ -53,8 +53,7 @@ func TestClaudeMigrateSession_RewritesPathsAndVerifies(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(oldProject, sessionID), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(oldProject, sessionID, "meta.txt"), []byte("from "+oldCwd), 0600))
 
-	h := &ClaudeHarness{}
-	require.NoError(t, h.MigrateSession(sessionID, oldCwd, newCwd))
+	require.NoError(t, migrateClaudeSession(sessionID, oldCwd, newCwd))
 
 	dst := filepath.Join(newProject, sessionID+".jsonl")
 	out, err := os.ReadFile(dst)
@@ -87,8 +86,7 @@ func TestClaudeDuplicateSession_CopiesAndRewritesSessionID(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(oldProject, sessionID), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(oldProject, sessionID, "meta.txt"), []byte("from "+oldCwd+" "+sessionID), 0600))
 
-	h := &ClaudeHarness{}
-	newSessionID, err := h.DuplicateSession(sessionID, oldCwd, newCwd)
+	newSessionID, err := duplicateClaudeSession(sessionID, oldCwd, newCwd)
 	require.NoError(t, err)
 	require.NotEmpty(t, newSessionID)
 	require.NotEqual(t, sessionID, newSessionID)

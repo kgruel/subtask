@@ -7,18 +7,18 @@ import (
 	"github.com/zippoxer/subtask/pkg/task"
 )
 
-func enforceTaskHarnessMatch(taskName string, st *task.State, projectHarness string) error {
+func enforceTaskHarnessMatch(taskName string, st *task.State, projectAdapter string) error {
 	if st == nil {
 		return nil
 	}
-	if strings.TrimSpace(projectHarness) == "" || strings.TrimSpace(st.Harness) == "" {
+	if strings.TrimSpace(projectAdapter) == "" || strings.TrimSpace(st.Adapter) == "" {
 		return nil
 	}
-	if st.Harness == projectHarness {
+	if st.Adapter == projectAdapter {
 		return nil
 	}
 	return fmt.Errorf("task %q was last run with harness %q, but this project is configured for %q\n\n"+
 		"Sessions are not compatible across harnesses.\n"+
 		"Tip: run without --follow-up to start a fresh session.",
-		taskName, st.Harness, projectHarness)
+		taskName, st.Adapter, projectAdapter)
 }

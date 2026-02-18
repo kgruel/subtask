@@ -9,8 +9,8 @@ import (
 )
 
 func sessionHarnessForTask(taskName string, st *task.State) string {
-	if st != nil && strings.TrimSpace(st.Harness) != "" {
-		return strings.TrimSpace(st.Harness)
+	if st != nil && strings.TrimSpace(st.Adapter) != "" {
+		return strings.TrimSpace(st.Adapter)
 	}
 
 	// History fallback: last worker.session event.
@@ -22,6 +22,7 @@ func sessionHarnessForTask(taskName string, st *task.State) string {
 		if evs[i].Type != "worker.session" {
 			continue
 		}
+		// History events use "harness" key for backward compatibility.
 		var d struct {
 			Harness string `json:"harness"`
 		}

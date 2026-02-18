@@ -269,6 +269,9 @@ func findModuleRoot(filePath string) (string, error) {
 func setupParallelTestRepo(t *testing.T, numWorkspaces int, mockWorkerPath string) string {
 	t.Helper()
 
+	// Ensure the mock worker binary is on PATH so the "mock" adapter can find it.
+	t.Setenv("PATH", filepath.Dir(mockWorkerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 	root := t.TempDir()
 
 	// Init git repo with 'main' as default branch
@@ -298,9 +301,8 @@ func setupParallelTestRepo(t *testing.T, numWorkspaces int, mockWorkerPath strin
 
 	// Create config with mock harness (workspaces discovered from disk)
 	cfg := &workspace.Config{
-		Harness:       "mock",
+		Adapter:       "mock",
 		MaxWorkspaces: numWorkspaces,
-		Options:       map[string]any{"cli": mockWorkerPath},
 	}
 	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 	os.WriteFile(filepath.Join(subtaskDir, "config.json"), cfgData, 0644)

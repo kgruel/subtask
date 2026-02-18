@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolveModel_Precedence(t *testing.T) {
-	cfg := &workspace.Config{Options: map[string]any{"model": "config-model"}}
+	cfg := &workspace.Config{Model: "config-model"}
 	tsk := &task.Task{Model: "task-model"}
 
 	require.Equal(t, "send-model", workspace.ResolveModel(cfg, tsk, "send-model"))
@@ -21,7 +21,7 @@ func TestResolveModel_Precedence(t *testing.T) {
 }
 
 func TestResolveReasoning_Precedence(t *testing.T) {
-	cfg := &workspace.Config{Options: map[string]any{"reasoning": "medium"}}
+	cfg := &workspace.Config{Reasoning: "medium"}
 	tsk := &task.Task{Reasoning: "high"}
 
 	require.Equal(t, "xhigh", workspace.ResolveReasoning(cfg, tsk, "xhigh"))
@@ -45,18 +45,13 @@ func TestValidateReasoningFlag_ClaudeErrors(t *testing.T) {
 
 func TestConfigWithModelReasoning_DoesNotMutateOriginal(t *testing.T) {
 	cfg := &workspace.Config{
-		Harness: "codex",
-		Options: map[string]any{
-			"model": "old",
-			"other": "keep",
-		},
+		Adapter: "codex",
+		Model:   "old",
 	}
 
 	out := workspace.ConfigWithModelReasoning(cfg, "new", "high")
-	require.Equal(t, "old", cfg.Options["model"])
-	require.Equal(t, "keep", cfg.Options["other"])
+	require.Equal(t, "old", cfg.Model)
 
-	require.Equal(t, "new", out.Options["model"])
-	require.Equal(t, "high", out.Options["reasoning"])
-	require.Equal(t, "keep", out.Options["other"])
+	require.Equal(t, "new", out.Model)
+	require.Equal(t, "high", out.Reasoning)
 }

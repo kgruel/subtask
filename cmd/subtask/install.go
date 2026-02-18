@@ -17,7 +17,7 @@ type InstallCmd struct {
 	Guide         bool   `help:"Print setup guidance and exit"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
 	Scope         string `help:"Skill scope: 'user' or 'project'" placeholder:"SCOPE"`
-	Harness       string `help:"Worker harness: 'codex', 'claude', or 'opencode'" placeholder:"HARNESS"`
+	Adapter       string `help:"Worker adapter: 'codex', 'claude', or 'opencode'" placeholder:"ADAPTER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
@@ -91,7 +91,7 @@ func (c *InstallCmd) Run() error {
 			WritePath:     task.ConfigPath(),
 			Existing:      readConfigFileOrNil(task.ConfigPath()),
 			NoPrompt:      c.NoPrompt,
-			Harness:       c.Harness,
+			Adapter:       c.Adapter,
 			Model:         c.Model,
 			Reasoning:     c.Reasoning,
 			MaxWorkspaces: c.MaxWorkspaces,

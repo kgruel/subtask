@@ -18,11 +18,14 @@ import (
 type State struct {
 	Workspace      string    `json:"workspace,omitempty"`       // absolute local path
 	SessionID      string    `json:"session_id,omitempty"`      // current session
-	Harness        string    `json:"harness,omitempty"`         // current session harness
+	Adapter        string    `json:"adapter,omitempty"`         // current session adapter
 	SupervisorPID  int       `json:"supervisor_pid,omitempty"`  // current run supervisor PID
 	SupervisorPGID int       `json:"supervisor_pgid,omitempty"` // current run supervisor process group ID (unix)
 	StartedAt      time.Time `json:"started_at,omitempty"`      // current run start (UTC)
 	LastError      string    `json:"last_error,omitempty"`      // current/last run error
+
+	// Legacy field for migration (read from old state files, never written).
+	LegacyHarness string `json:"harness,omitempty"`
 }
 
 // Save writes the state to .subtask/internal/<task>/state.json.
@@ -33,7 +36,11 @@ func (s *State) Save(taskName string) error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(s, "", "  ")
+	// Save a copy without legacy fields.
+	save := *s
+	save.LegacyHarness = ""
+
+	data, err := json.MarshalIndent(&save, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -99,6 +106,12 @@ func LoadState(taskName string) (*State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
+
+	// Migrate legacy "harness" field to "adapter".
+	if s.Adapter == "" && strings.TrimSpace(s.LegacyHarness) != "" {
+		s.Adapter = strings.TrimSpace(s.LegacyHarness)
+	}
+	s.LegacyHarness = ""
 
 	if debug {
 		d := time.Since(start)

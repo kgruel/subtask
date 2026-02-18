@@ -15,7 +15,7 @@ type followUpSeed struct {
 	FromHarness   string
 }
 
-func resolveFollowUpSeed(projectHarness, followUp string) (*followUpSeed, error) {
+func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error) {
 	followUp = strings.TrimSpace(followUp)
 	if followUp == "" {
 		return nil, nil
@@ -44,7 +44,7 @@ func resolveFollowUpSeed(projectHarness, followUp string) (*followUpSeed, error)
 	if strings.TrimSpace(seed.FromSessionID) == "" {
 		if _, err := task.Load(followUp); err != nil {
 			seed.FromSessionID = followUp
-			seed.FromHarness = strings.TrimSpace(projectHarness)
+			seed.FromHarness = strings.TrimSpace(projectAdapter)
 		}
 	}
 
@@ -53,11 +53,11 @@ func resolveFollowUpSeed(projectHarness, followUp string) (*followUpSeed, error)
 	}
 
 	// Enforce harness compatibility when known.
-	if strings.TrimSpace(seed.FromHarness) != "" && strings.TrimSpace(projectHarness) != "" && seed.FromHarness != projectHarness {
+	if strings.TrimSpace(seed.FromHarness) != "" && strings.TrimSpace(projectAdapter) != "" && seed.FromHarness != projectAdapter {
 		return nil, fmt.Errorf("follow-up %q was last run with harness %q, but this project is configured for %q\n\n"+
 			"Sessions are not compatible across harnesses.\n"+
 			"Tip: run without --follow-up to start a fresh session.",
-			followUp, seed.FromHarness, projectHarness)
+			followUp, seed.FromHarness, projectAdapter)
 	}
 
 	return seed, nil

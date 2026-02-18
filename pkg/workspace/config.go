@@ -17,9 +17,14 @@ const DefaultMaxWorkspaces = 20
 
 // Config is the project configuration (.subtask/config.json).
 type Config struct {
-	Harness       string         `json:"harness"`
-	MaxWorkspaces int            `json:"max_workspaces"`
-	Options       map[string]any `json:"options,omitempty"`
+	Adapter       string `json:"adapter"`
+	Model         string `json:"model,omitempty"`
+	Reasoning     string `json:"reasoning,omitempty"`
+	MaxWorkspaces int    `json:"max_workspaces"`
+
+	// Legacy fields for migration (read from old configs, never written).
+	LegacyHarness string         `json:"harness,omitempty"`
+	LegacyOptions map[string]any `json:"options,omitempty"`
 }
 
 // Entry defines a workspace.
@@ -60,12 +65,18 @@ func LoadConfig() (*Config, error) {
 }
 
 // SaveTo writes the config to a specific path.
+// Legacy fields are zeroed before saving so written configs always use the new format.
 func (c *Config) SaveTo(path string) error {
 	if c.MaxWorkspaces <= 0 {
 		c.MaxWorkspaces = DefaultMaxWorkspaces
 	}
 
-	data, err := json.MarshalIndent(c, "", "  ")
+	// Save a copy without legacy fields.
+	save := *c
+	save.LegacyHarness = ""
+	save.LegacyOptions = nil
+
+	data, err := json.MarshalIndent(&save, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -116,25 +127,26 @@ func ListWorkspaces() ([]Entry, error) {
 
 func mergeConfig(user, project *Config) *Config {
 	out := &Config{
-		Harness:       strings.TrimSpace(user.Harness),
+		Adapter:       strings.TrimSpace(user.Adapter),
+		Model:         strings.TrimSpace(user.Model),
+		Reasoning:     strings.TrimSpace(user.Reasoning),
 		MaxWorkspaces: user.MaxWorkspaces,
-		Options:       make(map[string]any),
-	}
-	for k, v := range user.Options {
-		out.Options[k] = v
 	}
 	if project == nil {
 		return out
 	}
 
-	if strings.TrimSpace(project.Harness) != "" {
-		out.Harness = strings.TrimSpace(project.Harness)
+	if strings.TrimSpace(project.Adapter) != "" {
+		out.Adapter = strings.TrimSpace(project.Adapter)
+	}
+	if strings.TrimSpace(project.Model) != "" {
+		out.Model = strings.TrimSpace(project.Model)
+	}
+	if strings.TrimSpace(project.Reasoning) != "" {
+		out.Reasoning = strings.TrimSpace(project.Reasoning)
 	}
 	if project.MaxWorkspaces > 0 {
 		out.MaxWorkspaces = project.MaxWorkspaces
-	}
-	for k, v := range project.Options {
-		out.Options[k] = v
 	}
 	return out
 }
@@ -152,8 +164,32 @@ func loadConfigFile(path string) (*Config, bool, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, true, err
 	}
-	if cfg.Options == nil {
-		cfg.Options = make(map[string]any)
-	}
+	cfg.migrateLegacy()
 	return &cfg, true, nil
+}
+
+// MigrateLegacyPublic is the exported entry point for migrateLegacy.
+// Use this when manually unmarshaling Config outside of LoadConfig (e.g. readConfigFileOrNil).
+func (c *Config) MigrateLegacyPublic() {
+	c.migrateLegacy()
+}
+
+// migrateLegacy copies values from legacy fields (harness, options) to the new
+// top-level fields (adapter, model, reasoning) and clears the legacy fields.
+func (c *Config) migrateLegacy() {
+	if c.Adapter == "" && strings.TrimSpace(c.LegacyHarness) != "" {
+		c.Adapter = strings.TrimSpace(c.LegacyHarness)
+	}
+	if c.Model == "" && c.LegacyOptions != nil {
+		if m, ok := c.LegacyOptions["model"].(string); ok && strings.TrimSpace(m) != "" {
+			c.Model = strings.TrimSpace(m)
+		}
+	}
+	if c.Reasoning == "" && c.LegacyOptions != nil {
+		if r, ok := c.LegacyOptions["reasoning"].(string); ok && strings.TrimSpace(r) != "" {
+			c.Reasoning = strings.TrimSpace(r)
+		}
+	}
+	c.LegacyHarness = ""
+	c.LegacyOptions = nil
 }

@@ -12,14 +12,12 @@ import (
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
-func setProjectHarness(t *testing.T, harnessName string, opts map[string]any) {
+func setProjectAdapter(t *testing.T, adapterName, model string) {
 	t.Helper()
 	cfg, err := workspace.LoadConfig()
 	require.NoError(t, err)
-	cfg.Harness = harnessName
-	if opts != nil {
-		cfg.Options = opts
-	}
+	cfg.Adapter = adapterName
+	cfg.Model = model
 	require.NoError(t, cfg.Save())
 }
 
@@ -33,7 +31,7 @@ func TestSend_ReasoningWithClaudeErrors(t *testing.T) {
 		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": gitCmdOutput(t, env.RootDir, "rev-parse", "HEAD")})},
 	})
 
-	setProjectHarness(t, "claude", map[string]any{"model": "claude-opus-4-5-20251101"})
+	setProjectAdapter(t, "claude", "claude-opus-4-5-20251101")
 
 	_, _, err := captureStdoutStderr(t, (&SendCmd{
 		Task:      taskName,
@@ -48,7 +46,7 @@ func TestAsk_ReasoningWithClaudeErrors(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 	withOutputMode(t, false)
 
-	setProjectHarness(t, "claude", map[string]any{"model": "claude-opus-4-5-20251101"})
+	setProjectAdapter(t, "claude", "claude-opus-4-5-20251101")
 
 	_, _, err := captureStdoutStderr(t, (&AskCmd{
 		Prompt:    "Hello",
@@ -66,11 +64,11 @@ func TestSend_HarnessMismatchErrors(t *testing.T) {
 	env.CreateTask(taskName, "Test task", "main", "Description")
 	env.CreateTaskState(taskName, &task.State{
 		SessionID: "session-1",
-		Harness:   "codex",
+		Adapter:   "codex",
 	})
 	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
 
-	setProjectHarness(t, "claude", map[string]any{"model": "claude-opus-4-5-20251101"})
+	setProjectAdapter(t, "claude", "claude-opus-4-5-20251101")
 
 	_, _, err := captureStdoutStderr(t, (&SendCmd{Task: taskName, Prompt: "Hello"}).Run)
 	require.Error(t, err)
@@ -98,21 +96,21 @@ func TestSend_HarnessMismatchBackfillsFromHistory(t *testing.T) {
 		},
 	))
 
-	setProjectHarness(t, "claude", map[string]any{"model": "claude-opus-4-5-20251101"})
+	setProjectAdapter(t, "claude", "claude-opus-4-5-20251101")
 
 	_, _, err := captureStdoutStderr(t, (&SendCmd{Task: taskName, Prompt: "Hello"}).Run)
 	require.Error(t, err)
 
 	st, err := task.LoadState(taskName)
 	require.NoError(t, err)
-	require.Equal(t, "codex", st.Harness)
+	require.Equal(t, "codex", st.Adapter)
 }
 
 func TestShow_ModelUsesTaskOverride(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withOutputMode(t, false)
 
-	setProjectHarness(t, "mock", map[string]any{"model": "config-model"})
+	setProjectAdapter(t, "mock", "config-model")
 
 	taskName := "show/model-override"
 	env.CreateTask(taskName, "Test task", "main", "Description")
@@ -131,10 +129,12 @@ func TestShow_ModelIncludesReasoningWhenCodex(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withOutputMode(t, false)
 
-	setProjectHarness(t, "codex", map[string]any{
-		"model":     "gpt-5.2",
-		"reasoning": "high",
-	})
+	cfg, err := workspace.LoadConfig()
+	require.NoError(t, err)
+	cfg.Adapter = "codex"
+	cfg.Model = "gpt-5.2"
+	cfg.Reasoning = "high"
+	require.NoError(t, cfg.Save())
 
 	taskName := "show/model-reasoning"
 	env.CreateTask(taskName, "Test task", "main", "Description")

@@ -287,7 +287,7 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		LastHistoryNS: rec.LastHistory.UnixNano(),
 		LastRunMS:     rec.LastRunDurationMS,
 	}
-	if cfg != nil && cfg.Harness == "codex" {
+	if cfg != nil && cfg.Adapter == "codex" {
 		view.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 	}
 

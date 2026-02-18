@@ -27,8 +27,7 @@ func TestCodexDuplicateSession_CopiesAndRewritesSessionMetaID(t *testing.T) {
 	}, "\n") + "\n"
 	require.NoError(t, os.WriteFile(src, []byte(srcData), 0600))
 
-	h := &CodexHarness{}
-	newSessionID, err := h.DuplicateSession(sessionID, "/tmp/old", "/tmp/new")
+	newSessionID, err := duplicateCodexSession(sessionID, "/tmp/old", "/tmp/new")
 	require.NoError(t, err)
 	require.NotEmpty(t, newSessionID)
 	require.NotEqual(t, sessionID, newSessionID)

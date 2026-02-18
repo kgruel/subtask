@@ -78,7 +78,7 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		LastHistory:   rec.LastHistory.UnixNano(),
 		LastRunMS:     rec.LastRunDurationMS,
 	}
-	if cfg != nil && cfg.Harness == "codex" {
+	if cfg != nil && cfg.Adapter == "codex" {
 		d.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 	}
 

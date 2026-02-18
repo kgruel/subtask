@@ -283,7 +283,7 @@ func (m *model) updateConversationContent() {
 	width := max(20, m.width-2)
 	var lines []string
 	if strings.TrimSpace(m.conversationHeader.Harness) != "" {
-		lines = append(lines, kv("Harness", m.conversationHeader.Harness))
+		lines = append(lines, kv("Adapter", m.conversationHeader.Harness))
 	}
 	if strings.TrimSpace(m.conversationHeader.Session) != "" {
 		lines = append(lines, kv("Session", m.conversationHeader.Session))

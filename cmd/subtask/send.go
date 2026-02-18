@@ -70,7 +70,7 @@ func (c *SendCmd) Run() error {
 			c.Task, c.Task)
 	}
 
-	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
+	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (c *SendCmd) Run() error {
 		})
 
 		if owned {
-			logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
+			logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Adapter, errMsg))
 			logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 		}
 		os.Exit(1)
@@ -199,7 +199,7 @@ func (c *SendCmd) Run() error {
 			Type: "worker.session",
 			Data: mustJSON(map[string]any{
 				"action":     "migrated",
-				"harness":    cfg.Harness,
+				"harness":    cfg.Adapter,
 				"session_id": continueFrom,
 			}),
 		})
@@ -239,14 +239,14 @@ func (c *SendCmd) Run() error {
 					st = &task.State{}
 				}
 				st.SessionID = sessionID
-				st.Harness = cfg.Harness
+				st.Adapter = cfg.Adapter
 				return st.Save(c.Task)
 			})
 			_ = history.Append(c.Task, history.Event{
 				Type: "worker.session",
 				Data: mustJSON(map[string]any{
 					"action":     "started",
-					"harness":    cfg.Harness,
+					"harness":    cfg.Adapter,
 					"session_id": sessionID,
 				}),
 			})
@@ -336,7 +336,7 @@ func (c *SendCmd) Run() error {
 			return st.Save(c.Task)
 		})
 
-		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
+		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Adapter, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 		return runErr
 	}
@@ -375,7 +375,7 @@ func (c *SendCmd) Run() error {
 		st.LastError = ""
 		if nextSessionID != "" {
 			st.SessionID = nextSessionID
-			st.Harness = cfg.Harness
+			st.Adapter = cfg.Adapter
 		}
 		return st.Save(c.Task)
 	})
@@ -407,16 +407,16 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	// Session compatibility: don't attempt to continue a session across harnesses.
 	if st != nil && strings.TrimSpace(st.SessionID) != "" {
 		prevHarness := sessionHarnessForTask(c.Task, st)
-		if prevHarness != "" && prevHarness != cfg.Harness {
+		if prevHarness != "" && prevHarness != cfg.Adapter {
 			// Best-effort: persist inferred harness for future runs.
-			if strings.TrimSpace(st.Harness) == "" {
+			if strings.TrimSpace(st.Adapter) == "" {
 				_ = task.WithLock(c.Task, func() error {
 					locked, _ := task.LoadState(c.Task)
 					if locked == nil {
 						locked = &task.State{}
 					}
-					if strings.TrimSpace(locked.Harness) == "" {
-						locked.Harness = prevHarness
+					if strings.TrimSpace(locked.Adapter) == "" {
+						locked.Adapter = prevHarness
 						_ = locked.Save(c.Task)
 					}
 					return nil
@@ -425,7 +425,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			return "", "", "", nil, fmt.Errorf("task %q has an existing session from harness %q, but this project is configured for %q\n\n"+
 				"Sessions are not compatible across harnesses.\n"+
 				"Tip: clear the session by deleting state.json, or use a new task.",
-				c.Task, prevHarness, cfg.Harness)
+				c.Task, prevHarness, cfg.Adapter)
 		}
 	}
 
@@ -479,7 +479,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		locked.SupervisorPGID = task.SelfProcessGroupID()
 		locked.StartedAt = now
 		locked.LastError = ""
-		locked.Harness = cfg.Harness
+		locked.Adapter = cfg.Adapter
 		return locked.Save(c.Task)
 	}); err != nil {
 		return "", "", "", nil, err
@@ -566,7 +566,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	// Follow-up: seed session from a previous task/session (before marking running).
 	var followUpSeed *followUpSeed
 	if (st == nil || strings.TrimSpace(st.SessionID) == "") && strings.TrimSpace(t.FollowUp) != "" {
-		seed, err := resolveFollowUpSeed(cfg.Harness, t.FollowUp)
+		seed, err := resolveFollowUpSeed(cfg.Adapter, t.FollowUp)
 		if err != nil {
 			return "", "", "", nil, err
 		}
@@ -589,17 +589,17 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		locked.SupervisorPGID = task.SelfProcessGroupID()
 		locked.StartedAt = now
 		locked.LastError = ""
-		locked.Harness = cfg.Harness
+		locked.Adapter = cfg.Adapter
 
 		// If this is a follow-up task, duplicate (or continue) the prior session once
 		// and persist it before running.
 		if strings.TrimSpace(locked.SessionID) == "" && followUpSeed != nil && strings.TrimSpace(followUpSeed.FromSessionID) != "" {
 			newSessionID := ""
-			if cfg.Harness != "opencode" {
+			if cfg.Adapter != "opencode" {
 				dup, err := h.DuplicateSession(followUpSeed.FromSessionID, followUpSeed.FromWorkspace, wsPath)
 				if err == nil && strings.TrimSpace(dup) != "" {
 					newSessionID = strings.TrimSpace(dup)
-				} else if cfg.Harness == "claude" {
+				} else if cfg.Adapter == "claude" {
 					// Claude sessions are stored under a cwd-specific project directory; without
 					// duplication we can't safely resume from a follow-up task.
 					if err == nil {
@@ -614,12 +614,12 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			}
 
 			locked.SessionID = newSessionID
-			locked.Harness = cfg.Harness
+			locked.Adapter = cfg.Adapter
 			_ = history.AppendLocked(c.Task, history.Event{
 				Type: "worker.session",
 				Data: mustJSON(map[string]any{
 					"action":       "follow_up",
-					"harness":      cfg.Harness,
+					"harness":      cfg.Adapter,
 					"session_id":   newSessionID,
 					"from_task":    t.FollowUp,
 					"from_session": followUpSeed.FromSessionID,

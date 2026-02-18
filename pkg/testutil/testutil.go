@@ -83,11 +83,9 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 
 	// Create config.json (workspaces discovered from disk, not stored)
 	cfg := &workspace.Config{
-		Harness:       "builtin-mock",
+		Adapter:       "builtin-mock",
+		Model:         "gpt-5.2",
 		MaxWorkspaces: workspace.DefaultMaxWorkspaces,
-		Options: map[string]any{
-			"model": "gpt-5.2",
-		},
 	}
 	cfgPath := task.ConfigPath()
 	cfgData, _ := json.MarshalIndent(cfg, "", "  ")

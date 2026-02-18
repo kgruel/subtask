@@ -36,53 +36,6 @@ func CanResolveCLI(name string) bool {
 	return ok
 }
 
-func cliSpecFromOptions(opts map[string]any, defaultExec string) cliSpec {
-	// options.cli can be either:
-	//   - string: executable name/path
-	//   - array:  ["executable", "fixed", "args"]
-	//
-	// Anything else falls back to defaultExec.
-	if opts != nil {
-		if v, ok := opts["cli"]; ok {
-			switch vv := v.(type) {
-			case string:
-				if strings.TrimSpace(vv) != "" {
-					return cliSpec{Exec: vv}
-				}
-			case []any:
-				var parts []string
-				for _, item := range vv {
-					s, ok := item.(string)
-					if !ok {
-						continue
-					}
-					s = strings.TrimSpace(s)
-					if s == "" {
-						continue
-					}
-					parts = append(parts, s)
-				}
-				if len(parts) > 0 {
-					return cliSpec{Exec: parts[0], PrefixArgs: parts[1:]}
-				}
-			case []string:
-				var parts []string
-				for _, s := range vv {
-					s = strings.TrimSpace(s)
-					if s == "" {
-						continue
-					}
-					parts = append(parts, s)
-				}
-				if len(parts) > 0 {
-					return cliSpec{Exec: parts[0], PrefixArgs: parts[1:]}
-				}
-			}
-		}
-	}
-	return cliSpec{Exec: defaultExec}
-}
-
 func commandForCLI(ctx context.Context, spec cliSpec, args []string) (*exec.Cmd, error) {
 	execName := strings.TrimSpace(spec.Exec)
 	if execName == "" {
@@ -133,7 +86,7 @@ func commandForCLI(ctx context.Context, spec cliSpec, args []string) (*exec.Cmd,
 	}
 	b.WriteString("\nFix:\n")
 	b.WriteString("- Install the CLI (or ensure it's on PATH)\n")
-	b.WriteString("- Or set `.subtask/config.json` harness `options.cli` to an executable path (or [\"exe\", \"fixed\", \"args\"])\n")
+	b.WriteString("- Or configure the adapter's CLI path in your adapter YAML\n")
 	return nil, fmt.Errorf("%s", strings.TrimSpace(b.String()))
 }
 

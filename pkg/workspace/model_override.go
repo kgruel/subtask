@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -22,13 +21,13 @@ func ValidateReasoningLevel(reasoning string) error {
 	return fmt.Errorf("invalid reasoning %q\n\nAllowed: %s", reasoning, strings.Join(validReasoningLevels, ", "))
 }
 
-func ValidateReasoningFlag(harnessName, reasoning string) error {
+func ValidateReasoningFlag(adapterName, reasoning string) error {
 	reasoning = strings.TrimSpace(reasoning)
 	if reasoning == "" {
 		return nil
 	}
-	if strings.TrimSpace(harnessName) != "codex" {
-		return fmt.Errorf("reasoning is codex-only\n\nRemove --reasoning, or switch your harness to codex with:\n  subtask config --user\nor (repo-only):\n  subtask config --project")
+	if strings.TrimSpace(adapterName) != "codex" {
+		return fmt.Errorf("reasoning is codex-only\n\nRemove --reasoning, or switch your adapter to codex with:\n  subtask config --user\nor (repo-only):\n  subtask config --project")
 	}
 	return ValidateReasoningLevel(reasoning)
 }
@@ -40,10 +39,8 @@ func ResolveModel(cfg *Config, t *task.Task, override string) string {
 	if t != nil && strings.TrimSpace(t.Model) != "" {
 		return strings.TrimSpace(t.Model)
 	}
-	if cfg != nil && cfg.Options != nil {
-		if s, ok := cfg.Options["model"].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
+	if cfg != nil && strings.TrimSpace(cfg.Model) != "" {
+		return strings.TrimSpace(cfg.Model)
 	}
 	return ""
 }
@@ -55,10 +52,8 @@ func ResolveReasoning(cfg *Config, t *task.Task, override string) string {
 	if t != nil && strings.TrimSpace(t.Reasoning) != "" {
 		return strings.TrimSpace(t.Reasoning)
 	}
-	if cfg != nil && cfg.Options != nil {
-		if s, ok := cfg.Options["reasoning"].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
+	if cfg != nil && strings.TrimSpace(cfg.Reasoning) != "" {
+		return strings.TrimSpace(cfg.Reasoning)
 	}
 	return ""
 }
@@ -68,23 +63,19 @@ func ConfigWithModelReasoning(cfg *Config, model, reasoning string) *Config {
 		return nil
 	}
 	cp := *cfg
-	cp.Options = maps.Clone(cfg.Options)
-	if cp.Options == nil {
-		cp.Options = make(map[string]any)
-	}
 
 	model = strings.TrimSpace(model)
-	if model == "" {
-		delete(cp.Options, "model")
+	if model != "" {
+		cp.Model = model
 	} else {
-		cp.Options["model"] = model
+		cp.Model = ""
 	}
 
 	reasoning = strings.TrimSpace(reasoning)
-	if reasoning == "" {
-		delete(cp.Options, "reasoning")
+	if reasoning != "" {
+		cp.Reasoning = reasoning
 	} else {
-		cp.Options["reasoning"] = reasoning
+		cp.Reasoning = ""
 	}
 
 	return &cp

@@ -177,7 +177,7 @@ func CloseTask(taskName string, abandon bool, logger Logger) (CloseResult, error
 		// Clear runtime state.
 		state.Workspace = ""
 		state.SessionID = ""
-		state.Harness = ""
+		state.Adapter = ""
 		state.SupervisorPID = 0
 		state.SupervisorPGID = 0
 		state.StartedAt = time.Time{}

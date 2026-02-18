@@ -40,7 +40,7 @@ func (c *AskCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
+	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
 		return err
 	}
 
@@ -56,7 +56,7 @@ func (c *AskCmd) Run() error {
 	if c.FollowUp != "" {
 		// If continuing from a task, ensure harness matches (sessions are not compatible across harnesses).
 		if st, err := task.LoadState(c.FollowUp); err == nil && st != nil && st.SessionID != "" {
-			if err := enforceTaskHarnessMatch(c.FollowUp, st, cfg.Harness); err != nil {
+			if err := enforceTaskHarnessMatch(c.FollowUp, st, cfg.Adapter); err != nil {
 				return err
 			}
 		}

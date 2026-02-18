@@ -105,7 +105,7 @@ func TestSetupUX(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".subtask/\n"), 0o644)
 
 		// Global config present.
-		cfg := &workspace.Config{Harness: "mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
@@ -143,7 +143,7 @@ func TestSetupUX(t *testing.T) {
 		run(t, root, "git", "config", "user.name", "Test User")
 
 		// Valid global config.
-		cfg := &workspace.Config{Harness: "mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
@@ -199,7 +199,7 @@ func TestSetupUX(t *testing.T) {
 		addStubCommandToPATH(t, "codex")
 
 		// Global config present.
-		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "builtin-mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
@@ -224,7 +224,7 @@ func TestSetupUX(t *testing.T) {
 		addStubCommandToPATH(t, "codex")
 
 		// Global config present, but should not influence flag-driven project config.
-		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "builtin-mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
@@ -234,7 +234,7 @@ func TestSetupUX(t *testing.T) {
 
 		out, err := runSubtaskWithErr(t, bin, repo,
 			"config", "--project", "--no-prompt",
-			"--harness", "codex",
+			"--adapter", "codex",
 			"--model", "gpt-5.2-codex",
 			"--reasoning", "medium",
 			"--max-workspaces", "9",
@@ -243,10 +243,10 @@ func TestSetupUX(t *testing.T) {
 
 		var got workspace.Config
 		require.NoError(t, readJSON(filepath.Join(repo, ".subtask", "config.json"), &got))
-		require.Equal(t, "codex", got.Harness)
+		require.Equal(t, "codex", got.Adapter)
 		require.Equal(t, 9, got.MaxWorkspaces)
-		require.Equal(t, "gpt-5.2-codex", got.Options["model"])
-		require.Equal(t, "medium", got.Options["reasoning"])
+		require.Equal(t, "gpt-5.2-codex", got.Model)
+		require.Equal(t, "medium", got.Reasoning)
 	})
 
 	t.Run("Migration_NoClobber_WhenDestinationExists", func(t *testing.T) {
@@ -258,7 +258,7 @@ func TestSetupUX(t *testing.T) {
 		t.Setenv("USERPROFILE", home) // windows
 
 		// Global config present so migration won't promote legacy repo config.
-		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "builtin-mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
@@ -321,25 +321,26 @@ func TestSetupUX(t *testing.T) {
 		t.Setenv("HOME", home)
 		t.Setenv("USERPROFILE", home) // windows
 
-		// Repo A has a project override that switches to the external mock harness.
+		// Put the mock-worker binary on PATH so the "mock" adapter can find it.
+		workerPath := mockWorkerPathForSubtask(bin)
+		require.FileExists(t, workerPath)
+		t.Setenv("PATH", filepath.Dir(workerPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		// Repo A has a project override that switches to the external mock adapter.
 		repoA := t.TempDir()
 		initGitRepo(t, repoA)
 		require.NoError(t, os.MkdirAll(filepath.Join(repoA, ".subtask"), 0o755))
-		workerPath := mockWorkerPathForSubtask(bin)
-		require.FileExists(t, workerPath)
 
 		projectCfg := &workspace.Config{
-			Harness: "mock",
-			Options: map[string]any{"cli": workerPath},
+			Adapter: "mock",
 		}
 		b, _ := json.MarshalIndent(projectCfg, "", "  ")
 		require.NoError(t, os.WriteFile(filepath.Join(repoA, ".subtask", "config.json"), b, 0o644))
 
 		// Global defaults: builtin mock (in-process).
 		globalCfg := &workspace.Config{
-			Harness:       "builtin-mock",
+			Adapter:       "builtin-mock",
 			MaxWorkspaces: 3,
-			Options:       map[string]any{"tool_calls": 0},
 		}
 		gb, _ := json.MarshalIndent(globalCfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
@@ -367,7 +368,7 @@ func TestSetupUX(t *testing.T) {
 		t.Setenv("USERPROFILE", home) // windows
 
 		// Global config present.
-		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfg := &workspace.Config{Adapter: "builtin-mock", MaxWorkspaces: 3}
 		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
 		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))

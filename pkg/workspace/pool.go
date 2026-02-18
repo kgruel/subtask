@@ -110,7 +110,7 @@ func (p *Pool) AcquireExcluding(excludePaths ...string) (*Acquisition, error) {
 					st.StartedAt = time.Time{}
 					st.LastError = ""
 					st.SessionID = ""
-					st.Harness = ""
+					st.Adapter = ""
 					return st.Save(name)
 				})
 				continue

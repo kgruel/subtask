@@ -71,7 +71,7 @@ func (c *ReviewCmd) Run() error {
 	}
 	cfg := res.Config
 
-	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
+	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
 		return err
 	}
 

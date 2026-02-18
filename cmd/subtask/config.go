@@ -17,7 +17,7 @@ type ConfigCmd struct {
 	User          bool   `help:"Edit user config (~/.subtask/config.json)"`
 	Project       bool   `help:"Edit project config (<git-root>/.subtask/config.json)"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
-	Harness       string `help:"Worker harness: 'codex', 'claude', or 'opencode'" placeholder:"HARNESS"`
+	Adapter       string `help:"Worker adapter: 'codex', 'claude', or 'opencode'" placeholder:"ADAPTER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
@@ -69,7 +69,7 @@ func (c *ConfigCmd) Run() error {
 		RepoRoot:      repoRoot,
 		Existing:      existing,
 		NoPrompt:      c.NoPrompt,
-		Harness:       c.Harness,
+		Adapter:       c.Adapter,
 		Model:         c.Model,
 		Reasoning:     c.Reasoning,
 		MaxWorkspaces: c.MaxWorkspaces,
@@ -103,18 +103,8 @@ func readConfigFileOrNil(path string) *workspace.Config {
 		// Leave validation/reporting to workspace.LoadConfig() for runtime commands.
 		return nil
 	}
-	if cfg.Options == nil {
-		cfg.Options = make(map[string]any)
-	}
+	cfg.MigrateLegacyPublic()
 	return &cfg
-}
-
-func stringsTrimSpace(v any) string {
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(s)
 }
 
 // printConfigDetails prints the config settings in a consistent format.
@@ -122,12 +112,12 @@ func printConfigDetails(cfg *workspace.Config, scope, path string) {
 	// Title case the scope.
 	scopeTitle := strings.ToUpper(scope[:1]) + scope[1:]
 	fmt.Printf("    %s %s %s\n", subtleStyle.Render("Scope:"), scopeTitle, subtleStyle.Render("("+abbreviatePath(path)+")"))
-	fmt.Printf("    %s %s\n", subtleStyle.Render("Harness:"), cfg.Harness)
-	if m := stringsTrimSpace(cfg.Options["model"]); m != "" {
-		fmt.Printf("    %s %s\n", subtleStyle.Render("Model:"), m)
+	fmt.Printf("    %s %s\n", subtleStyle.Render("Adapter:"), cfg.Adapter)
+	if strings.TrimSpace(cfg.Model) != "" {
+		fmt.Printf("    %s %s\n", subtleStyle.Render("Model:"), cfg.Model)
 	}
-	if r := stringsTrimSpace(cfg.Options["reasoning"]); r != "" {
-		fmt.Printf("    %s %s\n", subtleStyle.Render("Reasoning:"), r)
+	if strings.TrimSpace(cfg.Reasoning) != "" {
+		fmt.Printf("    %s %s\n", subtleStyle.Render("Reasoning:"), cfg.Reasoning)
 	}
 	fmt.Printf("    %s %d\n", subtleStyle.Render("Max workspaces:"), cfg.MaxWorkspaces)
 }

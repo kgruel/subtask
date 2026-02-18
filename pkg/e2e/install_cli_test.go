@@ -371,17 +371,15 @@ func TestInstall_NoPrompt_Flags_WriteConfig(t *testing.T) {
 	addStubCommandToPATH(t, "claude")
 
 	cwd := t.TempDir()
-	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--harness", "claude", "--model", "claude-sonnet-4-20250514", "--max-workspaces", "7")
+	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "claude", "--model", "claude-sonnet-4-20250514", "--max-workspaces", "7")
 	require.Contains(t, out, "Configured subtask")
 
 	var cfg workspace.Config
 	require.NoError(t, readJSON(filepath.Join(home, ".subtask", "config.json"), &cfg))
-	require.Equal(t, "claude", cfg.Harness)
+	require.Equal(t, "claude", cfg.Adapter)
 	require.Equal(t, 7, cfg.MaxWorkspaces)
-	require.NotNil(t, cfg.Options)
-	require.Equal(t, "claude-sonnet-4-20250514", cfg.Options["model"])
-	_, hasReasoning := cfg.Options["reasoning"]
-	require.False(t, hasReasoning)
+	require.Equal(t, "claude-sonnet-4-20250514", cfg.Model)
+	require.Empty(t, cfg.Reasoning)
 }
 
 func TestInstall_NoPrompt_ReasoningRequiresCodex(t *testing.T) {
@@ -394,7 +392,7 @@ func TestInstall_NoPrompt_ReasoningRequiresCodex(t *testing.T) {
 	addStubCommandToPATH(t, "claude")
 
 	cwd := t.TempDir()
-	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--harness", "claude", "--reasoning", "high")
+	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "claude", "--reasoning", "high")
 	require.Error(t, err)
 	require.Contains(t, out, "reasoning is codex-only")
 }
@@ -409,9 +407,9 @@ func TestInstall_NoPrompt_InvalidHarnessRejected(t *testing.T) {
 	addStubCommandToPATH(t, "codex")
 
 	cwd := t.TempDir()
-	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--harness", "nope")
+	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "nope")
 	require.Error(t, err)
-	require.Contains(t, out, "invalid harness")
+	require.Contains(t, out, "invalid adapter")
 }
 
 func TestInstall_ProjectScope_InstallsSkillToRepoOnly(t *testing.T) {

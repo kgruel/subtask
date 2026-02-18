@@ -31,7 +31,7 @@ func TestConfigCmd_UserScope_NoPrompt_WritesGlobalConfig(t *testing.T) {
 
 	var cfg workspace.Config
 	require.NoError(t, json.Unmarshal(b, &cfg))
-	require.NotEmpty(t, cfg.Harness)
+	require.NotEmpty(t, cfg.Adapter)
 }
 
 func TestConfigCmd_ProjectScope_RequiresGitRepo(t *testing.T) {

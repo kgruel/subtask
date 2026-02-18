@@ -19,6 +19,7 @@ import (
 	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
 	"github.com/zippoxer/subtask/pkg/testutil"
 	"github.com/zippoxer/subtask/pkg/workflow"
+	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
 func withFixedNow(t *testing.T, now time.Time) {
@@ -459,10 +460,12 @@ func TestGolden_Show_ModelReasoning(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 
-	setProjectHarness(t, "codex", map[string]any{
-		"model":     "gpt-5.2",
-		"reasoning": "high",
-	})
+	cfg, err := workspace.LoadConfig()
+	require.NoError(t, err)
+	cfg.Adapter = "codex"
+	cfg.Model = "gpt-5.2"
+	cfg.Reasoning = "high"
+	require.NoError(t, cfg.Save())
 
 	taskName := "show/model-reasoning"
 	env.CreateTask(taskName, "Model reasoning task", "main", "Description")

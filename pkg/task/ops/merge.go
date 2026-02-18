@@ -182,7 +182,7 @@ func mergeTaskUnlocked(taskName, message string, logger Logger) (MergeResult, er
 		// Clear runtime state.
 		state.Workspace = ""
 		state.SessionID = ""
-		state.Harness = ""
+		state.Adapter = ""
 		state.SupervisorPID = 0
 		state.SupervisorPGID = 0
 		state.StartedAt = time.Time{}
@@ -303,7 +303,7 @@ func mergeTaskUnlocked(taskName, message string, logger Logger) (MergeResult, er
 
 	state.Workspace = ""
 	state.SessionID = ""
-	state.Harness = ""
+	state.Adapter = ""
 	state.SupervisorPID = 0
 	state.SupervisorPGID = 0
 	state.StartedAt = time.Time{}

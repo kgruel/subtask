@@ -3,10 +3,12 @@ package harness
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
@@ -62,40 +64,33 @@ type Harness interface {
 
 // New creates a harness from config.
 func New(cfg *workspace.Config) (Harness, error) {
-	switch cfg.Harness {
-	case "codex":
-		return &CodexHarness{
-			cli:       cliSpecFromOptions(cfg.Options, "codex"),
-			Model:     getStringOpt(cfg.Options, "model"),
-			Reasoning: getStringOpt(cfg.Options, "reasoning"),
-		}, nil
-	case "claude":
-		return &ClaudeHarness{
-			cli:            cliSpecFromOptions(cfg.Options, "claude"),
-			Model:          getStringOpt(cfg.Options, "model"),
-			PermissionMode: getStringOpt(cfg.Options, "permission_mode"),
-			Tools:          getStringOpt(cfg.Options, "tools"),
-		}, nil
-	case "opencode":
-		return &OpenCodeHarness{
-			cli:     cliSpecFromOptions(cfg.Options, "opencode"),
-			Model:   getStringOpt(cfg.Options, "model"),
-			Variant: getStringOpt(cfg.Options, "variant"),
-			Agent:   getStringOpt(cfg.Options, "agent"),
-		}, nil
-	case "mock":
-		// External mock worker - spawns a real process for realistic e2e testing.
-		return &MockCLIHarness{
-			cli: cliSpecFromOptions(cfg.Options, "subtask-mock-worker"),
-		}, nil
-	case "builtin-mock":
-		// Built-in in-process mock for fast unit tests.
-		return &BuiltinMock{
-			ToolCalls: getIntOpt(cfg.Options, "tool_calls", 3),
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown harness: %q", cfg.Harness)
+	adapterName := cfg.Adapter
+	if adapterName == "" {
+		return nil, fmt.Errorf("no adapter configured")
 	}
+
+	// Keep mock harnesses for testing.
+	switch adapterName {
+	case "builtin-mock":
+		return &BuiltinMock{ToolCalls: 3}, nil
+	case "mock":
+		return &MockCLIHarness{cli: cliSpec{Exec: "subtask-mock-worker"}}, nil
+	}
+
+	// Load adapter config (user override -> built-in YAML).
+	userDir := filepath.Join(task.GlobalDir(), "adapters")
+	adapterCfg, err := LoadAdapter(userDir, adapterName)
+	if err != nil {
+		return nil, fmt.Errorf("adapter %q: %w", adapterName, err)
+	}
+
+	vars := templateVars{
+		Model:          cfg.Model,
+		Reasoning:      cfg.Reasoning,
+		PermissionMode: "bypassPermissions",
+	}
+
+	return NewConfigurableAdapter(adapterCfg, vars)
 }
 
 // BuiltinMock is a simple mock harness for CLI testing.
@@ -150,27 +145,6 @@ func (m *BuiltinMock) MigrateSession(sessionID, oldCwd, newCwd string) error {
 
 func (m *BuiltinMock) DuplicateSession(sessionID, oldCwd, newCwd string) (string, error) {
 	return fmt.Sprintf("mock-session-dup-%d", time.Now().UnixNano()), nil
-}
-
-func getIntOpt(opts map[string]any, key string, def int) int {
-	if v, ok := opts[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case float64:
-			return int(n)
-		}
-	}
-	return def
-}
-
-func getStringOpt(opts map[string]any, key string) string {
-	if v, ok := opts[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
 }
 
 // buildReviewPrompt constructs a review prompt for code review.
