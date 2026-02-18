@@ -18,6 +18,9 @@ dist/
 *.test
 coverage.out
 
+# Worktrees
+.worktrees/
+
 # Personal notes
 ISSUES.md
 TODO.md
