@@ -16,6 +16,7 @@ type Task struct {
 	Title       string // Short description
 	BaseBranch  string // Branch to fork from
 	FollowUp    string // Optional: task whose conversation to continue
+	Adapter     string // Optional: override adapter for this task
 	Model       string // Optional: override model for this task
 	Reasoning   string // Optional: override reasoning (codex-only) for this task
 	Schema      int    // Task schema version (0 if missing)
@@ -28,6 +29,7 @@ type frontmatter struct {
 	BaseBranch string `yaml:"base-branch"`
 	Schema     int    `yaml:"schema,omitempty"`
 	FollowUp   string `yaml:"follow-up,omitempty"`
+	Adapter    string `yaml:"adapter,omitempty"`
 	Model      string `yaml:"model,omitempty"`
 	Reasoning  string `yaml:"reasoning,omitempty"`
 }
@@ -44,6 +46,7 @@ func (t *Task) Save() error {
 		BaseBranch: t.BaseBranch,
 		Schema:     t.Schema,
 		FollowUp:   t.FollowUp,
+		Adapter:    t.Adapter,
 		Model:      t.Model,
 		Reasoning:  t.Reasoning,
 	}
@@ -102,6 +105,7 @@ func Load(name string) (*Task, error) {
 		BaseBranch:  fm.BaseBranch,
 		Schema:      fm.Schema,
 		FollowUp:    fm.FollowUp,
+		Adapter:     fm.Adapter,
 		Model:       fm.Model,
 		Reasoning:   fm.Reasoning,
 		Description: strings.TrimSpace(prompt),

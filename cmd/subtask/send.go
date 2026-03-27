@@ -25,9 +25,10 @@ import (
 
 // SendCmd implements 'subtask send'.
 type SendCmd struct {
-	Task   string `arg:"" help:"Task name"`
-	Prompt string `arg:"" optional:"" help:"Message to send (or use stdin)"`
-	Model  string `help:"Override model for this prompt (does not persist)"`
+	Task    string `arg:"" help:"Task name"`
+	Prompt  string `arg:"" optional:"" help:"Message to send (or use stdin)"`
+	Adapter string `help:"Override adapter for this prompt (does not persist)"`
+	Model   string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is codex-only (maps to model_reasoning_effort); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (codex-only; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
@@ -70,7 +71,7 @@ func (c *SendCmd) Run() error {
 			c.Task, c.Task)
 	}
 
-	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
+	if err := workspace.ValidateReasoningFlag(workspace.ResolveAdapter(cfg, t, c.Adapter), c.Reasoning); err != nil {
 		return err
 	}
 
@@ -90,13 +91,16 @@ func (c *SendCmd) Run() error {
 	}
 
 	// Create harness (needed for context session migration).
+	// Resolve overrides so cfg reflects the effective adapter/model/reasoning for this run.
 	var h harness.Harness
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
+		adapter := workspace.ResolveAdapter(cfg, t, c.Adapter)
 		model := workspace.ResolveModel(cfg, t, c.Model)
 		reasoning := workspace.ResolveReasoning(cfg, t, c.Reasoning)
-		h, err = harness.New(workspace.ConfigWithModelReasoning(cfg, model, reasoning))
+		cfg = workspace.ConfigWithOverrides(cfg, adapter, model, reasoning)
+		h, err = harness.New(cfg)
 		if err != nil {
 			return err
 		}

@@ -32,6 +32,19 @@ func ValidateReasoningFlag(adapterName, reasoning string) error {
 	return ValidateReasoningLevel(reasoning)
 }
 
+func ResolveAdapter(cfg *Config, t *task.Task, override string) string {
+	if strings.TrimSpace(override) != "" {
+		return strings.TrimSpace(override)
+	}
+	if t != nil && strings.TrimSpace(t.Adapter) != "" {
+		return strings.TrimSpace(t.Adapter)
+	}
+	if cfg != nil && strings.TrimSpace(cfg.Adapter) != "" {
+		return strings.TrimSpace(cfg.Adapter)
+	}
+	return ""
+}
+
 func ResolveModel(cfg *Config, t *task.Task, override string) string {
 	if strings.TrimSpace(override) != "" {
 		return strings.TrimSpace(override)
@@ -59,10 +72,19 @@ func ResolveReasoning(cfg *Config, t *task.Task, override string) string {
 }
 
 func ConfigWithModelReasoning(cfg *Config, model, reasoning string) *Config {
+	return ConfigWithOverrides(cfg, "", model, reasoning)
+}
+
+func ConfigWithOverrides(cfg *Config, adapter, model, reasoning string) *Config {
 	if cfg == nil {
 		return nil
 	}
 	cp := *cfg
+
+	adapter = strings.TrimSpace(adapter)
+	if adapter != "" {
+		cp.Adapter = adapter
+	}
 
 	model = strings.TrimSpace(model)
 	if model != "" {

@@ -24,6 +24,7 @@ type DraftCmd struct {
 	Description string `arg:"" optional:"" help:"Task description (or use stdin)"`
 	Base        string `name:"base-branch" required:"" help:"Base branch"`
 	Title       string `required:"" help:"Short description"`
+	Adapter     string `help:"Adapter for this task (overrides project config)"`
 	Model       string `help:"Default model for this task (overrides project config)"`
 	Reasoning   string `help:"Default reasoning for this task (codex-only; overrides project config)"`
 	Workflow    string `help:"Workflow template to use (e.g., collaborative)"`
@@ -77,6 +78,7 @@ func (c *DraftCmd) Run() error {
 		BaseBranch:  c.Base,
 		Description: description,
 		FollowUp:    c.FollowUp,
+		Adapter:     c.Adapter,
 		Model:       c.Model,
 		Reasoning:   c.Reasoning,
 		Schema:      gitredesign.TaskSchemaVersion,
@@ -110,6 +112,7 @@ func (c *DraftCmd) Run() error {
 		"workflow":    wf.Name,
 		"title":       c.Title,
 		"follow_up":   c.FollowUp,
+		"adapter":     c.Adapter,
 		"model":       c.Model,
 		"reasoning":   c.Reasoning,
 		"base_ref":    baseRef,
