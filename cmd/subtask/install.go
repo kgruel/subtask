@@ -17,7 +17,7 @@ type InstallCmd struct {
 	Guide         bool   `help:"Print setup guidance and exit"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
 	Scope         string `help:"Skill scope: 'user' or 'project'" placeholder:"SCOPE"`
-	Adapter       string `help:"Worker adapter: 'codex', 'claude', or 'opencode'" placeholder:"ADAPTER"`
+	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode; or any custom adapter)" placeholder:"ADAPTER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
@@ -166,7 +166,7 @@ func printSetupGuide() {
 {{if .MultipleHarnesses}}Ask the user which harness they'd like to use for workers. Then run:
 
 ` + "```bash" + `
-subtask install --no-prompt --harness <codex|claude|opencode>
+subtask install --no-prompt --adapter <name>
 ` + "```" + `
 {{else}}Run the install command:
 

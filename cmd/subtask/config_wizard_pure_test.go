@@ -54,7 +54,7 @@ func TestResolveConfigValues_FlagsOverrideModelAndReasoning(t *testing.T) {
 
 func TestValidateConfigValues_InvalidAdapter(t *testing.T) {
 	err := validateConfigValues(configValues{Adapter: "nope"})
-	require.ErrorContains(t, err, "invalid adapter")
+	require.ErrorContains(t, err, "unknown adapter")
 }
 
 func TestValidateConfigValues_ReasoningCodexOnly(t *testing.T) {

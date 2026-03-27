@@ -353,7 +353,7 @@ func TestInstall_Guide_InGitRepo_MultipleHarnesses_ShowsHarnessChoice(t *testing
 	out := runSubtask(t, bin, repo, home, "install", "--guide")
 	require.Contains(t, out, "In a git repository")
 	require.Contains(t, out, "Ask the user which harness")
-	require.Contains(t, out, "subtask install --no-prompt --harness <codex|claude|opencode>")
+	require.Contains(t, out, "subtask install --no-prompt --adapter <name>")
 
 	_, err := os.Stat(filepath.Join(home, ".subtask"))
 	require.ErrorIs(t, err, os.ErrNotExist)
@@ -409,7 +409,7 @@ func TestInstall_NoPrompt_InvalidHarnessRejected(t *testing.T) {
 	cwd := t.TempDir()
 	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "nope")
 	require.Error(t, err)
-	require.Contains(t, out, "invalid adapter")
+	require.Contains(t, out, "unknown adapter")
 }
 
 func TestInstall_ProjectScope_InstallsSkillToRepoOnly(t *testing.T) {

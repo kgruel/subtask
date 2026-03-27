@@ -17,7 +17,7 @@ type ConfigCmd struct {
 	User          bool   `help:"Edit user config (~/.subtask/config.json)"`
 	Project       bool   `help:"Edit project config (<git-root>/.subtask/config.json)"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
-	Adapter       string `help:"Worker adapter: 'codex', 'claude', or 'opencode'" placeholder:"ADAPTER"`
+	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode; or any custom adapter)" placeholder:"ADAPTER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`

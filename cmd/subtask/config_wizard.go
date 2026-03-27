@@ -107,12 +107,10 @@ func resolveConfigValues(existing *workspace.Config, flags configFlags) configVa
 // validateConfigValues validates resolved values without performing any IO.
 func validateConfigValues(values configValues) error {
 	adapterName := strings.TrimSpace(values.Adapter)
-	// TODO: make this dynamic (check for corresponding adapter YAML).
-	switch adapterName {
-	case "codex", "claude", "opencode":
-		// ok
-	default:
-		return fmt.Errorf("invalid adapter %q\n\nAllowed: codex, claude, opencode", adapterName)
+	userDir := harness.UserAdaptersDir()
+	if !harness.AdapterExists(userDir, adapterName) {
+		available := harness.ListAdapterNames(userDir)
+		return fmt.Errorf("unknown adapter %q\n\nAvailable: %s", adapterName, strings.Join(available, ", "))
 	}
 
 	if values.MaxWorkspaces < 0 {
@@ -138,16 +136,20 @@ func buildConfig(values configValues) *workspace.Config {
 }
 
 func validateAdapterAvailable(adapterName string) error {
-	if harness.CanResolveCLI(adapterName) {
+	cliName := harness.CLINameForAdapter(harness.UserAdaptersDir(), adapterName)
+	if harness.CanResolveCLI(cliName) {
 		return nil
 	}
+	// Provide install hints for well-known adapters.
 	switch adapterName {
 	case "codex":
 		return fmt.Errorf("codex CLI not found\n\nInstall it from: https://github.com/openai/codex")
 	case "claude":
 		return fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
-	default:
+	case "opencode":
 		return fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
+	default:
+		return fmt.Errorf("%s CLI %q not found\n\nEnsure %q is installed and on your PATH.", adapterName, cliName, cliName)
 	}
 }
 
@@ -156,12 +158,27 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		return nil, false, fmt.Errorf("config write path is required")
 	}
 
-	// Check which adapters are available.
-	codexAvailable := isCommandAvailable("codex")
-	claudeAvailable := isCommandAvailable("claude")
-	opencodeAvailable := isCommandAvailable("opencode")
-	if !codexAvailable && !claudeAvailable && !opencodeAvailable {
-		return nil, false, fmt.Errorf("no worker adapter available\n\nInstall one of:\n  - Codex CLI: https://github.com/openai/codex\n  - Claude Code CLI: https://claude.com/claude-code\n  - OpenCode CLI: https://github.com/anomalyco/opencode")
+	// Discover all adapters whose CLIs are available on this machine.
+	userDir := harness.UserAdaptersDir()
+	allAdapters := harness.ListAdapterNames(userDir)
+	var availableAdapters []string
+	for _, name := range allAdapters {
+		cliName := harness.CLINameForAdapter(userDir, name)
+		if isCommandAvailable(cliName) {
+			availableAdapters = append(availableAdapters, name)
+		}
+	}
+	if len(availableAdapters) == 0 {
+		return nil, false, fmt.Errorf("no worker adapter available\n\nInstall a supported CLI (codex, claude, opencode, etc.)\nor add a custom adapter YAML to ~/.subtask/adapters/")
+	}
+
+	adapterAvailable := func(name string) bool {
+		for _, a := range availableAdapters {
+			if a == name {
+				return true
+			}
+		}
+		return false
 	}
 
 	flags := configFlags{
@@ -174,16 +191,9 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 	// If the user didn't explicitly request an adapter and the resolved adapter isn't available,
 	// fall back to the first available adapter and reset dependent defaults.
-	if strings.TrimSpace(flags.Adapter) == "" && !isCommandAvailable(values.Adapter) {
-		fallbackAdapter := "opencode"
-		switch {
-		case codexAvailable:
-			fallbackAdapter = "codex"
-		case claudeAvailable:
-			fallbackAdapter = "claude"
-		}
+	if strings.TrimSpace(flags.Adapter) == "" && !adapterAvailable(values.Adapter) {
 		values = resolveConfigValues(nil, configFlags{
-			Adapter:       fallbackAdapter,
+			Adapter:       availableAdapters[0],
 			Model:         flags.Model,
 			Reasoning:     flags.Reasoning,
 			MaxWorkspaces: values.MaxWorkspaces,
@@ -213,17 +223,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 	// Interactive wizard (same flow as prior init).
 	firstStep := 0
-	available := 0
-	if codexAvailable {
-		available++
-	}
-	if claudeAvailable {
-		available++
-	}
-	if opencodeAvailable {
-		available++
-	}
-	if available <= 1 {
+	if len(availableAdapters) <= 1 {
 		firstStep = 1 // skip adapter selection
 	}
 
@@ -252,15 +252,19 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		var form *huh.Form
 		switch step {
 		case 0:
+			// Well-known display names for built-in adapters.
+			displayNames := map[string]string{
+				"codex":    "Codex",
+				"claude":   "Claude Code",
+				"opencode": "OpenCode",
+			}
 			var opts []huh.Option[string]
-			if codexAvailable {
-				opts = append(opts, huh.NewOption("Codex (recommended)", "codex"))
-			}
-			if claudeAvailable {
-				opts = append(opts, huh.NewOption("Claude Code", "claude"))
-			}
-			if opencodeAvailable {
-				opts = append(opts, huh.NewOption("OpenCode", "opencode"))
+			for _, name := range availableAdapters {
+				label := name
+				if d, ok := displayNames[name]; ok {
+					label = d
+				}
+				opts = append(opts, huh.NewOption(label, name))
 			}
 			form = huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
@@ -350,17 +354,9 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 		// Reset dependent values when adapter changes.
 		if step == 0 {
-			switch h {
-			case "codex":
-				model = "gpt-5.2"
-				reasoning = "high"
-			case "claude":
-				model = "opus"
-				reasoning = ""
-			default:
-				model = ""
-				reasoning = ""
-			}
+			resolved := resolveConfigValues(nil, configFlags{Adapter: h})
+			model = resolved.Model
+			reasoning = resolved.Reasoning
 		}
 
 		step++
