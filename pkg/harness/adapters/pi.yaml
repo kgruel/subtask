@@ -1,0 +1,25 @@
+name: pi
+cli: pi
+args:
+  - "-p"
+  - "--mode"
+  - "json"
+  - "--model"
+  - "{{model}}"
+  - "--thinking"
+  - "{{reasoning}}"
+prompt_via: arg
+continue_args:
+  - "--session"
+  - "{{session_id}}"
+output_parser: generic-jsonl
+parse:
+  session_id: ".id"
+  reply: ".assistantMessageEvent.delta"
+  reply_accumulate: true
+  tool_call_match:
+    type: "tool_execution_start"
+capabilities:
+  continue_session: true
+  review: false
+session_handler: none
