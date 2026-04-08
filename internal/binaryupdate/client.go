@@ -37,7 +37,7 @@ func NewClient(httpClient *http.Client) *Client {
 	return &Client{
 		HTTP:       httpClient,
 		APIBaseURL: defaultAPIBaseURL,
-		Repo:       "zippoxer/subtask",
+		Repo:       "kgruel/subtask",
 	}
 }
 
