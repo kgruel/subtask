@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/zippoxer/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/task/store"
 )
 
 // ListCmd implements 'subtask list'.

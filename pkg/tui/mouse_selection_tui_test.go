@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/testutil"
 )
 
 func TestTUI_Selection_OverviewRightPane_NoSidebarBleed(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/internal/binaryupdate"
+	"github.com/kgruel/subtask/internal/binaryupdate"
 )
 
 type githubAsset struct {

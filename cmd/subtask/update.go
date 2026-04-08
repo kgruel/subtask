@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/binaryupdate"
-	"github.com/zippoxer/subtask/pkg/render"
+	"github.com/kgruel/subtask/internal/binaryupdate"
+	"github.com/kgruel/subtask/pkg/render"
 )
 
 var newBinaryUpdateClient = func() *binaryupdate.Client { return binaryupdate.NewClient(nil) }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/install"
+	"github.com/kgruel/subtask/pkg/install"
 )
 
 func TestRunAutoUpdate_ProjectSkillOutdated_Warns(t *testing.T) {

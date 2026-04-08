@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 //go:embed SKILL.md

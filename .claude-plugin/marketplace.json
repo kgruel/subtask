@@ -12,7 +12,7 @@
       "source": "./plugin",
       "description": "Dispatch work to parallel Codex workers in isolated git workspaces",
       "version": "1.0.0",
-      "repository": "https://github.com/zippoxer/subtask",
+      "repository": "https://github.com/kgruel/subtask",
       "license": "MIT",
       "keywords": ["orchestration", "parallel", "codex", "tasks", "git-worktrees"]
     }

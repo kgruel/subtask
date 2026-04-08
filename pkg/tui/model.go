@@ -12,12 +12,12 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/zippoxer/subtask/pkg/diffparse"
-	"github.com/zippoxer/subtask/pkg/git"
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/diffparse"
+	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/store"
 )
 
 type viewMode int

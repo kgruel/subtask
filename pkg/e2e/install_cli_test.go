@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/install"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/install"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestInstall_UserScope_InstallsSkill_AndIsIdempotent(t *testing.T) {

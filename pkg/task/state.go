@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/logging"
 )
 
 // State is local, runtime-only state for a task.

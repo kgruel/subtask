@@ -15,10 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	taskhistory "github.com/zippoxer/subtask/pkg/task/history"
-	taskmigrate "github.com/zippoxer/subtask/pkg/task/migrate"
-	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
+	"github.com/kgruel/subtask/pkg/task"
+	taskhistory "github.com/kgruel/subtask/pkg/task/history"
+	taskmigrate "github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
 )
 
 func TestEnsure_V011Fixtures_E2E(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/render"
 )
 
 func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {

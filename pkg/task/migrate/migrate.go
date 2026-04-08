@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/git"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 const CurrentSchema = 1

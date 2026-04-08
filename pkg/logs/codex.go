@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 // codexEvent represents a raw Codex JSONL event.

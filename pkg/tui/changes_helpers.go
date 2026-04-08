@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
-	"github.com/zippoxer/subtask/pkg/diffparse"
-	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/diffparse"
+	"github.com/kgruel/subtask/pkg/git"
 )
 
 const (

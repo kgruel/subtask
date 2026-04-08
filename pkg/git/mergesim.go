@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/logging"
 )
 
 type mergeSimMethod string

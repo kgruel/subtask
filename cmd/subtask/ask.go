@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	petname "github.com/dustinkirkland/golang-petname"
-	"github.com/zippoxer/subtask/pkg/harness"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/harness"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // AskCmd implements 'subtask ask'.

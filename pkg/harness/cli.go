@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 type cliSpec struct {

@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/homedir"
-	"github.com/zippoxer/subtask/pkg/git"
-	"github.com/zippoxer/subtask/pkg/render"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workflow"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 var nowFunc = time.Now

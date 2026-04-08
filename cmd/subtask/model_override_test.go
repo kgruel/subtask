@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestResolveModel_Precedence(t *testing.T) {

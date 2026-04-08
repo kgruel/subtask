@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 var validReasoningLevels = []string{"low", "medium", "high", "xhigh"}

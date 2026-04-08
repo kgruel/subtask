@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/testutil"
-	"github.com/zippoxer/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 func TestGolden_BuildPrompt_BasicTask(t *testing.T) {

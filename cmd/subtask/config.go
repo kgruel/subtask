@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // ConfigCmd implements 'subtask config'.

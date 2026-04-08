@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/zippoxer/subtask/pkg/install"
-	"github.com/zippoxer/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/install"
+	"github.com/kgruel/subtask/pkg/render"
 )
 
 // StatusCmd implements 'subtask status'.

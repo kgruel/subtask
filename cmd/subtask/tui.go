@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/zippoxer/subtask/pkg/logging"
-	subtasktui "github.com/zippoxer/subtask/pkg/tui"
+	"github.com/kgruel/subtask/pkg/logging"
+	subtasktui "github.com/kgruel/subtask/pkg/tui"
 )
 
 func runTUIWithInitCheck() error {

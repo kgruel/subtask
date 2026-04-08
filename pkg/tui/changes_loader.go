@@ -7,7 +7,7 @@ import (
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/zippoxer/subtask/pkg/diffparse"
+	"github.com/kgruel/subtask/pkg/diffparse"
 )
 
 func fetchDiffDocCmd(taskName string, ctx diffCtx, path string, loadID int, cmdCtx context.Context) tea.Cmd {

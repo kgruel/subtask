@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/binaryupdate"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/internal/binaryupdate"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 const (

@@ -85,7 +85,7 @@ Create a new release.
    ### Improvements
    - Improvement 1
 
-   **Full Changelog**: https://github.com/zippoxer/subtask/compare/vPREVIOUS...$VERSION
+   **Full Changelog**: https://github.com/kgruel/subtask/compare/vPREVIOUS...$VERSION
    EOF
    )"
    ```
@@ -119,7 +119,7 @@ This is a **prerelease** for testing. Not recommended for production.
 - Change 2
 
 ### Testing
-Please report issues at https://github.com/zippoxer/subtask/issues
+Please report issues at https://github.com/kgruel/subtask/issues
 EOF
 )"
 ```

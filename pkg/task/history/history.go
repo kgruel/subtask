@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 type Event struct {

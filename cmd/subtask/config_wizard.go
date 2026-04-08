@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
-	"github.com/zippoxer/subtask/pkg/harness"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/harness"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 type configWizardParams struct {

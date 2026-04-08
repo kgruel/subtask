@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
-	"github.com/zippoxer/subtask/internal/homedir"
-	"github.com/zippoxer/subtask/pkg/install"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/pkg/install"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 // InstallCmd implements 'subtask install'.

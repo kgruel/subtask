@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/filelock"
-	"github.com/zippoxer/subtask/pkg/git"
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	taskmigrate "github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/internal/filelock"
+	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	taskmigrate "github.com/kgruel/subtask/pkg/task/migrate"
 )
 
 // TaskSchemaVersion is the task schema version that indicates the git redesign migration

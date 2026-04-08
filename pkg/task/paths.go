@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/zippoxer/subtask/internal/homedir"
-	"github.com/zippoxer/subtask/pkg/git"
-	"github.com/zippoxer/subtask/pkg/subtaskerr"
+	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/subtaskerr"
 )
 
 var projectDirCache struct {

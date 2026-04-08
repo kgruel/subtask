@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/zippoxer/subtask/pkg/diffparse"
+	"github.com/kgruel/subtask/pkg/diffparse"
 )
 
 func TestRenderUnifiedRow_EmptyAddedLineKeepsFullWidth(t *testing.T) {

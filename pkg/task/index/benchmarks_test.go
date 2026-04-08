@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
+	taskindex "github.com/kgruel/subtask/pkg/task/index"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
 )
 
 func BenchmarkIndex_Refresh_NoChanges_100Tasks(b *testing.B) {

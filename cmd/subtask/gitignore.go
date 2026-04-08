@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/git"
 )
 
 // ensureGitignore adds /.subtask/ to .gitignore if not already ignored.

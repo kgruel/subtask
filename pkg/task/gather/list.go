@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/index"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/index"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // DefaultListTargetCount is the minimum number of tasks shown by default.

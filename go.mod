@@ -1,4 +1,4 @@
-module github.com/zippoxer/subtask
+module github.com/kgruel/subtask
 
 go 1.24.2
 

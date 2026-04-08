@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/zippoxer/subtask/internal/homedir"
-	"github.com/zippoxer/subtask/pkg/install"
+	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/pkg/install"
 )
 
 // UninstallCmd implements 'subtask uninstall'.

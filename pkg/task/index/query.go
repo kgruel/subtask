@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 // ListItem is a task summary record suitable for list output.

@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/zippoxer/subtask/pkg/harness"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/harness"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // ReviewCmd implements 'subtask review'.

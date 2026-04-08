@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	taskindex "github.com/kgruel/subtask/pkg/task/index"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestSetupUX(t *testing.T) {

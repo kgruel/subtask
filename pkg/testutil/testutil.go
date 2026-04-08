@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // TestEnv encapsulates an isolated test environment.

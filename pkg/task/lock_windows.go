@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zippoxer/subtask/internal/filelock"
+	"github.com/kgruel/subtask/internal/filelock"
 )
 
 func lockPath(taskName string) string {

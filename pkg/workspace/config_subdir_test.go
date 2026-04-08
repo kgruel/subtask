@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/testutil"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestListWorkspaces_FromSubdir_UsesProjectRoot(t *testing.T) {

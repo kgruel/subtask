@@ -9,10 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/subtaskerr"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/testutil"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/subtaskerr"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestConfigCmd_UserScope_NoPrompt_WritesGlobalConfig(t *testing.T) {

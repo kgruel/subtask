@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 func enforceTaskHarnessMatch(taskName string, st *task.State, projectAdapter string) error {

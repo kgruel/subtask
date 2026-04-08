@@ -1,6 +1,6 @@
 package main
 
-import "github.com/zippoxer/subtask/pkg/task/ops"
+import "github.com/kgruel/subtask/pkg/task/ops"
 
 type cliOpsLogger struct{}
 

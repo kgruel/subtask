@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/zippoxer/subtask/pkg/task/ops"
+	"github.com/kgruel/subtask/pkg/task/ops"
 )
 
 // MergeCmd implements 'subtask merge'.

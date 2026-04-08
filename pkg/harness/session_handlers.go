@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 // migrateSessionByHandler dispatches session migration to the appropriate handler.

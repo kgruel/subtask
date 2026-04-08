@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logs"
-	"github.com/zippoxer/subtask/pkg/render"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/logs"
+	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 // LogsCmd implements 'subtask logs'.

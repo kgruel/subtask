@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 func TestInterruptCLI_StopsRunningSend(t *testing.T) {

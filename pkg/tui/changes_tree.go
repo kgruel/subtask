@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/git"
 )
 
 type changesDir struct {

@@ -80,12 +80,12 @@ brew install zippoxer/tap/subtask
 #### Go
 
 ```bash
-go install github.com/zippoxer/subtask/cmd/subtask@latest
+go install github.com/kgruel/subtask/cmd/subtask@latest
 ```
 
 #### Binary
 
-[GitHub Releases](https://github.com/zippoxer/subtask/releases)
+[GitHub Releases](https://github.com/kgruel/subtask/releases)
 
 </details>
 

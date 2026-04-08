@@ -55,7 +55,7 @@ changelog:
 
 brews:
   - name: subtask
-    homepage: "https://github.com/zippoxer/subtask"
+    homepage: "https://github.com/kgruel/subtask"
     description: "Parallel task orchestration for AI coding agents."
     license: "MIT"
     repository:

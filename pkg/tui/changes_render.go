@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/mattn/go-runewidth"
-	"github.com/zippoxer/subtask/pkg/diffparse"
+	"github.com/kgruel/subtask/pkg/diffparse"
 )
 
 func renderDiffView(m model, leftPad string) string {

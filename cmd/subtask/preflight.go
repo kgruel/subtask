@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/zippoxer/subtask/pkg/task"
-	taskmigrate "github.com/zippoxer/subtask/pkg/task/migrate"
-	"github.com/zippoxer/subtask/pkg/task/migrate/gitredesign"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	taskmigrate "github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 type preflightProjectResult struct {

@@ -2,7 +2,7 @@
   "name": "subtask",
   "version": "1.0.0",
   "description": "Parallel task orchestration for AI coding agents - dispatch work to Codex or Claude Code workers in isolated git workspaces",
-  "repository": "https://github.com/zippoxer/subtask",
+  "repository": "https://github.com/kgruel/subtask",
   "license": "MIT",
   "keywords": ["orchestration", "parallel", "codex", "tasks", "git-worktrees"]
 }

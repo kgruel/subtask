@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/zippoxer/subtask/pkg/subtaskerr"
+	"github.com/kgruel/subtask/pkg/subtaskerr"
 )
 
 func TestProjectDir_AnchorsAtGitRoot_FromSubdir(t *testing.T) {

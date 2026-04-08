@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/testutil"
 )
 
 func TestListCmd_Run_FromSubdir(t *testing.T) {

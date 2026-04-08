@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workflow"
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 type Store interface {

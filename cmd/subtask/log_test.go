@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/history"
 )
 
 func TestFormatHistoryEvent_WorkerFinishedIncludesErrorMessage(t *testing.T) {

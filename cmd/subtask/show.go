@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/render"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/store"
 )
 
 // ShowCmd implements 'subtask show'.

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate"
 )
 
 // RefreshPolicy controls what work Refresh performs.

@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task/history"
-	taskindex "github.com/zippoxer/subtask/pkg/task/index"
-	"github.com/zippoxer/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/task/history"
+	taskindex "github.com/kgruel/subtask/pkg/task/index"
+	"github.com/kgruel/subtask/pkg/testutil"
 )
 
 func gitCommitFile(t *testing.T, path string, content string, message string) string {

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/subtaskerr"
+	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/subtaskerr"
 )
 
 // Run runs a git command in the specified directory.

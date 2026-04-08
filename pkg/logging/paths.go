@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 // globalDir returns ~/.subtask.

@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zippoxer/subtask/internal/homedir"
-	"github.com/zippoxer/subtask/pkg/install"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/pkg/install"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 func runAutoUpdate() {

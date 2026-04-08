@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/homedir"
 )
 
 // ClaudeParser parses Claude Code session JSONL files stored under ~/.claude/projects.

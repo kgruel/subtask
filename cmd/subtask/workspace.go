@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/zippoxer/subtask/pkg/workspace"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // WorkspaceCmd implements 'subtask workspace'.

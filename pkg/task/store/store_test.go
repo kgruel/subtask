@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/store"
-	"github.com/zippoxer/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/testutil"
 )
 
 func TestStoreGet_OpenTask_PrStyleChangesAndCommitCount(t *testing.T) {

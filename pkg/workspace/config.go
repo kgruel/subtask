@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zippoxer/subtask/pkg/subtaskerr"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/subtaskerr"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 const DefaultMaxWorkspaces = 20

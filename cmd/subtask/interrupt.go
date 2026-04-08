@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate"
 )
 
 // InterruptCmd implements 'subtask interrupt' (alias: 'subtask stop').

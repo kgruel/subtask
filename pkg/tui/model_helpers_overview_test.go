@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/store"
-	"github.com/zippoxer/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 func TestWrapWithIndent_IndentsContinuationLines(t *testing.T) {

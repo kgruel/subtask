@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/render"
-	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate"
-	"github.com/zippoxer/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 // StageCmd implements 'subtask stage'.

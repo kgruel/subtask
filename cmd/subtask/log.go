@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zippoxer/subtask/pkg/task/history"
-	"github.com/zippoxer/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate"
 )
 
 // LogCmd implements 'subtask log' (conversation + lifecycle history).

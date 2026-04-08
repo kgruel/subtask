@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zippoxer/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/render"
 )
 
 var updateGolden *bool

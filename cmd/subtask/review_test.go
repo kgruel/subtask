@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/zippoxer/subtask/pkg/harness"
-	"github.com/zippoxer/subtask/pkg/testutil"
+	"github.com/kgruel/subtask/pkg/harness"
+	"github.com/kgruel/subtask/pkg/testutil"
 )
 
 func TestReviewCmd_Task_PassesBaseBranchAndInstructions(t *testing.T) {
