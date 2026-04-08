@@ -21,11 +21,11 @@ func setProjectAdapter(t *testing.T, adapterName, model string) {
 	require.NoError(t, cfg.Save())
 }
 
-func TestSend_ReasoningWithClaudeErrors(t *testing.T) {
+func TestSend_ReasoningWithInvalidLevel(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withOutputMode(t, false)
 
-	taskName := "send/claude-reasoning"
+	taskName := "send/bad-reasoning"
 	env.CreateTask(taskName, "Test task", "main", "Description")
 	env.CreateTaskHistory(taskName, []history.Event{
 		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": gitCmdOutput(t, env.RootDir, "rev-parse", "HEAD")})},
@@ -36,24 +36,10 @@ func TestSend_ReasoningWithClaudeErrors(t *testing.T) {
 	_, _, err := captureStdoutStderr(t, (&SendCmd{
 		Task:      taskName,
 		Prompt:    "Hello",
-		Reasoning: "high",
+		Reasoning: "nope",
 	}).Run)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "reasoning is codex-only")
-}
-
-func TestAsk_ReasoningWithClaudeErrors(t *testing.T) {
-	_ = testutil.NewTestEnv(t, 0)
-	withOutputMode(t, false)
-
-	setProjectAdapter(t, "claude", "claude-opus-4-5-20251101")
-
-	_, _, err := captureStdoutStderr(t, (&AskCmd{
-		Prompt:    "Hello",
-		Reasoning: "high",
-	}).Run)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "reasoning is codex-only")
+	require.Contains(t, err.Error(), "invalid reasoning")
 }
 
 func TestSend_HarnessMismatchErrors(t *testing.T) {

@@ -32,7 +32,7 @@ type githubRelease struct {
 
 func TestUpdateCheck_ShowsUpdateAvailable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/zippoxer/subtask/releases/latest" {
+		if r.URL.Path != "/repos/kgruel/subtask/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
@@ -65,7 +65,7 @@ func TestUpdateCheck_ShowsUpdateAvailable(t *testing.T) {
 
 func TestUpdateCheck_ShowsUpToDate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/zippoxer/subtask/releases/latest" {
+		if r.URL.Path != "/repos/kgruel/subtask/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}

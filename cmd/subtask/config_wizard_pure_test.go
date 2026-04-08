@@ -57,9 +57,11 @@ func TestValidateConfigValues_InvalidAdapter(t *testing.T) {
 	require.ErrorContains(t, err, "unknown adapter")
 }
 
-func TestValidateConfigValues_ReasoningCodexOnly(t *testing.T) {
-	err := validateConfigValues(configValues{Adapter: "claude", Reasoning: "high"})
-	require.ErrorContains(t, err, "codex-only")
+func TestValidateConfigValues_ReasoningAnyAdapter(t *testing.T) {
+	require.NoError(t, validateConfigValues(configValues{Adapter: "claude", Reasoning: "high"}))
+	require.NoError(t, validateConfigValues(configValues{Adapter: "pi", Reasoning: "medium"}))
+	err := validateConfigValues(configValues{Adapter: "codex", Reasoning: "nope"})
+	require.ErrorContains(t, err, "invalid reasoning")
 }
 
 func TestValidateConfigValues_MaxWorkspacesNegative(t *testing.T) {

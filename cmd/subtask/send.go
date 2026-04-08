@@ -29,8 +29,8 @@ type SendCmd struct {
 	Prompt  string `arg:"" optional:"" help:"Message to send (or use stdin)"`
 	Adapter string `help:"Override adapter for this prompt (does not persist)"`
 	Model   string `help:"Override model for this prompt (does not persist)"`
-	// Reasoning is codex-only (maps to model_reasoning_effort); not persisted.
-	Reasoning string `help:"Override reasoning for this prompt (codex-only; does not persist)"`
+	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
+	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
 
 	// Internal: injected harness for testing

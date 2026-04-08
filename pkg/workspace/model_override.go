@@ -26,9 +26,6 @@ func ValidateReasoningFlag(adapterName, reasoning string) error {
 	if reasoning == "" {
 		return nil
 	}
-	if strings.TrimSpace(adapterName) != "codex" {
-		return fmt.Errorf("reasoning is codex-only\n\nRemove --reasoning, or switch your adapter to codex with:\n  subtask config --user\nor (repo-only):\n  subtask config --project")
-	}
 	return ValidateReasoningLevel(reasoning)
 }
 

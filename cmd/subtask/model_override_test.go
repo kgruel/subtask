@@ -37,10 +37,12 @@ func TestValidateReasoningLevel(t *testing.T) {
 	require.Error(t, workspace.ValidateReasoningLevel("nope"))
 }
 
-func TestValidateReasoningFlag_ClaudeErrors(t *testing.T) {
-	err := workspace.ValidateReasoningFlag("claude", "high")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "codex-only")
+func TestValidateReasoningFlag_AnyAdapter(t *testing.T) {
+	// Reasoning is adapter-agnostic; validation only checks the level value.
+	require.NoError(t, workspace.ValidateReasoningFlag("claude", "high"))
+	require.NoError(t, workspace.ValidateReasoningFlag("pi", "medium"))
+	require.NoError(t, workspace.ValidateReasoningFlag("codex", "low"))
+	require.Error(t, workspace.ValidateReasoningFlag("claude", "nope"))
 }
 
 func TestConfigWithModelReasoning_DoesNotMutateOriginal(t *testing.T) {

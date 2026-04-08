@@ -49,13 +49,13 @@ func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error)
 	}
 
 	if strings.TrimSpace(seed.FromSessionID) == "" {
-		return nil, fmt.Errorf("follow-up %q has no session to continue\n\nTip: Pass a harness session ID directly, or draft a new task with background context in the description.", followUp)
+		return nil, fmt.Errorf("follow-up %q has no session to continue\n\nTip: Pass a session ID directly, or draft a new task with background context in the description.", followUp)
 	}
 
-	// Enforce harness compatibility when known.
+	// Enforce adapter compatibility when known.
 	if strings.TrimSpace(seed.FromHarness) != "" && strings.TrimSpace(projectAdapter) != "" && seed.FromHarness != projectAdapter {
-		return nil, fmt.Errorf("follow-up %q was last run with harness %q, but this project is configured for %q\n\n"+
-			"Sessions are not compatible across harnesses.\n"+
+		return nil, fmt.Errorf("follow-up %q was last run with adapter %q, but this project is configured for %q\n\n"+
+			"Sessions are not compatible across adapters.\n"+
 			"Tip: run without --follow-up to start a fresh session.",
 			followUp, seed.FromHarness, projectAdapter)
 	}

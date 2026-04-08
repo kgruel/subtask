@@ -337,7 +337,7 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func TestInstall_Guide_InGitRepo_MultipleHarnesses_ShowsHarnessChoice(t *testing.T) {
+func TestInstall_Guide_InGitRepo_MultipleAdapters_ShowsAdapterChoice(t *testing.T) {
 	bin := buildSubtask(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -352,7 +352,7 @@ func TestInstall_Guide_InGitRepo_MultipleHarnesses_ShowsHarnessChoice(t *testing
 
 	out := runSubtask(t, bin, repo, home, "install", "--guide")
 	require.Contains(t, out, "In a git repository")
-	require.Contains(t, out, "Ask the user which harness")
+	require.Contains(t, out, "Ask the user which adapter")
 	require.Contains(t, out, "subtask install --no-prompt --adapter <name>")
 
 	_, err := os.Stat(filepath.Join(home, ".subtask"))
@@ -382,7 +382,7 @@ func TestInstall_NoPrompt_Flags_WriteConfig(t *testing.T) {
 	require.Empty(t, cfg.Reasoning)
 }
 
-func TestInstall_NoPrompt_ReasoningRequiresCodex(t *testing.T) {
+func TestInstall_NoPrompt_ReasoningAcceptedForAnyAdapter(t *testing.T) {
 	bin := buildSubtask(t)
 
 	home := t.TempDir()
@@ -392,9 +392,8 @@ func TestInstall_NoPrompt_ReasoningRequiresCodex(t *testing.T) {
 	addStubCommandToPATH(t, "claude")
 
 	cwd := t.TempDir()
-	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "claude", "--reasoning", "high")
-	require.Error(t, err)
-	require.Contains(t, out, "reasoning is codex-only")
+	_, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--adapter", "claude", "--reasoning", "high")
+	require.NoError(t, err)
 }
 
 func TestInstall_NoPrompt_InvalidHarnessRejected(t *testing.T) {

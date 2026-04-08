@@ -19,7 +19,7 @@ type InstallCmd struct {
 	Scope         string `help:"Skill scope: 'user' or 'project'" placeholder:"SCOPE"`
 	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode; or any custom adapter)" placeholder:"ADAPTER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
-	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
+	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
 }
 
@@ -116,12 +116,13 @@ func (c *InstallCmd) Run() error {
 
 func printSetupGuide() {
 	type guideData struct {
-		InGitRepo           bool
-		CodexAvailable      bool
-		ClaudeAvailable     bool
-		OpencodeAvailable   bool
-		AnyHarnessAvailable bool
-		MultipleHarnesses   bool
+		InGitRepo          bool
+		CodexAvailable     bool
+		ClaudeAvailable    bool
+		OpencodeAvailable  bool
+		PiAvailable        bool
+		AnyAdapterAvailable bool
+		MultipleAdapters   bool
 	}
 
 	data := guideData{
@@ -129,6 +130,7 @@ func printSetupGuide() {
 		CodexAvailable:    isCommandAvailable("codex"),
 		ClaudeAvailable:   isCommandAvailable("claude"),
 		OpencodeAvailable: isCommandAvailable("opencode"),
+		PiAvailable:       isCommandAvailable("pi"),
 	}
 	count := 0
 	if data.CodexAvailable {
@@ -140,8 +142,11 @@ func printSetupGuide() {
 	if data.OpencodeAvailable {
 		count++
 	}
-	data.AnyHarnessAvailable = count > 0
-	data.MultipleHarnesses = count > 1
+	if data.PiAvailable {
+		count++
+	}
+	data.AnyAdapterAvailable = count > 0
+	data.MultipleAdapters = count > 1
 
 	const tpl = `# Setup Subtask
 
@@ -151,19 +156,21 @@ func printSetupGuide() {
 
 {{if .InGitRepo}}✓ In a git repository{{else}}⚠ Not in a git repository (you'll need one later to create tasks){{end}}
 
-**Available worker harnesses:**
+**Available worker adapters:**
 {{if .CodexAvailable}}- ✓ Codex CLI (recommended)
 {{else}}- ✗ Codex CLI not found — install from https://github.com/openai/codex
 {{end}}{{if .ClaudeAvailable}}- ✓ Claude Code CLI
 {{else}}- ✗ Claude Code CLI not found — install from https://claude.ai/download
 {{end}}{{if .OpencodeAvailable}}- ✓ OpenCode CLI
 {{else}}- ✗ OpenCode CLI not found — install from https://github.com/sst/opencode
+{{end}}{{if .PiAvailable}}- ✓ Pi CLI
+{{else}}- ✗ Pi CLI not found
 {{end}}
-{{if not .AnyHarnessAvailable}}**No harness available.** Install at least one (Codex recommended) before proceeding.
+{{if not .AnyAdapterAvailable}}**No adapter available.** Install at least one (Codex recommended) before proceeding.
 {{end}}
 ## Install
-{{if .AnyHarnessAvailable}}
-{{if .MultipleHarnesses}}Ask the user which harness they'd like to use for workers. Then run:
+{{if .AnyAdapterAvailable}}
+{{if .MultipleAdapters}}Ask the user which adapter they'd like to use for workers. Then run:
 
 ` + "```bash" + `
 subtask install --no-prompt --adapter <name>
@@ -178,9 +185,9 @@ The install:
 1. Installs the Subtask skill to ~/.claude/skills/subtask/
 2. Writes config to ~/.subtask/config.json (with sensible defaults for model, etc.)
 
-The user can change harness, model, or other settings later with ` + "`subtask config`" + `.
+The user can change adapter, model, or other settings later with ` + "`subtask config`" + `.
 {{else}}
-First install a worker harness, then run:
+First install a worker adapter, then run:
 
 ` + "```bash" + `
 subtask install --no-prompt

@@ -17,8 +17,8 @@ func enforceTaskHarnessMatch(taskName string, st *task.State, projectAdapter str
 	if st.Adapter == projectAdapter {
 		return nil
 	}
-	return fmt.Errorf("task %q was last run with harness %q, but this project is configured for %q\n\n"+
-		"Sessions are not compatible across harnesses.\n"+
+	return fmt.Errorf("task %q was last run with adapter %q, but this project is configured for %q\n\n"+
+		"Sessions are not compatible across adapters.\n"+
 		"Tip: run without --follow-up to start a fresh session.",
 		taskName, st.Adapter, projectAdapter)
 }

@@ -18,7 +18,7 @@ type Task struct {
 	FollowUp    string // Optional: task whose conversation to continue
 	Adapter     string // Optional: override adapter for this task
 	Model       string // Optional: override model for this task
-	Reasoning   string // Optional: override reasoning (codex-only) for this task
+	Reasoning   string // Optional: override reasoning (adapter-dependent) for this task
 	Schema      int    // Task schema version (0 if missing)
 	Description string // Optional task description/context (not the prompt)
 }

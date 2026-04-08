@@ -26,7 +26,7 @@ type DraftCmd struct {
 	Title       string `required:"" help:"Short description"`
 	Adapter     string `help:"Adapter for this task (overrides project config)"`
 	Model       string `help:"Default model for this task (overrides project config)"`
-	Reasoning   string `help:"Default reasoning for this task (codex-only; overrides project config)"`
+	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
 	Workflow    string `help:"Workflow template to use (e.g., collaborative)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
 }
