@@ -18,6 +18,7 @@ const DefaultMaxWorkspaces = 20
 // Config is the project configuration (.subtask/config.json).
 type Config struct {
 	Adapter       string `json:"adapter"`
+	Provider      string `json:"provider,omitempty"`
 	Model         string `json:"model,omitempty"`
 	Reasoning     string `json:"reasoning,omitempty"`
 	MaxWorkspaces int    `json:"max_workspaces"`
@@ -128,6 +129,7 @@ func ListWorkspaces() ([]Entry, error) {
 func mergeConfig(user, project *Config) *Config {
 	out := &Config{
 		Adapter:       strings.TrimSpace(user.Adapter),
+		Provider:      strings.TrimSpace(user.Provider),
 		Model:         strings.TrimSpace(user.Model),
 		Reasoning:     strings.TrimSpace(user.Reasoning),
 		MaxWorkspaces: user.MaxWorkspaces,
@@ -138,6 +140,9 @@ func mergeConfig(user, project *Config) *Config {
 
 	if strings.TrimSpace(project.Adapter) != "" {
 		out.Adapter = strings.TrimSpace(project.Adapter)
+	}
+	if strings.TrimSpace(project.Provider) != "" {
+		out.Provider = strings.TrimSpace(project.Provider)
 	}
 	if strings.TrimSpace(project.Model) != "" {
 		out.Model = strings.TrimSpace(project.Model)

@@ -17,6 +17,7 @@ import (
 type AskCmd struct {
 	Prompt   string `arg:"" optional:"" help:"Question or prompt (or use stdin)"`
 	FollowUp string `name:"follow-up" help:"Continue from task name, session name, or session ID"`
+	Provider string `help:"Override provider for this prompt (adapter-dependent; does not persist)"`
 	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`

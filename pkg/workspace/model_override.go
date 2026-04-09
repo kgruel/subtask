@@ -42,6 +42,19 @@ func ResolveAdapter(cfg *Config, t *task.Task, override string) string {
 	return ""
 }
 
+func ResolveProvider(cfg *Config, t *task.Task, override string) string {
+	if strings.TrimSpace(override) != "" {
+		return strings.TrimSpace(override)
+	}
+	if t != nil && strings.TrimSpace(t.Provider) != "" {
+		return strings.TrimSpace(t.Provider)
+	}
+	if cfg != nil && strings.TrimSpace(cfg.Provider) != "" {
+		return strings.TrimSpace(cfg.Provider)
+	}
+	return ""
+}
+
 func ResolveModel(cfg *Config, t *task.Task, override string) string {
 	if strings.TrimSpace(override) != "" {
 		return strings.TrimSpace(override)
@@ -69,10 +82,10 @@ func ResolveReasoning(cfg *Config, t *task.Task, override string) string {
 }
 
 func ConfigWithModelReasoning(cfg *Config, model, reasoning string) *Config {
-	return ConfigWithOverrides(cfg, "", model, reasoning)
+	return ConfigWithOverrides(cfg, "", "", model, reasoning)
 }
 
-func ConfigWithOverrides(cfg *Config, adapter, model, reasoning string) *Config {
+func ConfigWithOverrides(cfg *Config, adapter, provider, model, reasoning string) *Config {
 	if cfg == nil {
 		return nil
 	}
@@ -81,6 +94,13 @@ func ConfigWithOverrides(cfg *Config, adapter, model, reasoning string) *Config 
 	adapter = strings.TrimSpace(adapter)
 	if adapter != "" {
 		cp.Adapter = adapter
+	}
+
+	provider = strings.TrimSpace(provider)
+	if provider != "" {
+		cp.Provider = provider
+	} else {
+		cp.Provider = ""
 	}
 
 	model = strings.TrimSpace(model)

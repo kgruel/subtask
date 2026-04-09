@@ -17,7 +17,8 @@ type InstallCmd struct {
 	Guide         bool   `help:"Print setup guidance and exit"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
 	Scope         string `help:"Skill scope: 'user' or 'project'" placeholder:"SCOPE"`
-	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode; or any custom adapter)" placeholder:"ADAPTER"`
+	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode, pi; or any custom adapter)" placeholder:"ADAPTER"`
+	Provider      string `help:"Provider for the adapter (adapter-dependent)" placeholder:"PROVIDER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
@@ -92,6 +93,7 @@ func (c *InstallCmd) Run() error {
 			Existing:      readConfigFileOrNil(task.ConfigPath()),
 			NoPrompt:      c.NoPrompt,
 			Adapter:       c.Adapter,
+			Provider:      c.Provider,
 			Model:         c.Model,
 			Reasoning:     c.Reasoning,
 			MaxWorkspaces: c.MaxWorkspaces,

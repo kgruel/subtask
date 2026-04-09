@@ -17,6 +17,7 @@ type configWizardParams struct {
 	NoPrompt  bool
 	// Flag overrides (take precedence over defaults and existing config).
 	Adapter       string
+	Provider      string
 	Model         string
 	Reasoning     string
 	MaxWorkspaces int
@@ -24,6 +25,7 @@ type configWizardParams struct {
 
 type configFlags struct {
 	Adapter       string
+	Provider      string
 	Model         string
 	Reasoning     string
 	MaxWorkspaces int
@@ -31,6 +33,7 @@ type configFlags struct {
 
 type configValues struct {
 	Adapter       string
+	Provider      string
 	Model         string
 	Reasoning     string
 	MaxWorkspaces int
@@ -51,6 +54,9 @@ func resolveConfigValues(existing *workspace.Config, flags configFlags) configVa
 		if existing.MaxWorkspaces > 0 {
 			values.MaxWorkspaces = existing.MaxWorkspaces
 		}
+		if strings.TrimSpace(existing.Provider) != "" {
+			values.Provider = strings.TrimSpace(existing.Provider)
+		}
 		if strings.TrimSpace(existing.Model) != "" {
 			values.Model = strings.TrimSpace(existing.Model)
 		}
@@ -63,8 +69,12 @@ func resolveConfigValues(existing *workspace.Config, flags configFlags) configVa
 	// explicit flags to override after).
 	if strings.TrimSpace(flags.Adapter) != "" {
 		values.Adapter = strings.TrimSpace(flags.Adapter)
+		values.Provider = ""
 		values.Model = ""
 		values.Reasoning = ""
+	}
+	if strings.TrimSpace(flags.Provider) != "" {
+		values.Provider = strings.TrimSpace(flags.Provider)
 	}
 	if strings.TrimSpace(flags.Model) != "" {
 		values.Model = strings.TrimSpace(flags.Model)
@@ -124,6 +134,7 @@ func validateConfigValues(values configValues) error {
 func buildConfig(values configValues) *workspace.Config {
 	cfg := &workspace.Config{
 		Adapter:       strings.TrimSpace(values.Adapter),
+		Provider:      strings.TrimSpace(values.Provider),
 		Model:         strings.TrimSpace(values.Model),
 		Reasoning:     strings.TrimSpace(values.Reasoning),
 		MaxWorkspaces: values.MaxWorkspaces,
@@ -183,6 +194,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 	flags := configFlags{
 		Adapter:       p.Adapter,
+		Provider:      p.Provider,
 		Model:         p.Model,
 		Reasoning:     p.Reasoning,
 		MaxWorkspaces: p.MaxWorkspaces,
@@ -364,6 +376,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 	values = configValues{
 		Adapter:       h,
+		Provider:      values.Provider,
 		Model:         model,
 		Reasoning:     reasoning,
 		MaxWorkspaces: numWorkspaces,

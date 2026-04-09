@@ -17,7 +17,8 @@ type ConfigCmd struct {
 	User          bool   `help:"Edit user config (~/.subtask/config.json)"`
 	Project       bool   `help:"Edit project config (<git-root>/.subtask/config.json)"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
-	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode; or any custom adapter)" placeholder:"ADAPTER"`
+	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode, pi; or any custom adapter)" placeholder:"ADAPTER"`
+	Provider      string `help:"Provider for the adapter (adapter-dependent)" placeholder:"PROVIDER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
@@ -63,13 +64,17 @@ func (c *ConfigCmd) Run() error {
 		return fmt.Errorf("invalid scope %q", scope)
 	}
 
+	// If the user provided enough flags to fully specify the config, skip the wizard.
+	noPrompt := c.NoPrompt || (c.Adapter != "" && c.Model != "")
+
 	existing := readConfigFileOrNil(path)
 	cfg, wrote, err := runConfigWizard(configWizardParams{
 		WritePath:     path,
 		RepoRoot:      repoRoot,
 		Existing:      existing,
-		NoPrompt:      c.NoPrompt,
+		NoPrompt:      noPrompt,
 		Adapter:       c.Adapter,
+		Provider:      c.Provider,
 		Model:         c.Model,
 		Reasoning:     c.Reasoning,
 		MaxWorkspaces: c.MaxWorkspaces,
@@ -113,6 +118,9 @@ func printConfigDetails(cfg *workspace.Config, scope, path string) {
 	scopeTitle := strings.ToUpper(scope[:1]) + scope[1:]
 	fmt.Printf("    %s %s %s\n", subtleStyle.Render("Scope:"), scopeTitle, subtleStyle.Render("("+abbreviatePath(path)+")"))
 	fmt.Printf("    %s %s\n", subtleStyle.Render("Adapter:"), cfg.Adapter)
+	if strings.TrimSpace(cfg.Provider) != "" {
+		fmt.Printf("    %s %s\n", subtleStyle.Render("Provider:"), cfg.Provider)
+	}
 	if strings.TrimSpace(cfg.Model) != "" {
 		fmt.Printf("    %s %s\n", subtleStyle.Render("Model:"), cfg.Model)
 	}

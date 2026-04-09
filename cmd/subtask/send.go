@@ -27,8 +27,9 @@ import (
 type SendCmd struct {
 	Task    string `arg:"" help:"Task name"`
 	Prompt  string `arg:"" optional:"" help:"Message to send (or use stdin)"`
-	Adapter string `help:"Override adapter for this prompt (does not persist)"`
-	Model   string `help:"Override model for this prompt (does not persist)"`
+	Adapter  string `help:"Override adapter for this prompt (does not persist)"`
+	Provider string `help:"Override provider for this prompt (adapter-dependent; does not persist)"`
+	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
@@ -97,9 +98,10 @@ func (c *SendCmd) Run() error {
 		h = c.testHarness
 	} else {
 		adapter := workspace.ResolveAdapter(cfg, t, c.Adapter)
+		provider := workspace.ResolveProvider(cfg, t, c.Provider)
 		model := workspace.ResolveModel(cfg, t, c.Model)
 		reasoning := workspace.ResolveReasoning(cfg, t, c.Reasoning)
-		cfg = workspace.ConfigWithOverrides(cfg, adapter, model, reasoning)
+		cfg = workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning)
 		h, err = harness.New(cfg)
 		if err != nil {
 			return err

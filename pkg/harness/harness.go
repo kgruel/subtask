@@ -86,6 +86,7 @@ func New(cfg *workspace.Config) (Harness, error) {
 
 	vars := templateVars{
 		Model:          cfg.Model,
+		Provider:       cfg.Provider,
 		Reasoning:      cfg.Reasoning,
 		PermissionMode: "bypassPermissions",
 	}

@@ -23,6 +23,7 @@ type TaskDetail struct {
 	LastHistory  int64 // unix nanos (for consumers that want stable sorts)
 	LastRunMS    int
 
+	Provider  string
 	Model     string
 	Reasoning string
 
@@ -71,6 +72,7 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		State:         state,
 		ProgressMeta:  meta,
 		ProgressSteps: task.LoadProgressSteps(taskName),
+		Provider:      workspace.ResolveProvider(cfg, t, ""),
 		Model:         workspace.ResolveModel(cfg, t, ""),
 		TaskStatus:    rec.TaskStatus,
 		WorkerStatus:  rec.WorkerStatus,
@@ -78,9 +80,7 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		LastHistory:   rec.LastHistory.UnixNano(),
 		LastRunMS:     rec.LastRunDurationMS,
 	}
-	if cfg != nil && cfg.Adapter == "codex" {
-		d.Reasoning = workspace.ResolveReasoning(cfg, t, "")
-	}
+	d.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 
 	d.LinesAdded = rec.LinesAdded
 	d.LinesRemoved = rec.LinesRemoved

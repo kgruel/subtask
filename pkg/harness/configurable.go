@@ -11,6 +11,7 @@ import (
 // templateVars holds values that are substituted into adapter config arg templates.
 type templateVars struct {
 	Model          string
+	Provider       string
 	Prompt         string
 	SessionID      string
 	CWD            string
@@ -194,6 +195,7 @@ func (a *ConfigurableAdapter) templateArgList(args []string, prompt string) []st
 func (a *ConfigurableAdapter) templateArg(arg, prompt string) string {
 	r := strings.NewReplacer(
 		"{{model}}", a.vars.Model,
+		"{{provider}}", a.vars.Provider,
 		"{{prompt}}", prompt,
 		"{{session_id}}", a.vars.SessionID,
 		"{{cwd}}", a.vars.CWD,
