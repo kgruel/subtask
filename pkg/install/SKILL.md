@@ -34,11 +34,52 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask merge <task> -m "msg"` | Squash-merge task into base branch |
 | `subtask close <task>` | Close without merging, free workspace |
 | `subtask workspace <task>` | Get workspace path (a git worktree) |
+| `subtask review --task <task>` | AI code review of a task's changes |
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show task conversation and history |
 | `subtask trace <task>` | Debug what a worker is doing and thinking internally |
 
 **Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
+
+## Overrides
+
+Override the adapter, provider, model, or reasoning effort per-task or per-prompt.
+
+**On `draft`** — persists to the task (every `send` inherits):
+```bash
+subtask draft fix/bug --base-branch main --title "Fix panic" \
+  --adapter claude --model claude-sonnet-4-20250514 --reasoning high <<'EOF'
+...
+EOF
+```
+
+**On `send` / `ask`** — ephemeral, applies to this prompt only:
+```bash
+subtask send fix/bug --model claude-sonnet-4-20250514 "Review the edge cases"
+subtask ask --model claude-sonnet-4-20250514 "Explain the pool logic"
+```
+
+| Flag | `draft` | `send` | `ask` |
+|------|---------|--------|-------|
+| `--adapter` | persists | per-prompt | — |
+| `--provider` | persists | per-prompt | per-prompt |
+| `--model` | persists | per-prompt | per-prompt |
+| `--reasoning` | persists | per-prompt | per-prompt |
+
+Resolution order: CLI flag → task config → project config → global config.
+
+## Review
+
+AI code review without creating a task. Four modes (mutually exclusive):
+
+```bash
+subtask review --task fix/bug                    # Review a task's changes against its base branch
+subtask review --base main                       # Review current branch against main (PR-style)
+subtask review --uncommitted                     # Review staged + unstaged + untracked changes
+subtask review --commit abc123                   # Review a specific commit
+```
+
+Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
 
 ## Flow
 

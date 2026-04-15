@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/task"
@@ -64,6 +65,44 @@ func ensureTaskSymlink(workspacePath, taskName string) {
 	if err := os.Symlink(taskDirAbs, wsTaskDir); err != nil {
 		printWarning(fmt.Sprintf("failed to symlink task folder: %v", err))
 	}
+
+	ensureWorktreeExclude(workspacePath)
+}
+
+// ensureWorktreeExclude adds .subtask/ to the worktree's local exclude file
+// so the symlinked task folder doesn't appear as untracked. This uses
+// .git/info/exclude (per-worktree, never committed) rather than .gitignore.
+func ensureWorktreeExclude(workspacePath string) {
+	gitDir, err := git.Output(workspacePath, "rev-parse", "--git-dir")
+	if err != nil {
+		return
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(workspacePath, gitDir)
+	}
+
+	excludePath := filepath.Join(gitDir, "info", "exclude")
+	pattern := "/.subtask/"
+
+	// Check if already present.
+	content, _ := os.ReadFile(excludePath)
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == pattern {
+			return
+		}
+	}
+
+	_ = os.MkdirAll(filepath.Dir(excludePath), 0755)
+	f, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		_, _ = f.WriteString("\n")
+	}
+	_, _ = f.WriteString(pattern + "\n")
 }
 
 func detachWorkspaceHead(workspacePath string) {
