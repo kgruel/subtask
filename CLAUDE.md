@@ -86,7 +86,7 @@ Isolated git worktree where tasks execute. Created on-demand from a configured p
 
 ### Harness
 
-Worker backend that executes prompts. Supports `codex` and `claude`. Configured in `.subtask/config.json`.
+Worker backend that executes prompts. Built-in adapters: `codex`, `claude`, `opencode`, `gemini`, `pi`. Configured in `.subtask/config.json`. See [docs/adding-an-adapter.md](docs/adding-an-adapter.md) for adding a new one.
 
 ### Workflow & Stages
 
@@ -236,6 +236,8 @@ go test ./...             # includes e2e
 
 ### Adding a Harness
 
-1. Create `harness/<name>.go`
-2. Implement `Harness` interface
-3. Register in `harness.New()`
+Adapters are YAML-driven. See [docs/adding-an-adapter.md](docs/adding-an-adapter.md) for the full guide. In short:
+
+1. Create `pkg/harness/adapters/<name>.yaml` describing the CLI invocation.
+2. If the CLI emits a custom JSON event format, add a parser in `pkg/harness/parse.go` and register it in `ParseByName` and `parseOutput`.
+3. If sessions need migration when workspaces move, add a handler in `pkg/harness/session_handlers.go`.

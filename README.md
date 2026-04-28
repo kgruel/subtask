@@ -95,7 +95,7 @@ Tell Claude Code:
 ```md
 Setup Subtask with `subtask install --guide`.
 ```
-Claude will install the Subtask skill at `~/.claude/skills`, and ask you whether subagents should run Claude, Codex or OpenCode.
+Claude will install the Subtask skill at `~/.claude/skills`, and ask you whether subagents should run Claude, Codex, OpenCode, or Gemini.
 
 <details>
 <summary>Or install manually…</summary>
