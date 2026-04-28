@@ -16,7 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // ParseByName dispatches to a named stream parser.
-// Known names: "claude", "codex", "opencode".
+// Known names: "claude", "codex", "opencode", "gemini".
 func ParseByName(name string, r io.Reader, result *Result, cb Callbacks) error {
 	switch name {
 	case "claude":
@@ -25,6 +25,8 @@ func ParseByName(name string, r io.Reader, result *Result, cb Callbacks) error {
 		return parseCodexExecJSONL(r, result, cb, codexMaxJSONLLineBytes)
 	case "opencode":
 		return parseOpenCodeStream(r, result, cb)
+	case "gemini":
+		return parseGeminiStream(r, result, cb)
 	default:
 		return fmt.Errorf("unknown parser: %q", name)
 	}
@@ -482,6 +484,87 @@ func parseOpenCodeStream(r io.Reader, result *Result, cb Callbacks) error {
 			reply.WriteString(ev.Part.Text)
 			result.Reply = reply.String()
 			result.AgentReplied = result.Reply != ""
+		}
+	}
+
+	return scanner.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Gemini stream parser
+// ---------------------------------------------------------------------------
+//
+// Gemini CLI's `-o stream-json` emits one JSON event per line:
+//
+//   {"type":"init","session_id":"<uuid>","model":"...","timestamp":"..."}
+//   {"type":"message","role":"user","content":"...","timestamp":"..."}
+//   {"type":"message","role":"assistant","content":"...","delta":true,"timestamp":"..."}
+//   {"type":"result","status":"success","stats":{...},"timestamp":"..."}
+//
+// Assistant content streams as multiple delta events that must be concatenated.
+// Tool calls arrive as separate {"type":"tool_use",...} events.
+type geminiStreamEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"session_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Delta     bool   `json:"delta,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+func parseGeminiStream(r io.Reader, result *Result, cb Callbacks) error {
+	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+
+	seenSessionStart := false
+	var reply strings.Builder
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		var ev geminiStreamEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue
+		}
+
+		if ev.Type == "init" && ev.SessionID != "" && !seenSessionStart {
+			seenSessionStart = true
+			result.SessionID = ev.SessionID
+			result.PromptDelivered = true
+			if cb.OnSessionStart != nil {
+				cb.OnSessionStart(ev.SessionID)
+			}
+			continue
+		}
+
+		if ev.Type == "tool_use" {
+			if cb.OnToolCall != nil {
+				cb.OnToolCall(time.Now())
+			}
+			continue
+		}
+
+		if ev.Type == "message" && ev.Role == "assistant" && ev.Content != "" {
+			if ev.Delta {
+				reply.WriteString(ev.Content)
+				result.Reply = reply.String()
+			} else {
+				reply.Reset()
+				reply.WriteString(ev.Content)
+				result.Reply = ev.Content
+			}
+			result.AgentReplied = true
+			continue
+		}
+
+		if ev.Type == "result" && ev.Status != "" && ev.Status != "success" {
+			if result.Error == "" {
+				result.Error = "gemini status=" + ev.Status
+			}
 		}
 	}
 

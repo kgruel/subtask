@@ -159,6 +159,8 @@ func validateAdapterAvailable(adapterName string) error {
 		return fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
 	case "opencode":
 		return fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
+	case "gemini":
+		return fmt.Errorf("gemini CLI not found\n\nInstall it from: https://github.com/google-gemini/gemini-cli")
 	default:
 		return fmt.Errorf("%s CLI %q not found\n\nEnsure %q is installed and on your PATH.", adapterName, cliName, cliName)
 	}
@@ -269,6 +271,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				"codex":    "Codex",
 				"claude":   "Claude Code",
 				"opencode": "OpenCode",
+				"gemini":   "Gemini CLI",
 			}
 			var opts []huh.Option[string]
 			for _, name := range availableAdapters {
@@ -311,11 +314,19 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 						Options(opts...).
 						Value(&model),
 				))
+			} else if h == "gemini" {
+				form = huh.NewForm(huh.NewGroup(
+					huh.NewInput().
+						Title("Model (optional)").
+						Description("Default for workers. Leave blank to use Gemini's auto router. Change anytime with: subtask config").
+						Placeholder("e.g. gemini-2.5-pro").
+						Value(&model),
+				))
 			} else {
 				form = huh.NewForm(huh.NewGroup(
 					huh.NewInput().
 						Title("Model (optional)").
-						Description("Default for workers. Leave blank for OpenCode defaults. Change anytime with: subtask config").
+						Description("Default for workers. Leave blank for adapter default. Change anytime with: subtask config").
 						Placeholder("provider/model").
 						Value(&model),
 				))

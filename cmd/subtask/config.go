@@ -17,7 +17,7 @@ type ConfigCmd struct {
 	User          bool   `help:"Edit user config (~/.subtask/config.json)"`
 	Project       bool   `help:"Edit project config (<git-root>/.subtask/config.json)"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
-	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode, pi; or any custom adapter)" placeholder:"ADAPTER"`
+	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode, pi, gemini; or any custom adapter)" placeholder:"ADAPTER"`
 	Provider      string `help:"Provider for the adapter (adapter-dependent)" placeholder:"PROVIDER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`

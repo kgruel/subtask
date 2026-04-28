@@ -214,7 +214,7 @@ func (a *ConfigurableAdapter) parseOutput(r io.Reader, result *Result, cb Callba
 
 	// Named parsers.
 	switch parser {
-	case "claude", "codex", "opencode":
+	case "claude", "codex", "opencode", "gemini":
 		return ParseByName(parser, r, result, cb)
 	case "generic-jsonl":
 		rules := GenericJSONLRules{
