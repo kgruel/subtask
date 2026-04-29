@@ -48,12 +48,13 @@ If a feature adds complexity for the user, it's probably wrong. If it confuses t
 1. **Task-centric** — Task name is the primary identifier. Everything flows from it.
 2. **Git-native** — Branches for isolation, worktrees for parallelism, standard merge workflow.
 3. **File-based collaboration** — Task folder shared between lead and worker. PLAN.md for plans, PROGRESS.json for tracking. Files persist; sessions don't.
-4. **Workspace opacity** — Lead never picks workspaces. Subtask assigns them.
+4. **Workspace opacity** — Lead never picks workspaces. Subtask assigns them. Isolation is git-level only: separate worktrees, separate branches. Runtime resources (ports, services, databases) are project-managed and shared by default — projects are responsible for any per-worker offsetting.
 5. **Context preservation** — Task folders are the portable, syncable unit. history.jsonl and `--follow-up` ensure nothing is lost when sessions crash. Copy anywhere, full context. Internal state and caches are local and rebuildable.
 6. **Progress visibility** — Tool counts, timing, and PROGRESS.json let lead track workers without interrupting them.
-7. **Guardrails over escape hatches** — Prevent footguns. Errors guide the lead on what to do next, not just fail. Dangerous operations require explicit intent. Example of work this implies but doesn't yet do: when a worker exits with an unknown-flag/arg error before any session start (typically: upstream CLI changed its flags and the bundled adapter YAML is now stale), `subtask send`/`show` should surface that specifically and point at `~/.subtask/adapters/<name>.yaml` as the override path plus the issue tracker — rather than just relaying the raw stderr and leaving the lead to diagnose adapter drift.
-8. **Local-first** — Operations use local git state. Lead controls when to sync with remote. No stale remote ref surprises.
-9. **Event sourcing** — `history.jsonl` is the append-only source of truth. SQLite index is a derived projection for fast queries. If they diverge, history wins.
+7. **Errors at subtask's own boundaries are actionable** — Where subtask can name the recovery — an adapter override path, an install command, a config field, a workspace state — the error says so rather than relaying raw upstream stderr. Pass-through is fine when subtask has nothing specific to add (e.g., raw git or harness errors).
+8. **Destructive operations require explicit intent** — Anything that loses work (`close --abandon`, force-resets, overwrites) needs a flag or confirmation. Defaults preserve.
+9. **Local-first** — Operations use local git state. Lead controls when to sync with remote. No stale remote ref surprises.
+10. **Event sourcing** — `history.jsonl` is the append-only source of truth. SQLite index is a derived projection for fast queries. If they diverge, history wins.
 
 ---
 
