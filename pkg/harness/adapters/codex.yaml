@@ -4,8 +4,6 @@ args:
   - "exec"
   - "--json"
   - "--dangerously-bypass-approvals-and-sandbox"
-  - "--enable"
-  - "web_search_request"
   - "-m"
   - "{{model}}"
 prompt_via: arg
