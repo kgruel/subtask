@@ -135,19 +135,24 @@ Task status is what users care about. Worker status is operational detail. Works
 | Command | Description |
 |---------|-------------|
 | `subtask install` | One-time global install + configuration wizard |
+| `subtask uninstall` | Remove the installed skill |
+| `subtask status` | Show installation status |
 | `subtask config` | Edit user defaults or project overrides |
 | `subtask draft <task>` | Create a task without running it |
 | `subtask send <task>` | Send a message (starts or resumes task) |
 | `subtask stage <task> <stage>` | Advance workflow stage |
 | `subtask list` | Show all tasks and workspaces |
 | `subtask show <task>` | Task details, progress, diff stats |
+| `subtask diff <task>` | Show task diff |
 | `subtask merge <task> -m "..."` | Squash-merge into base branch, close |
 | `subtask close <task>` | Close without merging (`--abandon` discards changes) |
 | `subtask workspace <task>` | Print workspace path |
 | `subtask ask "..."` | Quick question (no task, runs in cwd) |
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show conversation and lifecycle events |
-| `subtask trace <task>` | Debug session logs (tool calls, timing) |
+| `subtask trace <task>` | Debug worker runs (tool calls, errors) |
+| `subtask review <task>` | Get an AI code review |
+| `subtask update` | Update subtask to the latest release |
 
 ---
 
@@ -177,7 +182,7 @@ Task status is what users care about. Worker status is operational detail. Works
 - Contains everything needed to understand and resume the task
 - `history.jsonl` is the source of truth for task status, stage, messages
 
-**Internal folder** (`.subtask/internal/<name>/`) is runtime-only:
+**Internal folder** (`~/.subtask/projects/<escaped-git-root>/internal/<name>/`) is runtime-only:
 - Workspace paths, session IDs—machine-specific
 - Rebuilt automatically when needed
 - Never sync or back up
@@ -193,27 +198,35 @@ Task status is what users care about. Worker status is operational detail. Works
 
 ```
 .
-├── cmd/subtask/          # CLI commands and main.go entry point
-├── task/                 # Task/State structs, paths, locking, progress
-│   ├── gather/           # Shared data layer (used by CLI and TUI)
-│   ├── history/          # history.jsonl: append, read, tail
-│   ├── index/            # SQLite index for fast list/TUI queries
-│   ├── migrate/          # Schema migrations (legacy → current)
-│   └── ops/              # Task operations (merge, close)
-├── tui/                  # Interactive TUI (Bubble Tea)
-├── workspace/            # Workspace pool allocation
-├── harness/              # Worker backends (Codex, Claude) and prompt building
-├── git/                  # Git operations (branches, merge, diff, worktrees)
-├── render/               # CLI output formatting (TTY detection, colors, tables)
-├── workflow/             # Workflow stage templates (YAML, embedded)
-├── logs/                 # Session log parsing and formatting
-├── testutil/             # Test helpers (isolated environments)
-├── e2e/                  # Integration tests
-├── skill/
-│   └── SKILL.md          # Embedded skill source (synced at runtime)
-└── plugin/
-    ├── .claude-plugin/
-    └── setup.md
+├── cmd/subtask/             # CLI commands and main.go entry point
+├── pkg/                     # importable packages
+│   ├── task/                # Task/State structs, paths, locking, progress
+│   │   ├── gather/          # shared data layer (used by CLI and TUI)
+│   │   ├── history/         # history.jsonl: append, read, tail
+│   │   ├── index/           # SQLite index for fast list/TUI queries
+│   │   ├── migrate/         # schema migrations (legacy → current)
+│   │   └── ops/             # task operations (merge, close)
+│   ├── tui/                 # interactive TUI (Bubble Tea)
+│   ├── workspace/           # workspace pool allocation
+│   ├── harness/             # YAML-driven adapters for worker CLIs
+│   │   └── adapters/        # built-in adapters: codex, claude, opencode, gemini, pi
+│   ├── git/                 # git operations (branches, merge, diff, worktrees)
+│   ├── render/              # CLI output formatting (TTY detection, colors)
+│   ├── workflow/            # workflow stage templates (YAML, embedded)
+│   ├── logs/                # session log parsing and formatting
+│   ├── logging/             # subtask's own logger
+│   ├── diffparse/           # parse `git diff` output
+│   ├── subtaskerr/          # typed errors with recovery hints
+│   ├── install/             # skill install + embedded SKILL.md
+│   ├── testutil/            # test helpers (isolated environments)
+│   └── e2e/                 # integration tests
+├── internal/                # private packages (not importable)
+│   ├── binaryupdate/        # self-update logic
+│   ├── filelock/            # cross-platform file locks
+│   └── homedir/             # ~ expansion across OSes
+├── plugin/                  # Claude Code plugin assets (hooks, scripts)
+├── .claude-plugin/          # plugin marketplace metadata
+└── scripts/                 # install scripts (install.sh, install.ps1)
 ```
 
 ---
