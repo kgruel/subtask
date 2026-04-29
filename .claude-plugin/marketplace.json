@@ -1,7 +1,7 @@
 {
   "name": "subtask",
   "owner": {
-    "name": "zippoxer"
+    "name": "kgruel"
   },
   "metadata": {
     "description": "Parallel task orchestration for AI coding agents"

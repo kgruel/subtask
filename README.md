@@ -1,5 +1,7 @@
 # Subtask ✨
 
+> Fork of [zippoxer/subtask](https://github.com/zippoxer/subtask), maintained by [kgruel](https://github.com/kgruel) since v0.3.0. Adds config-driven adapters, Gemini and pi worker support, and per-task adapter overrides.
+
 Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, track progress, review and request changes.
 
 * Each task gets a Git worktree, so they can be **done in parallel** safely
@@ -56,27 +58,6 @@ Run `subtask` in your terminal to see everything:
 
 ### Install the CLI
 
-#### Mac/Linux
-
-```bash
-curl -fsSL https://subtask.dev/install.sh | bash
-```
-
-#### Windows (PowerShell)
-
-```powershell
-irm https://subtask.dev/install.ps1 | iex
-```
-
-<details>
-<summary>Other install methods…</summary>
-
-#### Homebrew
-
-```bash
-brew install zippoxer/tap/subtask
-```
-
 #### Go
 
 ```bash
@@ -86,8 +67,6 @@ go install github.com/kgruel/subtask/cmd/subtask@latest
 #### Binary
 
 [GitHub Releases](https://github.com/kgruel/subtask/releases)
-
-</details>
 
 ### Install the Skill
 
@@ -112,7 +91,7 @@ subtask install
 
 In Claude Code:
 ```
-/plugin marketplace add zippoxer/subtask
+/plugin marketplace add kgruel/subtask
 /plugin install subtask@subtask
 ```
 This reminds Claude to use the Subtask skill when it invokes the CLI.
@@ -136,13 +115,6 @@ What happens next:
 subtask update --check
 subtask update
 ```
-
-## Subtask is Built with Subtask
-- I use Claude Code to lead the development (i talk, it creates tasks and tracks everything)
-- I use Codex for subagents (just preference, Claude Code works too)
-- ~60 tasks merged in the past week
-- [Proof](https://github.com/user-attachments/assets/6c71e34f-b3c6-4372-ac25-dd3eea15932e)
-
 
 ## License
 

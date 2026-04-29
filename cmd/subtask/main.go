@@ -54,9 +54,9 @@ func main() {
 	}
 
 	var cli CLI
-	versionInfo := version
+	versionInfo := fmt.Sprintf("%s (kgruel fork of zippoxer/subtask)", version)
 	if commit != "" && commit != "none" {
-		versionInfo = fmt.Sprintf("%s (%s)", version, commit)
+		versionInfo = fmt.Sprintf("%s (%s, kgruel fork of zippoxer/subtask)", version, commit)
 	}
 	ctx := kong.Parse(&cli,
 		kong.Vars{"version": versionInfo},
