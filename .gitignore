@@ -24,4 +24,6 @@ coverage.out
 # Personal notes
 ISSUES.md
 TODO.md
-/docs/issues
+
+# Local-only dev tracking (issues, roadmap, working notes)
+/docs/dev/
