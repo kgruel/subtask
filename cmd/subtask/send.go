@@ -223,11 +223,6 @@ func (c *SendCmd) Run() error {
 
 	c.info(fmt.Sprintf("Sending to task: %s", c.Task))
 	c.info("[Waiting for worker...]")
-	if !c.Quiet {
-		fmt.Println()
-		fmt.Println()
-		c.info("Tip: Don't check or poll, you'll be notified when done.")
-	}
 
 	// runToolCalls is tracked atomically for accurate interruption accounting.
 

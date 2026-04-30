@@ -76,9 +76,6 @@ func (c *AskCmd) Run() error {
 	}
 
 	printInfo("[Waiting for reply...]")
-	fmt.Println()
-	fmt.Println()
-	printInfo("Tip: Don't check or poll, you'll be notified when done.")
 
 	result, err := h.Run(context.Background(), cwd, fullPrompt, continueFrom, harness.Callbacks{})
 	if err != nil {

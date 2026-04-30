@@ -1,9 +1,6 @@
 Using existing workspace: ws1
 Sending to task: send/behind-conflicts
 [Waiting for worker...]
-
-
-Tip: Don't check or poll, you'll be notified when done.
 Worker replied (3 tool calls)
 
 ─── Reply ───
