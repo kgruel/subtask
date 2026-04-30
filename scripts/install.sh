@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="zippoxer/subtask"
+REPO="kgruel/subtask"
 
 usage() {
   cat <<'EOF'
@@ -15,8 +15,8 @@ Options:
   -v, --version   Git tag to install (default: latest release)
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/zippoxer/subtask/main/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/zippoxer/subtask/main/install.sh | bash -s -- -b ~/.local/bin -v v1.2.3
+  curl -fsSL https://raw.githubusercontent.com/kgruel/subtask/main/scripts/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/kgruel/subtask/main/scripts/install.sh | bash -s -- -b ~/.local/bin -v v1.2.3
 EOF
 }
 

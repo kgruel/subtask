@@ -5,7 +5,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "zippoxer/subtask"
+$Repo = "kgruel/subtask"
 
 function Normalize-Tag([string]$Tag) {
   if ($Tag -eq "") { return "" }
