@@ -33,6 +33,10 @@ type SendCmd struct {
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
+	// PinnedBase opts into branching from the draft-time captured base commit
+	// instead of re-resolving the task's base branch to its current local HEAD.
+	// Only affects the first send (when the task branch does not yet exist).
+	PinnedBase bool `name:"pinned-base" help:"On first send, branch from the draft-time base commit instead of current base-branch HEAD"`
 
 	// Internal: injected harness for testing
 	testHarness harness.Harness
@@ -513,13 +517,18 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			branchExists = false
 		}
 
+		firstSend := false
 		if branchExists {
 			if err := git.Checkout(wsPath, t.Name); err != nil {
 				return "", "", "", nil, fmt.Errorf("failed to checkout branch %q: %w", t.Name, err)
 			}
 		} else {
+			firstSend = tail.TaskStatus == task.TaskStatusOpen
+			// Default: re-resolve to current base-branch HEAD on first send so
+			// pre-drafted tasks pick up commits that landed between draft and send.
+			// `--pinned-base` opts into the older "branch from draft-time commit" behavior.
 			baseRef := ""
-			if tail.TaskStatus != task.TaskStatusMerged {
+			if c.PinnedBase && tail.TaskStatus != task.TaskStatusMerged {
 				baseRef = strings.TrimSpace(tail.BaseCommit)
 			}
 			if err := git.SetupBranch(wsPath, t.Name, t.BaseBranch, baseRef); err != nil {
@@ -538,8 +547,11 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 		ensureTaskSymlink(wsPath, c.Task)
 
-		// If reopening from merged/closed, record a task.opened event.
-		if tail.TaskStatus != task.TaskStatusOpen {
+		// Record a task.opened event whenever we created a fresh branch (first send,
+		// or reopen from merged/closed). The event captures the actual base commit
+		// the worker is starting from, which downstream code reads for diff/staleness.
+		switch {
+		case tail.TaskStatus != task.TaskStatusOpen:
 			baseCommit, _ := git.Output(wsPath, "rev-parse", "HEAD")
 			data := mustJSON(map[string]any{
 				"reason":      "reopen",
@@ -547,6 +559,16 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 				"branch":      c.Task,
 				"base_branch": t.BaseBranch,
 				"base_commit": baseCommit,
+			})
+			_ = history.Append(c.Task, history.Event{Type: "task.opened", Data: data})
+		case firstSend:
+			baseCommit, _ := git.Output(wsPath, "rev-parse", "HEAD")
+			data := mustJSON(map[string]any{
+				"reason":      "first-send",
+				"branch":      c.Task,
+				"base_branch": t.BaseBranch,
+				"base_commit": baseCommit,
+				"pinned":      c.PinnedBase,
 			})
 			_ = history.Append(c.Task, history.Event{Type: "task.opened", Data: data})
 		}
