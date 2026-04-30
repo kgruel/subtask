@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -22,12 +23,21 @@ type InstallCmd struct {
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
+	PluginDev     bool   `help:"Symlink the local plugin/ directory into Claude Code's plugins folder for development"`
+	From          string `help:"Plugin source directory (default: <repo-root>/plugin); used with --plugin-dev" placeholder:"PATH"`
 }
 
 func (c *InstallCmd) Run() error {
 	if c.Guide {
 		printSetupGuide()
 		return nil
+	}
+
+	if c.PluginDev {
+		return c.runPluginDev()
+	}
+	if c.From != "" {
+		return fmt.Errorf("--from requires --plugin-dev")
 	}
 
 	homeDir, err := homedir.Dir()
@@ -113,7 +123,71 @@ func (c *InstallCmd) Run() error {
 		fmt.Println("  subtask config --project  # edit project overrides")
 	}
 
+	printPluginGuidance(homeDir)
+
 	return nil
+}
+
+// runPluginDev handles `subtask install --plugin-dev`. It symlinks a local
+// plugin source directory into ~/.claude/plugins/subtask so working-tree edits
+// take effect immediately. Default source is <git-root>/plugin; override with
+// --from.
+func (c *InstallCmd) runPluginDev() error {
+	source := c.From
+	if source == "" {
+		root, err := task.GitRootAbs()
+		if err != nil || root == "" {
+			return fmt.Errorf("--plugin-dev requires --from <path> when not run inside a git repository")
+		}
+		source = filepath.Join(root, "plugin")
+	}
+
+	res, err := install.InstallPluginDev(source)
+	if err != nil {
+		return err
+	}
+
+	switch res.Action {
+	case "created":
+		printSuccess(fmt.Sprintf("Linked plugin: %s -> %s", abbreviatePath(res.Path), abbreviatePath(res.SourceDir)))
+	case "updated":
+		printSuccess(fmt.Sprintf("Updated plugin link: %s -> %s", abbreviatePath(res.Path), abbreviatePath(res.SourceDir)))
+	case "noop":
+		printSuccess(fmt.Sprintf("Plugin already linked: %s -> %s", abbreviatePath(res.Path), abbreviatePath(res.SourceDir)))
+	}
+
+	fmt.Println()
+	fmt.Println("Restart Claude Code to pick up plugin changes.")
+	return nil
+}
+
+// printPluginGuidance shows next-step instructions about the plugin (hooks)
+// based on its current install state.
+func printPluginGuidance(homeDir string) {
+	st, err := install.GetPluginStatusFor(homeDir)
+	if err != nil {
+		return
+	}
+
+	fmt.Println()
+	switch {
+	case !st.Exists:
+		fmt.Println("Hooks (optional):")
+		fmt.Println("  Subtask ships hooks that surface unread worker replies and reduce")
+		fmt.Println("  the chance of misreading background-task completions. To enable in")
+		fmt.Println("  Claude Code:")
+		fmt.Println()
+		fmt.Println("    /plugin marketplace add github:kgruel/subtask")
+		fmt.Println("    /plugin install subtask@subtask")
+		fmt.Println()
+		fmt.Println("  Or for plugin development: subtask install --plugin-dev")
+	case st.IsSymlink && st.HasManifest:
+		fmt.Printf("Plugin: linked (dev) at %s -> %s\n", abbreviatePath(st.Path), abbreviatePath(st.SymlinkTarget))
+	case st.HasManifest:
+		fmt.Printf("Plugin: installed at %s\n", abbreviatePath(st.Path))
+	default:
+		printWarning(fmt.Sprintf("Plugin path %s exists but is missing .claude-plugin/plugin.json — Claude Code may not load it.", abbreviatePath(st.Path)))
+	}
 }
 
 func printSetupGuide() {

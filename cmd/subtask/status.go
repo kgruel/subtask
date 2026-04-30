@@ -25,17 +25,40 @@ func (c *StatusCmd) Run() error {
 		}
 	}
 
-	kv := &render.KeyValueList{
-		Pairs: []render.KV{
-			{Key: "Skill path", Value: abbreviatePath(st.Path)},
-			{Key: "Skill installed", Value: skillInstalled},
-			{Key: "Skill up-to-date", Value: skillUpToDate},
-			{Key: "Skill embedded SHA256", Value: shortHash(st.EmbeddedSHA256)},
-			{Key: "Skill installed SHA256", Value: skillSHA},
-		},
+	pst, _ := install.GetPluginStatus()
+	pluginState := pluginStateLabel(pst)
+
+	pairs := []render.KV{
+		{Key: "Skill path", Value: abbreviatePath(st.Path)},
+		{Key: "Skill installed", Value: skillInstalled},
+		{Key: "Skill up-to-date", Value: skillUpToDate},
+		{Key: "Skill embedded SHA256", Value: shortHash(st.EmbeddedSHA256)},
+		{Key: "Skill installed SHA256", Value: skillSHA},
+		{Key: "Plugin path", Value: abbreviatePath(pst.Path)},
+		{Key: "Plugin state", Value: pluginState},
 	}
+	if pst.IsSymlink && pst.SymlinkTarget != "" {
+		pairs = append(pairs, render.KV{Key: "Plugin link target", Value: abbreviatePath(pst.SymlinkTarget)})
+	}
+
+	kv := &render.KeyValueList{Pairs: pairs}
 	kv.Print()
 	return nil
+}
+
+func pluginStateLabel(st install.PluginStatus) string {
+	switch {
+	case !st.Exists:
+		return "not installed"
+	case st.IsSymlink && st.HasManifest:
+		return "linked (dev)"
+	case st.IsSymlink:
+		return "broken symlink"
+	case st.HasManifest:
+		return "installed"
+	default:
+		return "present (no manifest)"
+	}
 }
 
 func shortHash(s string) string {
