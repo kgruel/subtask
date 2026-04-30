@@ -256,3 +256,18 @@ Adapters are YAML-driven. See [docs/adding-an-adapter.md](docs/adding-an-adapter
 1. Create `pkg/harness/adapters/<name>.yaml` describing the CLI invocation.
 2. If the CLI emits a custom JSON event format, add a parser in `pkg/harness/parse.go` and register it in `ParseByName` and `parseOutput`.
 3. If sessions need migration when workspaces move, add a handler in `pkg/harness/session_handlers.go`.
+
+### Releasing
+
+The binary version (`cmd/subtask/main.go`) and the plugin version (`.claude-plugin/marketplace.json` and `plugin/.claude-plugin/plugin.json`) are coupled — they always match. Users installing the binary at version X expect the same-version plugin from the same commit, and Claude Code surfaces the plugin version in its UI.
+
+To bump:
+
+```bash
+scripts/bump-version.sh 0.4.0     # updates all three files
+git commit -am "Bump version to 0.4.0"
+git tag v0.4.0
+git push fork main && git push fork v0.4.0
+```
+
+Never edit one of the three version sites without the others.
