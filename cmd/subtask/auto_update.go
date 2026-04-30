@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -18,7 +19,10 @@ func runAutoUpdate() {
 	if err == nil && homeDir != "" {
 		res, err := install.AutoUpdateIfInstalled(homeDir)
 		if err == nil && res.UpdatedSkill {
-			printSuccess("Updated skill to latest version")
+			// Stderr, not stdout: this is meta-status that fires before the
+			// user's command runs. It must never contaminate stdout consumed
+			// by pipes, hooks, or `subtask reply` / `subtask unread`.
+			fmt.Fprintln(os.Stderr, "✓ Updated skill to latest version")
 		}
 	}
 
