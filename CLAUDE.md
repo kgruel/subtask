@@ -139,7 +139,8 @@ Task status is what users care about. Worker status is operational detail. Works
 | `subtask status` | Show installation status |
 | `subtask config` | Edit user defaults or project overrides |
 | `subtask draft <task>` | Create a task without running it |
-| `subtask send <task>` | Send a message (starts or resumes task) |
+| `subtask send <task>` | Send a message (starts or resumes task; blocks until reply) |
+| `subtask reply <task>` | Print the most recent worker reply (from history) |
 | `subtask stage <task> <stage>` | Advance workflow stage |
 | `subtask list` | Show all tasks and workspaces |
 | `subtask show <task>` | Task details, progress, diff stats |

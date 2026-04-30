@@ -27,6 +27,7 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask ask "..."` | Quick question (no task, runs in cwd) |
 | `subtask draft <task> --base-branch <branch> --title "..." <<'EOF'` | Create a task |
 | `subtask send <task> <prompt>` | Prompt worker on task (blocks until reply) |
+| `subtask reply <task>` | Print the most recent worker reply |
 | `subtask stage <task> <stage>` | Advance workflow stage |
 | `subtask list` | View all tasks |
 | `subtask show <task>` | View task details |
@@ -90,10 +91,11 @@ There's an intermittent panic in the worker pool under high concurrency—likely
 Reproduce, find root cause, fix, and add tests.
 EOF
 
-# 2. Start the worker
+# 2. Start the worker (blocks until worker replies; run in background)
 subtask send fix/bug "Go ahead."
 
-# 3. When worker finishes, review and iterate
+# 3. When notified, read the reply and review
+subtask reply fix/bug
 subtask stage fix/bug review
 # Review with `subtask diff --stat fix/bug`, or read the files at `cd $(subtask workspace fix/bug)`.
 
@@ -108,7 +110,13 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical:** Use the Bash tool with `run_in_background: true` for `subtask send`. Tell the user you're waiting and stop. Don't poll or check. You'll be notified when done.
+**Running `subtask send`:**
+
+`subtask send` is **synchronous** — the bash process blocks until the worker has replied (or errored), then exits. Run it with `run_in_background: true` so you can keep talking to the user while you wait. Don't poll or check; you'll be notified when the bash exits.
+
+**When notified that send completed, read the reply with `subtask reply <task>`.** This prints the worker's reply from durable history — it works regardless of how the bash output was captured. Exit code 0 alone does not mean "kicked off" — it means the worker has already replied. Don't confuse the two.
+
+Don't pipe `subtask send` through `tail`, `head`, or other filters; you'll truncate the reply marker. If you want quieter output, use `subtask send -q`. Either way, `subtask reply <task>` is the canonical way to retrieve the reply.
 
 ## Merging
 
