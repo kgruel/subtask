@@ -53,18 +53,3 @@ changelog:
       - "^chore:"
       - "^ci:"
 
-brews:
-  - name: subtask
-    homepage: "https://github.com/kgruel/subtask"
-    description: "Parallel task orchestration for AI coding agents."
-    license: "MIT"
-    repository:
-      owner: zippoxer
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
-    install: |
-      bin.install "subtask"
-    test: |
-      system "#{bin}/subtask", "--version"
