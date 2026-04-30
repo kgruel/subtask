@@ -29,6 +29,7 @@ type CLI struct {
 	Show      ShowCmd      `cmd:"" help:"Show task details"`
 	Log       LogCmd       `cmd:"" help:"Show task history (messages + events)"`
 	Reply     ReplyCmd     `cmd:"" help:"Print the most recent worker reply for a task"`
+	Unread    UnreadCmd    `cmd:"" help:"List open tasks with unread worker replies (exit 1 if none)"`
 	Diff      DiffCmd      `cmd:"" help:"Show task diff"`
 	Close     CloseCmd     `cmd:"" help:"Close a task and free workspace"`
 	Merge     MergeCmd     `cmd:"" help:"Merge task into base branch (marks as merged)"`
