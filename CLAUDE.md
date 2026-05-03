@@ -97,6 +97,17 @@ Planning workflows add a plan stage: `plan → implement → review → ready`
 - `--workflow you-plan`: Lead drafts PLAN.md, worker reviews
 - `--workflow they-plan`: Worker drafts PLAN.md, lead reviews
 
+Workflows are project-extensible. Drop a YAML at `.subtask/workflows/<name>/WORKFLOW.yaml` to override an embedded one or add a new workflow. Stages can optionally bind a preset (see below) to swap the harness on stage transitions.
+
+### Presets and Types (optional)
+
+Two optional concepts in `.subtask/config.json` for projects that want per-project dispatch policy in versioned config:
+
+- **Preset** — named `adapter+model+reasoning` bundle. `subtask draft <task> --preset opus-high` instead of three flags. List with `subtask presets`.
+- **Type** — what kind of work the task is (`implement`, `review`, `docs`, `explore`). Picked at draft (`--type implement`); recorded in TASK.md frontmatter. Binds an optional default workflow and/or default preset. Follow-ups inherit the parent's type. List with `subtask types`.
+
+Workflow stages can optionally name a preset (`preset: opus-high`); the harness automatically swaps when the task advances into that stage. Cross-adapter swaps clear the session — cross-stage context comes from the workspace, `PLAN.md`, and `PROGRESS.json` (file-based collaboration; design principle #5). See [docs/types-and-presets.md](docs/types-and-presets.md).
+
 ### Status & Transitions
 
 **Task Status** (organizational, durable):
