@@ -8,6 +8,8 @@ args:
   - "{{permission_mode}}"
   - "--model"
   - "{{model}}"
+  - "--effort"
+  - "{{reasoning}}"
 prompt_via: arg
 continue_args:
   - "--resume"
