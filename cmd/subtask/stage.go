@@ -11,6 +11,7 @@ import (
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
 	"github.com/kgruel/subtask/pkg/workflow"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // StageCmd implements 'subtask stage'.
@@ -21,9 +22,11 @@ type StageCmd struct {
 
 // Run executes the stage command.
 func (c *StageCmd) Run() error {
-	if _, err := preflightProject(); err != nil {
+	res, err := preflightProject()
+	if err != nil {
 		return err
 	}
+	cfg := res.Config
 
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
@@ -44,6 +47,7 @@ func (c *StageCmd) Run() error {
 	}
 
 	var oldStage string
+	var fromPreset, toPreset string
 	if err := task.WithLock(c.Task, func() error {
 		state, _ := task.LoadState(c.Task)
 		if state != nil && state.SupervisorPID != 0 && !state.IsStale() {
@@ -56,18 +60,80 @@ func (c *StageCmd) Run() error {
 			oldStage = wf.FirstStage()
 		}
 
-		data, _ := json.Marshal(map[string]any{"from": oldStage, "to": c.Stage})
+		// Harness swap: if the new stage has a preset binding in the workflow,
+		// resolve it and update the task's locked harness fields. Clear the
+		// session if the adapter changes — a fresh session on the new adapter
+		// reads the workspace, PLAN.md, and PROGRESS.json for cross-stage
+		// context (file-based collaboration; see design principle #5).
+		newStage := wf.GetStage(c.Stage)
+		if oldS := wf.GetStage(oldStage); oldS != nil {
+			fromPreset = oldS.Preset
+		}
+		if newStage != nil && newStage.Preset != "" {
+			p, ok := cfg.Presets[newStage.Preset]
+			if !ok {
+				return fmt.Errorf("workflow stage %q references unknown preset %q\n\nAvailable: %s",
+					c.Stage, newStage.Preset, presetNames(cfg))
+			}
+			toPreset = newStage.Preset
+
+			t, err := task.Load(c.Task)
+			if err != nil {
+				return err
+			}
+			oldAdapter := t.Adapter
+			if p.Adapter != "" {
+				t.Adapter = p.Adapter
+			}
+			if p.Provider != "" {
+				t.Provider = p.Provider
+			}
+			if p.Model != "" {
+				t.Model = p.Model
+			}
+			if p.Reasoning != "" {
+				t.Reasoning = p.Reasoning
+			}
+			if err := t.Save(); err != nil {
+				return fmt.Errorf("failed to save task after harness swap: %w", err)
+			}
+
+			// Clear the session if the adapter actually changed.
+			if state != nil && p.Adapter != "" && p.Adapter != oldAdapter {
+				state.SessionID = ""
+				state.Adapter = p.Adapter
+				if err := state.Save(c.Task); err != nil {
+					return fmt.Errorf("failed to clear session after adapter swap: %w", err)
+				}
+			}
+		}
+
+		data, _ := json.Marshal(map[string]any{
+			"from":        oldStage,
+			"to":          c.Stage,
+			"from_preset": fromPreset,
+			"to_preset":   toPreset,
+		})
 		return history.AppendLocked(c.Task, history.Event{TS: time.Now().UTC(), Type: "stage.changed", Data: data})
 	}); err != nil {
 		return err
 	}
 
 	// Print result
+	header := fmt.Sprintf("%s: %s", c.Task, c.Stage)
 	if oldStage != "" && oldStage != c.Stage {
-		printSuccess(fmt.Sprintf("%s: %s → %s", c.Task, oldStage, c.Stage))
-	} else {
-		printSuccess(fmt.Sprintf("%s: %s", c.Task, c.Stage))
+		header = fmt.Sprintf("%s: %s → %s", c.Task, oldStage, c.Stage)
 	}
+	if toPreset != "" {
+		t, _ := task.Load(c.Task)
+		header += fmt.Sprintf(" | preset: %s", toPreset)
+		if t != nil && t.Adapter != "" {
+			header += fmt.Sprintf(" (%s)", formatPreset(workspace.Preset{
+				Adapter: t.Adapter, Model: t.Model, Reasoning: t.Reasoning,
+			}))
+		}
+	}
+	printSuccess(header)
 
 	// Print new stage guidance
 	stage := wf.GetStage(c.Stage)

@@ -118,6 +118,22 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("workflow %q: %w", resolvedWorkflow, err)
 	}
 
+	// Validate any preset references in the workflow (workflow.Load doesn't
+	// have access to cfg). If the first stage has a preset binding, use it as
+	// the starting harness when not already set by an explicit flag/preset/type.
+	for _, st := range wf.Stages {
+		if st.Preset == "" {
+			continue
+		}
+		if _, ok := cfg.Presets[st.Preset]; !ok {
+			return fmt.Errorf("workflow %q stage %q references unknown preset %q\n\nAvailable: %s",
+				resolvedWorkflow, st.Name, st.Preset, presetNames(cfg))
+		}
+	}
+	if first := wf.GetStage(wf.FirstStage()); first != nil && first.Preset != "" {
+		applyPreset(cfg.Presets[first.Preset], &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+	}
+
 	// Create task
 	if err := workspace.ValidateReasoningLevel(resolvedReasoning); err != nil {
 		return err

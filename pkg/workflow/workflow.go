@@ -19,6 +19,10 @@ var embeddedTemplates embed.FS
 type Stage struct {
 	Name         string `yaml:"name"`
 	Instructions string `yaml:"instructions"`
+	// Preset names a config preset to swap to when the task enters this stage.
+	// Resolved against cfg.Presets at draft and on `subtask stage` transitions.
+	// Empty means "stay on the last-used harness."
+	Preset string `yaml:"preset,omitempty"`
 }
 
 // Instructions contains guidance for lead and worker.
