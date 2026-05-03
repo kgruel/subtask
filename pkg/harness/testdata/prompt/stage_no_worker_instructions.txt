@@ -1,0 +1,15 @@
+# Task
+Name: prompt/stage-no-worker
+Title: Stage without worker instructions
+Branch: prompt/stage-no-worker
+Directory: .subtask/tasks/prompt--stage-no-worker
+
+## Description
+Implement.
+
+## Workflow
+Track progress in PROGRESS.json.
+
+--------------------
+
+Go.

@@ -17,8 +17,14 @@ var embeddedTemplates embed.FS
 
 // Stage represents a workflow stage.
 type Stage struct {
-	Name         string `yaml:"name"`
+	Name string `yaml:"name"`
+	// Instructions is rendered to the lead's terminal on `subtask stage` /
+	// `subtask draft`. Lead-facing only; never reaches the worker prompt.
 	Instructions string `yaml:"instructions"`
+	// WorkerInstructions is appended to the worker prompt by harness.BuildPrompt
+	// when the task is in this stage. Use it when the worker's role changes per
+	// stage (e.g. a review stage where the worker must not modify files).
+	WorkerInstructions string `yaml:"worker_instructions,omitempty"`
 	// Preset names a config preset to swap to when the task enters this stage.
 	// Resolved against cfg.Presets at draft and on `subtask stage` transitions.
 	// Empty means "stay on the last-used harness."

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
 )
 
@@ -196,7 +197,7 @@ func TestBuildPrompt(t *testing.T) {
 	require.NoError(t, tk.Save())
 
 	// Build prompt
-	prompt := harness.BuildPrompt(tk, "/tmp/workspace", false, "Implement as described.", nil)
+	prompt := harness.BuildPrompt(tk, "/tmp/workspace", false, "", "Implement as described.", nil)
 
 	// Should have task header
 	assert.Contains(t, prompt, "# Task")
@@ -212,6 +213,59 @@ func TestBuildPrompt(t *testing.T) {
 	// Should have separator and prompt
 	assert.Contains(t, prompt, "--------------------")
 	assert.Contains(t, prompt, "Implement as described.")
+}
+
+// TestBuildPrompt_StageWorkerInstructionsFromHistory exercises the full path:
+// workflow YAML in task folder + stage.changed event in history.jsonl →
+// history.Tail projection → BuildPrompt injection. Catches integration
+// regressions between history projection and prompt construction.
+func TestBuildPrompt_StageWorkerInstructionsFromHistory(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	const wfYAML = `name: impl-review
+instructions:
+    worker: |
+        Track progress in PROGRESS.json.
+stages:
+    - name: implement
+      instructions: |
+          Worker is implementing.
+    - name: review
+      instructions: |
+          Worker is reviewing.
+      worker_instructions: |
+          Findings only — do NOT modify files. Write your review to REVIEW.md.
+`
+
+	taskName := "smoke/impl-review"
+	tk := &task.Task{
+		Name:        taskName,
+		Title:       "Impl-review smoke",
+		BaseBranch:  "main",
+		Description: "Implement, then review.",
+	}
+	require.NoError(t, tk.Save())
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(taskName), "WORKFLOW.yaml"), []byte(wfYAML), 0o644))
+
+	// Case 1: fresh task, no stage.changed event yet — tail.Stage is "",
+	// implicit first stage ("implement") which has no worker_instructions.
+	tail1, err := history.Tail(taskName)
+	require.NoError(t, err)
+	require.Equal(t, "", tail1.Stage, "fresh task should have empty stage")
+	prompt1 := harness.BuildPrompt(tk, "/tmp/ws", false, tail1.Stage, "Go.", nil)
+	assert.NotContains(t, prompt1, "## Stage:", "first stage has no worker_instructions; no Stage block expected")
+
+	// Case 2: simulate `subtask stage <task> review` by appending a stage.changed event.
+	env.CreateTaskHistory(taskName, []history.Event{
+		{Type: "stage.changed", Data: mustJSON(map[string]any{"from": "implement", "to": "review"})},
+	})
+	tail2, err := history.Tail(taskName)
+	require.NoError(t, err)
+	require.Equal(t, "review", tail2.Stage, "after stage.changed event, tail.Stage must reflect the transition")
+	prompt2 := harness.BuildPrompt(tk, "/tmp/ws", false, tail2.Stage, "Review now.", nil)
+	assert.Contains(t, prompt2, "## Stage: review", "review stage has worker_instructions; Stage block must be injected")
+	assert.Contains(t, prompt2, "Findings only", "Stage block must contain the worker_instructions prose")
+	assert.Contains(t, prompt2, "REVIEW.md", "Stage block must contain the worker_instructions prose")
 }
 
 // TestTaskFolderSymlink tests that task folder is accessible in worktree.

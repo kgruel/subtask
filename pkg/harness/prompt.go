@@ -33,7 +33,12 @@ func FormatRepoStatusWarning(baseBranch string, status *RepoStatus) string {
 }
 
 // BuildPrompt creates the full prompt with header.
-func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, prompt string, status *RepoStatus) string {
+//
+// stage is the task's current workflow stage name (from history.Tail). When
+// non-empty and the workflow defines worker_instructions for that stage, the
+// instructions are appended after the workflow.worker block. Pass "" if the
+// task has no workflow or no recorded stage transitions yet.
+func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage string, prompt string, status *RepoStatus) string {
 	var sb strings.Builder
 	taskDir := filepath.ToSlash(task.Dir(t.Name))
 
@@ -84,11 +89,22 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, prompt stri
 		sb.WriteString("\n")
 	}
 
-	// Workflow instructions
+	// Workflow instructions (workflow-wide, then per-stage if any)
 	if wf, err := workflow.LoadFromTask(t.Name); err == nil && wf != nil {
 		if wf.Instructions.Worker != "" {
 			sb.WriteString("\n## Workflow\n")
 			sb.WriteString(strings.TrimSpace(wf.Instructions.Worker))
+			sb.WriteString("\n")
+		}
+		// Empty stage means "implicit first stage" — same convention as
+		// cmd/subtask/stage.go uses when no stage.changed event has fired yet.
+		activeStage := stage
+		if activeStage == "" {
+			activeStage = wf.FirstStage()
+		}
+		if s := wf.GetStage(activeStage); s != nil && s.WorkerInstructions != "" {
+			fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStage)
+			sb.WriteString(strings.TrimSpace(s.WorkerInstructions))
 			sb.WriteString("\n")
 		}
 	}

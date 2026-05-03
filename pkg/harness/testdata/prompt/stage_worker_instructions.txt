@@ -1,0 +1,20 @@
+# Task
+Name: prompt/stage-worker
+Title: Stage worker instructions
+Branch: prompt/stage-worker
+Directory: .subtask/tasks/prompt--stage-worker
+
+## Description
+Implement then review.
+
+## Workflow
+Track progress in PROGRESS.json.
+
+## Stage: review
+Findings only — do NOT modify files.
+Write your review to REVIEW.md using:
+  Critical / Important / Minor / Out-of-scope
+
+--------------------
+
+Review now.

@@ -23,7 +23,7 @@ func TestGolden_BuildPrompt_BasicTask(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "Please implement it.", nil)
+	got := BuildPrompt(tk, "/tmp/ws", false, "", "Please implement it.", nil)
 	testutil.AssertGolden(t, "testdata/prompt/basic.txt", got)
 }
 
@@ -39,7 +39,7 @@ func TestGolden_BuildPrompt_ContextSameWorkspace(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", true, "Continue.", nil)
+	got := BuildPrompt(tk, "/tmp/ws", true, "", "Continue.", nil)
 	testutil.AssertGolden(t, "testdata/prompt/context_same_workspace.txt", got)
 }
 
@@ -55,7 +55,7 @@ func TestGolden_BuildPrompt_ContextNewWorkspace(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "Continue.", nil)
+	got := BuildPrompt(tk, "/tmp/ws", false, "", "Continue.", nil)
 	testutil.AssertGolden(t, "testdata/prompt/context_new_workspace.txt", got)
 }
 
@@ -71,7 +71,7 @@ func TestGolden_BuildPrompt_WithWorkflow(t *testing.T) {
 	require.NoError(t, tk.Save())
 	require.NoError(t, workflow.CopyToTask("default", tk.Name))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "Implement as described.", nil)
+	got := BuildPrompt(tk, "/tmp/ws", false, "", "Implement as described.", nil)
 	testutil.AssertGolden(t, "testdata/prompt/with_workflow.txt", got)
 }
 
@@ -91,6 +91,76 @@ func TestGolden_BuildPrompt_WithExtraFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "PLAN.md"), []byte("# Plan\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "PROGRESS.json"), []byte("[]\n"), 0o644))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "Follow PLAN.md and update PROGRESS.json.", nil)
+	got := BuildPrompt(tk, "/tmp/ws", false, "", "Follow PLAN.md and update PROGRESS.json.", nil)
 	testutil.AssertGolden(t, "testdata/prompt/with_extra_files.txt", got)
+}
+
+const workflowWithStageWorkerInstructions = `name: impl-review
+instructions:
+    worker: |
+        Track progress in PROGRESS.json.
+stages:
+    - name: implement
+      instructions: |
+          Worker is implementing.
+    - name: review
+      instructions: |
+          Worker is reviewing.
+      worker_instructions: |
+          Findings only — do NOT modify files.
+          Write your review to REVIEW.md using:
+            Critical / Important / Minor / Out-of-scope
+`
+
+func TestGolden_BuildPrompt_StageWithWorkerInstructions(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/stage-worker",
+		Title:       "Stage worker instructions",
+		BaseBranch:  "main",
+		Description: "Implement then review.",
+	}
+	require.NoError(t, tk.Save())
+	taskDir := task.Dir(tk.Name)
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
+
+	got := BuildPrompt(tk, "/tmp/ws", false, "review", "Review now.", nil)
+	testutil.AssertGolden(t, "testdata/prompt/stage_worker_instructions.txt", got)
+}
+
+func TestGolden_BuildPrompt_StageWithoutWorkerInstructions(t *testing.T) {
+	// implement stage has no worker_instructions; output must not contain a Stage block.
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/stage-no-worker",
+		Title:       "Stage without worker instructions",
+		BaseBranch:  "main",
+		Description: "Implement.",
+	}
+	require.NoError(t, tk.Save())
+	taskDir := task.Dir(tk.Name)
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
+
+	got := BuildPrompt(tk, "/tmp/ws", false, "implement", "Go.", nil)
+	testutil.AssertGolden(t, "testdata/prompt/stage_no_worker_instructions.txt", got)
+}
+
+func TestBuildPrompt_UnknownStageDoesNotInject(t *testing.T) {
+	// An unknown stage name must not error and must not inject a Stage block.
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/stage-unknown",
+		Title:       "Unknown stage name",
+		BaseBranch:  "main",
+		Description: "Test.",
+	}
+	require.NoError(t, tk.Save())
+	taskDir := task.Dir(tk.Name)
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
+
+	got := BuildPrompt(tk, "/tmp/ws", false, "ghost-stage", "Run.", nil)
+	require.NotContains(t, got, "## Stage:")
 }

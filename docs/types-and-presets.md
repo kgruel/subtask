@@ -113,6 +113,29 @@ When the swap crosses adapters (e.g., `gpt-5-low` for impl, then `opus-high` for
 
 A reviewer doesn't need the implementer's chat log; they need the code and the plan. This is consistent with subtask's file-based collaboration model.
 
+### Per-stage worker instructions
+
+Stage `instructions` is rendered to the lead's terminal on `subtask stage` / `subtask draft`; it never reaches the worker prompt. When the worker's *role* changes per stage — most commonly a review stage where the worker must not modify files — set `worker_instructions` so the brief is appended to the worker prompt automatically:
+
+```yaml
+stages:
+  - name: implement
+    preset: gpt-5-high
+    instructions: |
+      Worker is implementing.
+  - name: review
+    preset: gemini-pro
+    instructions: |
+      Review code with `subtask diff <task>` and request changes via `subtask send`.
+    worker_instructions: |
+      Findings only — do NOT modify files.
+      Write your full review to REVIEW.md using:
+        Critical / Important / Minor / Out-of-scope
+      Do not run tests. Do not commit.
+```
+
+Without `worker_instructions`, a `review`-stage worker sees the same prompt shape as the `implement` stage — task description, workflow-wide worker prose, and the lead's send prompt. Workspace ambient state (a `PLAN.md` left by the previous worker, prior commits) often gives the worker a "continue the work" prior strong enough to override a terse send like `"Review now."`. `worker_instructions` is what encodes the role swap once at the workflow level so the lead doesn't have to inline it on every send.
+
 ### Snapshot semantics
 
 Workflows are copied into the task folder at draft time (`<task>/WORKFLOW.yaml` — `pkg/workflow/workflow.go:184`). Editing the project's workflow definition later does *not* change running tasks; they continue using whatever was current at draft. To change a running task's binding, edit the task-folder copy directly.

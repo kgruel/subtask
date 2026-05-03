@@ -229,7 +229,7 @@ func (c *SendCmd) Run() error {
 	}
 
 	// Build prompt.
-	fullPrompt := harness.BuildPrompt(t, wsPath, false, prompt, repoStatus)
+	fullPrompt := harness.BuildPrompt(t, wsPath, false, tail.Stage, prompt, repoStatus)
 
 	// Reset start time for the worker run (exclude workspace preparation).
 	startedUnixNano.Store(time.Now().UTC().UnixNano())
