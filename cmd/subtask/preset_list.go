@@ -85,6 +85,9 @@ func formatPreset(p workspace.Preset) string {
 	if p.Adapter != "" {
 		parts = append(parts, p.Adapter)
 	}
+	if p.Provider != "" {
+		parts = append(parts, "provider:"+p.Provider)
+	}
 	if p.Model != "" {
 		parts = append(parts, p.Model)
 	}
