@@ -184,3 +184,55 @@ func TestConfigurableAdapter_TemplateArgs_MultipleEmptyVars(t *testing.T) {
 	// Both --model/{{model}} and --reasoning/{{reasoning}} skipped.
 	require.Equal(t, []string{"exec", "--flag", "hello"}, args)
 }
+
+func TestConfigurableAdapter_TemplateArgs_CompoundArgWithEmptyVar(t *testing.T) {
+	// codex.yaml uses "-c model_reasoning_effort={{reasoning}}" — a compound
+	// arg form (key=value). When reasoning is empty, the whole arg AND the
+	// preceding "-c" must be dropped, otherwise codex receives a malformed
+	// "model_reasoning_effort=" override and errors.
+	cfg := &AdapterConfig{
+		Name: "test",
+		CLI:  "test-cli",
+		Args: []string{
+			"exec",
+			"-m", "{{model}}",
+			"-c", "model_reasoning_effort={{reasoning}}",
+			"--flag",
+		},
+		PromptVia: "arg",
+	}
+
+	t.Run("reasoning set", func(t *testing.T) {
+		a, err := NewConfigurableAdapter(cfg, templateVars{Model: "gpt-5.5", Reasoning: "low"})
+		require.NoError(t, err)
+		args := a.buildArgs("hello", false)
+		require.Equal(t, []string{
+			"exec", "-m", "gpt-5.5",
+			"-c", "model_reasoning_effort=low",
+			"--flag", "hello",
+		}, args)
+	})
+
+	t.Run("reasoning empty", func(t *testing.T) {
+		a, err := NewConfigurableAdapter(cfg, templateVars{Model: "gpt-5.5", Reasoning: ""})
+		require.NoError(t, err)
+		args := a.buildArgs("hello", false)
+		// "-c" and the compound arg both drop; -m/model survive.
+		require.Equal(t, []string{
+			"exec", "-m", "gpt-5.5",
+			"--flag", "hello",
+		}, args)
+	})
+
+	t.Run("multiple known vars one empty", func(t *testing.T) {
+		// If a compound arg has multiple known vars and any is empty, drop.
+		cfg2 := &AdapterConfig{
+			Name: "test", CLI: "test-cli", PromptVia: "arg",
+			Args: []string{"-c", "{{model}}-{{variant}}"},
+		}
+		a, err := NewConfigurableAdapter(cfg2, templateVars{Model: "m1", Variant: ""})
+		require.NoError(t, err)
+		args := a.buildArgs("hello", false)
+		require.Equal(t, []string{"hello"}, args, "compound with one empty var drops the pair")
+	})
+}

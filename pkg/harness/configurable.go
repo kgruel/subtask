@@ -166,18 +166,19 @@ func (a *ConfigurableAdapter) buildArgs(prompt string, continuing bool) []string
 	return result
 }
 
-// templateArgList processes a list of args, performing template substitution and
-// skipping empty template-only args along with their preceding flag.
+// templateArgList processes a list of args, performing template substitution.
+// If an arg contains a known template variable that resolves to empty, the arg
+// is skipped along with the preceding arg if that arg looks like a flag. This
+// handles both pure-template ("{{model}}") and compound ("-c key={{reasoning}}")
+// arg forms — unset vars cleanly drop the flag/value pair instead of producing
+// malformed values like "key=" or empty strings.
 func (a *ConfigurableAdapter) templateArgList(args []string, prompt string) []string {
 	var result []string
 
 	for i := 0; i < len(args); i++ {
 		raw := args[i]
-		expanded := a.templateArg(raw, prompt)
 
-		// If this arg is purely a template variable and it expanded to empty,
-		// skip it. Also skip the preceding arg if it looks like a flag.
-		if isPureTemplateVar(raw) && expanded == "" {
+		if a.hasEmptyTemplateVar(raw, prompt) {
 			// Remove the preceding flag arg if we already added one.
 			if len(result) > 0 && looksLikeFlag(result[len(result)-1]) {
 				result = result[:len(result)-1]
@@ -185,10 +186,34 @@ func (a *ConfigurableAdapter) templateArgList(args []string, prompt string) []st
 			continue
 		}
 
-		result = append(result, expanded)
+		result = append(result, a.templateArg(raw, prompt))
 	}
 
 	return result
+}
+
+// hasEmptyTemplateVar returns true if arg contains a known template variable
+// that resolves to an empty string. Unknown vars (e.g., "{{not_a_known_var}}")
+// are treated as non-empty since templateArg leaves them as literals — preserves
+// the existing surface-loud-failure behavior for typos in adapter YAML.
+func (a *ConfigurableAdapter) hasEmptyTemplateVar(arg, prompt string) bool {
+	rest := arg
+	for {
+		start := strings.Index(rest, "{{")
+		if start < 0 {
+			return false
+		}
+		end := strings.Index(rest[start:], "}}")
+		if end < 0 {
+			return false
+		}
+		end += start
+		token := rest[start : end+2] // "{{name}}"
+		if a.templateArg(token, prompt) == "" {
+			return true
+		}
+		rest = rest[end+2:]
+	}
 }
 
 // templateArg replaces known template variables in a single arg string.
@@ -240,12 +265,6 @@ func (a *ConfigurableAdapter) envSlice() []string {
 		s = append(s, k+"="+v)
 	}
 	return s
-}
-
-// isPureTemplateVar returns true if the arg is exactly a single template variable
-// (e.g. "{{model}}"), with no other text.
-func isPureTemplateVar(arg string) bool {
-	return strings.HasPrefix(arg, "{{") && strings.HasSuffix(arg, "}}") && strings.Count(arg, "{{") == 1
 }
 
 // looksLikeFlag returns true if the arg starts with "-".

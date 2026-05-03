@@ -6,6 +6,8 @@ args:
   - "--dangerously-bypass-approvals-and-sandbox"
   - "-m"
   - "{{model}}"
+  - "-c"
+  - "model_reasoning_effort={{reasoning}}"
 prompt_via: arg
 continue_args:
   - "resume"
