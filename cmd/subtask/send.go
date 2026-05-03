@@ -32,6 +32,7 @@ type SendCmd struct {
 	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
+	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
 	// PinnedBase opts into branching from the draft-time captured base commit
 	// instead of re-resolving the task's base branch to its current local HEAD.
@@ -101,10 +102,21 @@ func (c *SendCmd) Run() error {
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
-		adapter := workspace.ResolveAdapter(cfg, t, c.Adapter)
-		provider := workspace.ResolveProvider(cfg, t, c.Provider)
-		model := workspace.ResolveModel(cfg, t, c.Model)
-		reasoning := workspace.ResolveReasoning(cfg, t, c.Reasoning)
+		adapterFlag := c.Adapter
+		providerFlag := c.Provider
+		modelFlag := c.Model
+		reasoningFlag := c.Reasoning
+		if c.Preset != "" {
+			p, ok := cfg.Presets[c.Preset]
+			if !ok {
+				return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
+			}
+			applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
+		}
+		adapter := workspace.ResolveAdapter(cfg, t, adapterFlag)
+		provider := workspace.ResolveProvider(cfg, t, providerFlag)
+		model := workspace.ResolveModel(cfg, t, modelFlag)
+		reasoning := workspace.ResolveReasoning(cfg, t, reasoningFlag)
 		cfg = workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning)
 		h, err = harness.New(cfg)
 		if err != nil {

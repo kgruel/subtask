@@ -28,8 +28,10 @@ type DraftCmd struct {
 	Provider    string `help:"Provider for this task (adapter-dependent; overrides project config)"`
 	Model       string `help:"Default model for this task (overrides project config)"`
 	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
-	Workflow    string `help:"Workflow template to use (e.g., collaborative)"`
+	Workflow    string `help:"Workflow template to use (e.g., they-plan)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
+	Type        string `help:"Task type from project config (e.g., implement, review)"`
+	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
 }
 
 // Run executes the draft command.
@@ -46,9 +48,11 @@ func (c *DraftCmd) Run() error {
 	}
 
 	// Requirements: git + global config (config may be migrated on first access).
-	if _, err := preflightProject(); err != nil {
+	res, err := preflightProject()
+	if err != nil {
 		return err
 	}
+	cfg := res.Config
 
 	// Check if task already exists
 	if _, err := task.Load(c.Task); err == nil {
@@ -59,18 +63,63 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("task name cannot contain \"--\" (used for path escaping)")
 	}
 
-	// Load workflow (default if not specified)
-	workflowName := c.Workflow
-	if workflowName == "" {
-		workflowName = "default"
+	// Resolve adapter/model/reasoning/workflow with this precedence (each layer
+	// only fills fields not already set by an earlier layer):
+	//   1. Explicit flags (--adapter/--model/--reasoning/--workflow) win.
+	//   2. --preset resolves the named preset.
+	//   3. --type resolves the type's default_workflow / default_preset.
+	//   4. Follow-up inherits the parent's type.
+	resolvedAdapter := c.Adapter
+	resolvedProvider := c.Provider
+	resolvedModel := c.Model
+	resolvedReasoning := c.Reasoning
+	resolvedWorkflow := c.Workflow
+	resolvedType := c.Type
+
+	// Follow-up inherits the parent's type when caller didn't pick one.
+	// Done first so subsequent type-default resolution applies.
+	if resolvedType == "" && c.FollowUp != "" {
+		if parent, err := task.Load(c.FollowUp); err == nil && parent.Type != "" {
+			resolvedType = parent.Type
+		}
 	}
-	wf, err := workflow.Load(workflow.TemplateDir(workflowName))
+
+	if c.Preset != "" {
+		p, ok := cfg.Presets[c.Preset]
+		if !ok {
+			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
+		}
+		applyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+	}
+
+	if resolvedType != "" {
+		tt, ok := cfg.Types[resolvedType]
+		if !ok {
+			return fmt.Errorf("unknown type %q\n\nAvailable: %s", resolvedType, typeNames(cfg))
+		}
+		if resolvedWorkflow == "" && tt.DefaultWorkflow != "" {
+			resolvedWorkflow = tt.DefaultWorkflow
+		}
+		if tt.DefaultPreset != "" {
+			p, ok := cfg.Presets[tt.DefaultPreset]
+			if !ok {
+				return fmt.Errorf("type %q references unknown default_preset %q", resolvedType, tt.DefaultPreset)
+			}
+			applyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+		}
+	}
+
+	// Load workflow (default if not specified)
+	if resolvedWorkflow == "" {
+		resolvedWorkflow = "default"
+	}
+	wf, err := workflow.Load(workflow.TemplateDir(resolvedWorkflow))
 	if err != nil {
-		return fmt.Errorf("workflow %q: %w", workflowName, err)
+		return fmt.Errorf("workflow %q: %w", resolvedWorkflow, err)
 	}
 
 	// Create task
-	if err := workspace.ValidateReasoningLevel(c.Reasoning); err != nil {
+	if err := workspace.ValidateReasoningLevel(resolvedReasoning); err != nil {
 		return err
 	}
 	t := &task.Task{
@@ -79,10 +128,11 @@ func (c *DraftCmd) Run() error {
 		BaseBranch:  c.Base,
 		Description: description,
 		FollowUp:    c.FollowUp,
-		Adapter:     c.Adapter,
-		Provider:    c.Provider,
-		Model:       c.Model,
-		Reasoning:   c.Reasoning,
+		Type:        resolvedType,
+		Adapter:     resolvedAdapter,
+		Provider:    resolvedProvider,
+		Model:       resolvedModel,
+		Reasoning:   resolvedReasoning,
 		Schema:      gitredesign.TaskSchemaVersion,
 	}
 
@@ -91,7 +141,7 @@ func (c *DraftCmd) Run() error {
 	}
 
 	// Copy workflow files to task folder
-	if err := workflow.CopyToTask(workflowName, c.Task); err != nil {
+	if err := workflow.CopyToTask(resolvedWorkflow, c.Task); err != nil {
 		return fmt.Errorf("failed to copy workflow: %w", err)
 	}
 
@@ -114,9 +164,10 @@ func (c *DraftCmd) Run() error {
 		"workflow":    wf.Name,
 		"title":       c.Title,
 		"follow_up":   c.FollowUp,
-		"adapter":     c.Adapter,
-		"model":       c.Model,
-		"reasoning":   c.Reasoning,
+		"type":        resolvedType,
+		"adapter":     resolvedAdapter,
+		"model":       resolvedModel,
+		"reasoning":   resolvedReasoning,
 		"base_ref":    baseRef,
 		"base_commit": baseCommit,
 	})

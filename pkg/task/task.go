@@ -16,6 +16,7 @@ type Task struct {
 	Title       string // Short description
 	BaseBranch  string // Branch to fork from
 	FollowUp    string // Optional: task whose conversation to continue
+	Type        string // Optional: task type label from project config (e.g., implement, review)
 	Adapter     string // Optional: override adapter for this task
 	Provider    string // Optional: override provider for this task (adapter-dependent)
 	Model       string // Optional: override model for this task
@@ -30,6 +31,7 @@ type frontmatter struct {
 	BaseBranch string `yaml:"base-branch"`
 	Schema     int    `yaml:"schema,omitempty"`
 	FollowUp   string `yaml:"follow-up,omitempty"`
+	Type       string `yaml:"type,omitempty"`
 	Adapter    string `yaml:"adapter,omitempty"`
 	Provider   string `yaml:"provider,omitempty"`
 	Model      string `yaml:"model,omitempty"`
@@ -48,6 +50,7 @@ func (t *Task) Save() error {
 		BaseBranch: t.BaseBranch,
 		Schema:     t.Schema,
 		FollowUp:   t.FollowUp,
+		Type:       t.Type,
 		Adapter:    t.Adapter,
 		Provider:   t.Provider,
 		Model:      t.Model,
@@ -108,6 +111,7 @@ func Load(name string) (*Task, error) {
 		BaseBranch:  fm.BaseBranch,
 		Schema:      fm.Schema,
 		FollowUp:    fm.FollowUp,
+		Type:        fm.Type,
 		Adapter:     fm.Adapter,
 		Provider:    fm.Provider,
 		Model:       fm.Model,

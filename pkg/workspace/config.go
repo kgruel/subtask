@@ -23,9 +23,31 @@ type Config struct {
 	Reasoning     string `json:"reasoning,omitempty"`
 	MaxWorkspaces int    `json:"max_workspaces"`
 
+	Presets map[string]Preset   `json:"presets,omitempty"`
+	Types   map[string]TaskType `json:"types,omitempty"`
+
 	// Legacy fields for migration (read from old configs, never written).
 	LegacyHarness string         `json:"harness,omitempty"`
 	LegacyOptions map[string]any `json:"options,omitempty"`
+}
+
+// Preset is a named adapter+model+reasoning bundle. Used as shorthand at the
+// CLI (`--preset opus-high`) and as the per-stage harness binding in workflow
+// YAML.
+type Preset struct {
+	Adapter   string `json:"adapter,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+}
+
+// TaskType labels the purpose of a task (e.g., implement, review, docs). It can
+// point at a default workflow and/or a default preset; either may be overridden
+// by explicit flags at draft.
+type TaskType struct {
+	DefaultWorkflow string `json:"default_workflow,omitempty"`
+	DefaultPreset   string `json:"default_preset,omitempty"`
+	Description     string `json:"description,omitempty"`
 }
 
 // Entry defines a workspace.
@@ -62,7 +84,36 @@ func LoadConfig() (*Config, error) {
 	if effective.MaxWorkspaces <= 0 {
 		effective.MaxWorkspaces = DefaultMaxWorkspaces
 	}
+	if err := validateConfig(effective); err != nil {
+		return nil, err
+	}
 	return effective, nil
+}
+
+// validateConfig checks intra-config references. Workflow references are
+// validated at draft time (they require loading templates from disk).
+func validateConfig(c *Config) error {
+	for typeName, t := range c.Types {
+		if t.DefaultPreset != "" {
+			if _, ok := c.Presets[t.DefaultPreset]; !ok {
+				return fmt.Errorf("subtask: type %q references unknown default_preset %q\n\nAvailable presets: %s",
+					typeName, t.DefaultPreset, joinKeys(c.Presets))
+			}
+		}
+	}
+	return nil
+}
+
+func joinKeys[V any](m map[string]V) string {
+	if len(m) == 0 {
+		return "(none defined)"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 
 // SaveTo writes the config to a specific path.
@@ -133,7 +184,16 @@ func mergeConfig(user, project *Config) *Config {
 		Model:         strings.TrimSpace(user.Model),
 		Reasoning:     strings.TrimSpace(user.Reasoning),
 		MaxWorkspaces: user.MaxWorkspaces,
+		Presets:       map[string]Preset{},
+		Types:         map[string]TaskType{},
 	}
+	for k, v := range user.Presets {
+		out.Presets[k] = v
+	}
+	for k, v := range user.Types {
+		out.Types[k] = v
+	}
+
 	if project == nil {
 		return out
 	}
@@ -152,6 +212,13 @@ func mergeConfig(user, project *Config) *Config {
 	}
 	if project.MaxWorkspaces > 0 {
 		out.MaxWorkspaces = project.MaxWorkspaces
+	}
+	// Project entries shadow user entries on key collision.
+	for k, v := range project.Presets {
+		out.Presets[k] = v
+	}
+	for k, v := range project.Types {
+		out.Types[k] = v
 	}
 	return out
 }
