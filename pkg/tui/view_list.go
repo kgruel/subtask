@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // Selection indicator character

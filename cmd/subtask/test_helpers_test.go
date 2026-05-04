@@ -22,4 +22,3 @@ func writeFakeCLI(t *testing.T, dir string, name string) string {
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755))
 	return path
 }
-

@@ -121,4 +121,3 @@ func TestRunAutoUpdate_AutoUpdateDisabled_SkipsChecks(t *testing.T) {
 	require.Empty(t, stdout)
 	require.Empty(t, stderr)
 }
-

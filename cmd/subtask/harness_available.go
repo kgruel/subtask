@@ -6,4 +6,3 @@ import "github.com/kgruel/subtask/pkg/harness"
 func isCommandAvailable(name string) bool {
 	return harness.CanResolveCLI(name)
 }
-

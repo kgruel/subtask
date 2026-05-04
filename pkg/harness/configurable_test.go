@@ -8,10 +8,10 @@ import (
 
 func TestConfigurableAdapter_TemplateArgs(t *testing.T) {
 	cfg := &AdapterConfig{
-		Name:      "test",
-		CLI:       "test-cli",
-		Args:      []string{"exec", "--json", "-m", "{{model}}"},
-		PromptVia: "arg",
+		Name:         "test",
+		CLI:          "test-cli",
+		Args:         []string{"exec", "--json", "-m", "{{model}}"},
+		PromptVia:    "arg",
 		ContinueArgs: []string{"resume", "{{session_id}}"},
 	}
 	vars := templateVars{

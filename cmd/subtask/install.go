@@ -192,14 +192,14 @@ func printPluginGuidance(homeDir string) {
 
 func printSetupGuide() {
 	type guideData struct {
-		InGitRepo          bool
-		CodexAvailable     bool
-		ClaudeAvailable    bool
-		OpencodeAvailable  bool
-		PiAvailable        bool
-		GeminiAvailable    bool
+		InGitRepo           bool
+		CodexAvailable      bool
+		ClaudeAvailable     bool
+		OpencodeAvailable   bool
+		PiAvailable         bool
+		GeminiAvailable     bool
 		AnyAdapterAvailable bool
-		MultipleAdapters   bool
+		MultipleAdapters    bool
 	}
 
 	data := guideData{

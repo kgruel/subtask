@@ -12,4 +12,3 @@ var (
 	// determine the main repo anchor worktree.
 	ErrNoAnchorFromWorkspace = errors.New("subtask: cannot determine project root from within a worker workspace")
 )
-

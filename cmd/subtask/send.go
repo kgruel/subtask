@@ -25,8 +25,8 @@ import (
 
 // SendCmd implements 'subtask send'.
 type SendCmd struct {
-	Task    string `arg:"" help:"Task name"`
-	Prompt  string `arg:"" optional:"" help:"Message to send (or use stdin)"`
+	Task     string `arg:"" help:"Task name"`
+	Prompt   string `arg:"" optional:"" help:"Message to send (or use stdin)"`
 	Adapter  string `help:"Override adapter for this prompt (does not persist)"`
 	Provider string `help:"Override provider for this prompt (adapter-dependent; does not persist)"`
 	Model    string `help:"Override model for this prompt (does not persist)"`

@@ -16,4 +16,3 @@ func gitCmd(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
-

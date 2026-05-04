@@ -14,10 +14,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest"
-	zone "github.com/lrstanley/bubblezone"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 func TestTUI_HeadlessLaunchAndQuit(t *testing.T) {

@@ -9,4 +9,3 @@ var (
 	subtleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("247"))
 )
-

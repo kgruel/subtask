@@ -74,8 +74,8 @@ func (i *Index) refreshGit(ctx context.Context, p GitPolicy) error {
 		updateBase      bool
 		updateConflicts bool
 
-		linesAdded    *int
-		linesRemoved  *int
+		linesAdded   *int
+		linesRemoved *int
 
 		conflictFilesJSON *string
 

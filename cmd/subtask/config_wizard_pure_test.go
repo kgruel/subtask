@@ -18,8 +18,8 @@ func TestResolveConfigValues_Defaults(t *testing.T) {
 
 func TestResolveConfigValues_ExistingClaude_DefaultsModel_DropsReasoning(t *testing.T) {
 	existing := &workspace.Config{
-		Adapter:   "claude",
-		Reasoning: "high",
+		Adapter:       "claude",
+		Reasoning:     "high",
 		MaxWorkspaces: 7,
 	}
 	values := resolveConfigValues(existing, configFlags{})

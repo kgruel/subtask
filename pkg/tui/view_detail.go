@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
 	"github.com/kgruel/subtask/pkg/task"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // Box styles for detail view

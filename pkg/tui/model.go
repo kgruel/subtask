@@ -11,13 +11,13 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	zone "github.com/lrstanley/bubblezone"
 	"github.com/kgruel/subtask/pkg/diffparse"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/logging"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/store"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 type viewMode int

@@ -36,4 +36,3 @@ func ensureGitignore(repoRoot string) error {
 	_, err = f.WriteString(pattern + "\n")
 	return err
 }
-

@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mattn/go-runewidth"
 	"github.com/kgruel/subtask/pkg/diffparse"
 	"github.com/kgruel/subtask/pkg/git"
+	"github.com/mattn/go-runewidth"
 )
 
 const (

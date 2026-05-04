@@ -496,10 +496,10 @@ func parseOpenCodeStream(r io.Reader, result *Result, cb Callbacks) error {
 //
 // Gemini CLI's `-o stream-json` emits one JSON event per line:
 //
-//   {"type":"init","session_id":"<uuid>","model":"...","timestamp":"..."}
-//   {"type":"message","role":"user","content":"...","timestamp":"..."}
-//   {"type":"message","role":"assistant","content":"...","delta":true,"timestamp":"..."}
-//   {"type":"result","status":"success","stats":{...},"timestamp":"..."}
+//	{"type":"init","session_id":"<uuid>","model":"...","timestamp":"..."}
+//	{"type":"message","role":"user","content":"...","timestamp":"..."}
+//	{"type":"message","role":"assistant","content":"...","delta":true,"timestamp":"..."}
+//	{"type":"result","status":"success","stats":{...},"timestamp":"..."}
 //
 // Assistant content streams as multiple delta events that must be concatenated.
 // Tool calls arrive as separate {"type":"tool_use",...} events.

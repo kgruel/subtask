@@ -15,9 +15,9 @@ type AdapterConfig struct {
 	Name           string            `yaml:"name"`
 	CLI            string            `yaml:"cli"`
 	Args           []string          `yaml:"args"`
-	PromptVia      string            `yaml:"prompt_via"`      // "arg" (default) or "stdin"
-	ContinueArgs   []string          `yaml:"continue_args"`   // inserted before prompt on continuation
-	OutputParser   string            `yaml:"output_parser"`   // "claude", "codex", "opencode", "generic-jsonl", "text"
+	PromptVia      string            `yaml:"prompt_via"`    // "arg" (default) or "stdin"
+	ContinueArgs   []string          `yaml:"continue_args"` // inserted before prompt on continuation
+	OutputParser   string            `yaml:"output_parser"` // "claude", "codex", "opencode", "generic-jsonl", "text"
 	Parse          AdapterParseRules `yaml:"parse"`
 	Capabilities   AdapterCaps       `yaml:"capabilities"`
 	SessionHandler string            `yaml:"session_handler"` // "claude", "codex", "none" (default)

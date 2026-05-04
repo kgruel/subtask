@@ -59,4 +59,3 @@ func TestConfigCmd_ProjectScope_NoPrompt_WritesProjectOverride(t *testing.T) {
 	require.NoError(t, (&ConfigCmd{Project: true, NoPrompt: true}).Run())
 	require.FileExists(t, filepath.Join(env.RootDir, ".subtask", "config.json"))
 }
-

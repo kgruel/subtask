@@ -8,9 +8,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kgruel/subtask/pkg/diffparse"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/mattn/go-runewidth"
-	"github.com/kgruel/subtask/pkg/diffparse"
 )
 
 func renderDiffView(m model, leftPad string) string {

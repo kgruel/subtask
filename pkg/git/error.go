@@ -27,4 +27,3 @@ func isNotGitRepoOutput(s string) bool {
 	return strings.Contains(s, "not a git repository") ||
 		strings.Contains(s, "not a git repo")
 }
-

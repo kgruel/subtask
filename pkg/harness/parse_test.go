@@ -106,7 +106,7 @@ func TestParseByName_GenericJSONL_Accumulate(t *testing.T) {
 
 	res := &Result{}
 	err := ParseGenericJSONL(strings.NewReader(stream), res, Callbacks{}, GenericJSONLRules{
-		Reply:          ".text",
+		Reply:           ".text",
 		ReplyAccumulate: true,
 	})
 	require.NoError(t, err)
