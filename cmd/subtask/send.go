@@ -77,10 +77,6 @@ func (c *SendCmd) Run() error {
 			c.Task, c.Task)
 	}
 
-	if err := workspace.ValidateReasoningFlag(workspace.ResolveAdapter(cfg, t, c.Adapter), c.Reasoning); err != nil {
-		return err
-	}
-
 	// Best-effort cleanup for stale supervisor PIDs.
 	task.CleanupStaleTasks()
 
@@ -98,26 +94,21 @@ func (c *SendCmd) Run() error {
 
 	// Create harness (needed for context session migration).
 	// Resolve overrides so cfg reflects the effective adapter/model/reasoning for this run.
+	r, err := workspace.Resolve(cfg, t, workspace.ResolveOverrides{
+		Adapter:   c.Adapter,
+		Provider:  c.Provider,
+		Model:     c.Model,
+		Reasoning: c.Reasoning,
+		Preset:    c.Preset,
+	})
+	if err != nil {
+		return err
+	}
 	var h harness.Harness
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
-		adapterFlag := c.Adapter
-		providerFlag := c.Provider
-		modelFlag := c.Model
-		reasoningFlag := c.Reasoning
-		if c.Preset != "" {
-			p, ok := cfg.Presets[c.Preset]
-			if !ok {
-				return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
-			}
-			applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
-		}
-		adapter := workspace.ResolveAdapter(cfg, t, adapterFlag)
-		provider := workspace.ResolveProvider(cfg, t, providerFlag)
-		model := workspace.ResolveModel(cfg, t, modelFlag)
-		reasoning := workspace.ResolveReasoning(cfg, t, reasoningFlag)
-		cfg = workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning)
+		cfg = workspace.ConfigWithOverrides(cfg, r.Adapter, r.Provider, r.Model, r.Reasoning)
 		h, err = harness.New(cfg)
 		if err != nil {
 			return err

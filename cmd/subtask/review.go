@@ -85,24 +85,13 @@ func (c *ReviewCmd) Run() error {
 
 	// Resolve adapter/model/reasoning — mirror send.go preset resolution.
 	// Precedence: explicit flags > --preset > task snapshot (when --task) > project default.
-	adapterFlag := c.Adapter
-	providerFlag := ""
-	modelFlag := c.Model
-	reasoningFlag := c.Reasoning
-	if c.Preset != "" {
-		p, ok := cfg.Presets[c.Preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
-		}
-		applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
-	}
-
-	adapter := workspace.ResolveAdapter(cfg, t, adapterFlag)
-	provider := workspace.ResolveProvider(cfg, t, providerFlag)
-	model := workspace.ResolveModel(cfg, t, modelFlag)
-	reasoning := workspace.ResolveReasoning(cfg, t, reasoningFlag)
-
-	if err := workspace.ValidateReasoningFlag(adapter, reasoning); err != nil {
+	r, err := workspace.Resolve(cfg, t, workspace.ResolveOverrides{
+		Adapter:   c.Adapter,
+		Model:     c.Model,
+		Reasoning: c.Reasoning,
+		Preset:    c.Preset,
+	})
+	if err != nil {
 		return err
 	}
 
@@ -152,7 +141,7 @@ func (c *ReviewCmd) Run() error {
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
-		h, err = harness.New(workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning))
+		h, err = harness.New(workspace.ConfigWithOverrides(cfg, r.Adapter, r.Provider, r.Model, r.Reasoning))
 		if err != nil {
 			return err
 		}

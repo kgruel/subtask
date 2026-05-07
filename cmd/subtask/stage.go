@@ -73,7 +73,7 @@ func (c *StageCmd) Run() error {
 			p, ok := cfg.Presets[newStage.Preset]
 			if !ok {
 				return fmt.Errorf("workflow stage %q references unknown preset %q\n\nAvailable: %s",
-					c.Stage, newStage.Preset, presetNames(cfg))
+					c.Stage, newStage.Preset, workspace.PresetNames(cfg))
 			}
 			toPreset = newStage.Preset
 

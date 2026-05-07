@@ -64,22 +64,6 @@ func (c *TypesCmd) Run() error {
 	return nil
 }
 
-// applyPreset fills resolved fields from p without overwriting fields already set.
-func applyPreset(p workspace.Preset, adapter, provider, model, reasoning *string) {
-	if *adapter == "" {
-		*adapter = p.Adapter
-	}
-	if *provider == "" {
-		*provider = p.Provider
-	}
-	if *model == "" {
-		*model = p.Model
-	}
-	if *reasoning == "" {
-		*reasoning = p.Reasoning
-	}
-}
-
 func formatPreset(p workspace.Preset) string {
 	parts := []string{}
 	if p.Adapter != "" {
@@ -95,13 +79,6 @@ func formatPreset(p workspace.Preset) string {
 		parts = append(parts, "reasoning:"+p.Reasoning)
 	}
 	return strings.Join(parts, " / ")
-}
-
-func presetNames(cfg *workspace.Config) string {
-	if len(cfg.Presets) == 0 {
-		return "(none defined)"
-	}
-	return strings.Join(sortedKeys(cfg.Presets), ", ")
 }
 
 func typeNames(cfg *workspace.Config) string {

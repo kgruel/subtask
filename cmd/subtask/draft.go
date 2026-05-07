@@ -87,9 +87,9 @@ func (c *DraftCmd) Run() error {
 	if c.Preset != "" {
 		p, ok := cfg.Presets[c.Preset]
 		if !ok {
-			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
+			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, workspace.PresetNames(cfg))
 		}
-		applyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 	}
 
 	if resolvedType != "" {
@@ -105,7 +105,7 @@ func (c *DraftCmd) Run() error {
 			if !ok {
 				return fmt.Errorf("type %q references unknown default_preset %q", resolvedType, tt.DefaultPreset)
 			}
-			applyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+			workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 		}
 	}
 
@@ -127,11 +127,11 @@ func (c *DraftCmd) Run() error {
 		}
 		if _, ok := cfg.Presets[st.Preset]; !ok {
 			return fmt.Errorf("workflow %q stage %q references unknown preset %q\n\nAvailable: %s",
-				resolvedWorkflow, st.Name, st.Preset, presetNames(cfg))
+				resolvedWorkflow, st.Name, st.Preset, workspace.PresetNames(cfg))
 		}
 	}
 	if first := wf.GetStage(wf.FirstStage()); first != nil && first.Preset != "" {
-		applyPreset(cfg.Presets[first.Preset], &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+		workspace.ApplyPreset(cfg.Presets[first.Preset], &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 	}
 
 	// Create task

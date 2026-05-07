@@ -63,23 +63,14 @@ func (c *AskCmd) Run() error {
 
 	// Apply preset then resolve adapter/provider/model/reasoning (task snapshot takes
 	// precedence over project default when --follow-up names a task).
-	adapterFlag := c.Adapter
-	providerFlag := c.Provider
-	modelFlag := c.Model
-	reasoningFlag := c.Reasoning
-	if c.Preset != "" {
-		p, ok := cfg.Presets[c.Preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
-		}
-		applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
-	}
-	adapter := workspace.ResolveAdapter(cfg, followUpTask, adapterFlag)
-	provider := workspace.ResolveProvider(cfg, followUpTask, providerFlag)
-	model := workspace.ResolveModel(cfg, followUpTask, modelFlag)
-	reasoning := workspace.ResolveReasoning(cfg, followUpTask, reasoningFlag)
-
-	if err := workspace.ValidateReasoningFlag(adapter, reasoningFlag); err != nil {
+	r, err := workspace.Resolve(cfg, followUpTask, workspace.ResolveOverrides{
+		Adapter:   c.Adapter,
+		Provider:  c.Provider,
+		Model:     c.Model,
+		Reasoning: c.Reasoning,
+		Preset:    c.Preset,
+	})
+	if err != nil {
 		return err
 	}
 
@@ -95,7 +86,7 @@ func (c *AskCmd) Run() error {
 	if c.FollowUp != "" {
 		// Validate harness match against the resolved adapter (not the project default).
 		if st, stErr := task.LoadState(c.FollowUp); stErr == nil && st != nil && st.SessionID != "" {
-			if err := enforceTaskHarnessMatch(c.FollowUp, st, adapter); err != nil {
+			if err := enforceTaskHarnessMatch(c.FollowUp, st, r.Adapter); err != nil {
 				return err
 			}
 		}
@@ -110,7 +101,7 @@ func (c *AskCmd) Run() error {
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
-		h, err = harness.New(workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning))
+		h, err = harness.New(workspace.ConfigWithOverrides(cfg, r.Adapter, r.Provider, r.Model, r.Reasoning))
 		if err != nil {
 			return err
 		}
