@@ -17,10 +17,21 @@ import (
 type AskCmd struct {
 	Prompt   string `arg:"" optional:"" help:"Question or prompt (or use stdin)"`
 	FollowUp string `name:"follow-up" help:"Continue from task name, session name, or session ID"`
+	Adapter  string `help:"Override adapter for this prompt (does not persist)"`
 	Provider string `help:"Override provider for this prompt (adapter-dependent; does not persist)"`
 	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
+	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
+
+	// Internal: injected harness for testing
+	testHarness harness.Harness
+}
+
+// WithHarness returns a copy with injected harness for testing.
+func (c *AskCmd) WithHarness(h harness.Harness) *AskCmd {
+	c.testHarness = h
+	return c
 }
 
 // Run executes the ask command.
@@ -41,7 +52,34 @@ func (c *AskCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
+
+	// If --follow-up resolves to a task, load it for adapter/model resolution.
+	var followUpTask *task.Task
+	if c.FollowUp != "" {
+		if t, loadErr := task.Load(c.FollowUp); loadErr == nil {
+			followUpTask = t
+		}
+	}
+
+	// Apply preset then resolve adapter/provider/model/reasoning (task snapshot takes
+	// precedence over project default when --follow-up names a task).
+	adapterFlag := c.Adapter
+	providerFlag := c.Provider
+	modelFlag := c.Model
+	reasoningFlag := c.Reasoning
+	if c.Preset != "" {
+		p, ok := cfg.Presets[c.Preset]
+		if !ok {
+			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
+		}
+		applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
+	}
+	adapter := workspace.ResolveAdapter(cfg, followUpTask, adapterFlag)
+	provider := workspace.ResolveProvider(cfg, followUpTask, providerFlag)
+	model := workspace.ResolveModel(cfg, followUpTask, modelFlag)
+	reasoning := workspace.ResolveReasoning(cfg, followUpTask, reasoningFlag)
+
+	if err := workspace.ValidateReasoningFlag(adapter, reasoningFlag); err != nil {
 		return err
 	}
 
@@ -55,9 +93,9 @@ func (c *AskCmd) Run() error {
 	var continueFrom string
 	var sessionName string // petname for this session
 	if c.FollowUp != "" {
-		// If continuing from a task, ensure harness matches (sessions are not compatible across harnesses).
-		if st, err := task.LoadState(c.FollowUp); err == nil && st != nil && st.SessionID != "" {
-			if err := enforceTaskHarnessMatch(c.FollowUp, st, cfg.Adapter); err != nil {
+		// Validate harness match against the resolved adapter (not the project default).
+		if st, stErr := task.LoadState(c.FollowUp); stErr == nil && st != nil && st.SessionID != "" {
+			if err := enforceTaskHarnessMatch(c.FollowUp, st, adapter); err != nil {
 				return err
 			}
 		}
@@ -68,11 +106,14 @@ func (c *AskCmd) Run() error {
 	fullPrompt := "The following is just a question. Do NOT make any modifications or take any actions unless explicitly requested.\n\n" + prompt
 
 	// Create harness and run
-	model := workspace.ResolveModel(cfg, nil, c.Model)
-	reasoning := workspace.ResolveReasoning(cfg, nil, c.Reasoning)
-	h, err := harness.New(workspace.ConfigWithModelReasoning(cfg, model, reasoning))
-	if err != nil {
-		return err
+	var h harness.Harness
+	if c.testHarness != nil {
+		h = c.testHarness
+	} else {
+		h, err = harness.New(workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning))
+		if err != nil {
+			return err
+		}
 	}
 
 	printInfo("[Waiting for reply...]")
