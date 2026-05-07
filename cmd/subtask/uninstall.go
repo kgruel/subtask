@@ -42,6 +42,14 @@ func (c *UninstallCmd) Run() error {
 		fmt.Printf("Plugin at %s was not removed (marketplace-installed).\n", abbreviatePath(pluginRes.Path))
 		fmt.Println("To remove it: /plugin uninstall subtask")
 		fmt.Printf("Or manually:  rm -rf %s\n", pluginRes.Path)
+	case "dev_link":
+		fmt.Println()
+		fmt.Printf("Plugin at %s is a dev symlink (--plugin-dev); preserved.\n", abbreviatePath(pluginRes.Path))
+		fmt.Printf("Remove manually with: rm %s\n", pluginRes.Path)
+	case "stray":
+		fmt.Println()
+		fmt.Printf("Plugin at %s is a symlink with no valid target; preserved.\n", abbreviatePath(pluginRes.Path))
+		fmt.Printf("Remove manually with: rm %s\n", pluginRes.Path)
 	}
 	return nil
 }

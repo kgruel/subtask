@@ -302,10 +302,15 @@ func UninstallPluginBinary() (PluginBinaryResult, error) {
 // UninstallPluginBinaryFrom is the testable form of UninstallPluginBinary.
 //
 // Decision matrix:
-//   - absent                → "nothing"
-//   - symlink               → remove the symlink → "removed"
-//   - real dir + our marker → remove the directory → "removed"
-//   - real dir + no marker  → leave it, note marketplace → "marketplace"
+//   - absent                    → "nothing"
+//   - symlink + valid manifest  → leave it (dev link)        → "dev_link"
+//   - symlink + no manifest     → leave it (stray)           → "stray"
+//   - real dir + our marker     → remove the directory       → "removed"
+//   - real dir + no marker      → leave it, note marketplace → "marketplace"
+//
+// Symlinks are never auto-removed: they're either deliberate developer setups
+// (`subtask install --plugin-dev`) or pre-existing state we don't own. Defaults
+// preserve (CLAUDE.md design principle #8).
 func UninstallPluginBinaryFrom(baseDir string) (PluginBinaryResult, error) {
 	if baseDir == "" {
 		return PluginBinaryResult{}, errors.New("invalid base directory")
@@ -323,10 +328,14 @@ func UninstallPluginBinaryFrom(baseDir string) (PluginBinaryResult, error) {
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(pluginPath); err != nil {
-			return PluginBinaryResult{}, fmt.Errorf("remove plugin symlink: %w", err)
+		st, _ := GetPluginStatusFor(baseDir)
+		if st.HasManifest {
+			res.Action = "dev_link"
+			res.Note = fmt.Sprintf("dev symlink at %s preserved; remove manually with: rm %s", pluginPath, pluginPath)
+		} else {
+			res.Action = "stray"
+			res.Note = fmt.Sprintf("symlink at %s points to a missing or invalid target; preserved (remove manually with: rm %s)", pluginPath, pluginPath)
 		}
-		res.Action = "removed"
 		return res, nil
 	}
 

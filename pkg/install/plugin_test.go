@@ -237,7 +237,7 @@ func TestUninstallPluginBinaryFrom_LeavesMarketplaceDir(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestUninstallPluginBinaryFrom_RemovesDevSymlink(t *testing.T) {
+func TestUninstallPluginBinaryFrom_PreservesDevSymlink(t *testing.T) {
 	base := t.TempDir()
 	source := t.TempDir()
 	writeManifest(t, source)
@@ -246,10 +246,29 @@ func TestUninstallPluginBinaryFrom_RemovesDevSymlink(t *testing.T) {
 
 	res, err := UninstallPluginBinaryFrom(base)
 	require.NoError(t, err)
-	assert.Equal(t, "removed", res.Action)
+	assert.Equal(t, "dev_link", res.Action)
+	assert.Contains(t, res.Note, "preserved")
 
+	// Symlink still there.
 	_, err = os.Lstat(PluginPath(base))
-	assert.True(t, os.IsNotExist(err))
+	require.NoError(t, err)
+}
+
+func TestUninstallPluginBinaryFrom_PreservesStraySymlink(t *testing.T) {
+	base := t.TempDir()
+	pluginPath := PluginPath(base)
+	require.NoError(t, os.MkdirAll(filepath.Dir(pluginPath), 0o755))
+	// Symlink that points to a non-existent target → no manifest.
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "missing"), pluginPath))
+
+	res, err := UninstallPluginBinaryFrom(base)
+	require.NoError(t, err)
+	assert.Equal(t, "stray", res.Action)
+	assert.Contains(t, res.Note, "preserved")
+
+	// Stray symlink left in place — user removes manually.
+	_, err = os.Lstat(pluginPath)
+	require.NoError(t, err)
 }
 
 func TestUninstallPluginBinaryFrom_NothingWhenAbsent(t *testing.T) {
