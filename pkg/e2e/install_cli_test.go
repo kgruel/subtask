@@ -51,11 +51,13 @@ func TestInstall_Migration_NoLegacyArtifacts_NoWritesToSettings(t *testing.T) {
 	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 	require.Contains(t, out, "Installed skill")
 
-	// Migration must not create these.
+	// Migration must not create settings.json.
 	_, err := os.Stat(filepath.Join(home, ".claude", "settings.json"))
 	require.ErrorIs(t, err, os.ErrNotExist)
-	_, err = os.Stat(filepath.Join(home, ".claude", "plugins", "subtask"))
-	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// install does create the plugin dir (binary install), with our ownership marker.
+	_, err = os.Stat(filepath.Join(home, ".claude", "plugins", "subtask", ".subtask-binary-installed"))
+	require.NoError(t, err)
 }
 
 func TestInstall_Migration_RemovesLegacyPluginDir(t *testing.T) {
@@ -73,8 +75,11 @@ func TestInstall_Migration_RemovesLegacyPluginDir(t *testing.T) {
 
 	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 
-	_, err := os.Stat(legacyDir)
+	// Migration removed the legacy sentinel; install then wrote a fresh binary install.
+	_, err := os.Stat(filepath.Join(legacyDir, "sentinel"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(legacyDir, ".subtask-binary-installed"))
+	require.NoError(t, err)
 }
 
 func TestInstall_Migration_RemovesLegacySettingsKeyOnly(t *testing.T) {
@@ -264,8 +269,11 @@ func TestInstall_Migration_BothDirAndSettings(t *testing.T) {
 
 	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 
-	_, err := os.Stat(legacyDir)
+	// Migration removed the legacy sentinel; install then wrote a fresh binary install.
+	_, err := os.Stat(filepath.Join(legacyDir, "sentinel"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(legacyDir, ".subtask-binary-installed"))
+	require.NoError(t, err)
 
 	var settings map[string]any
 	require.NoError(t, readJSON(settingsPath, &settings))
@@ -295,9 +303,12 @@ func TestInstall_Migration_MalformedSettingsJSON_SkipsAndWarns(t *testing.T) {
 	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 	require.Contains(t, out, "Skipped legacy settings cleanup")
 
-	// Plugin dir removed even if settings.json was malformed.
-	_, err := os.Stat(legacyDir)
+	// Migration removed the legacy sentinel even though settings.json was malformed;
+	// install then wrote a fresh binary install in the same directory.
+	_, err := os.Stat(filepath.Join(legacyDir, "sentinel"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(legacyDir, ".subtask-binary-installed"))
+	require.NoError(t, err)
 
 	// settings.json is untouched.
 	data, err := os.ReadFile(settingsPath)
@@ -530,6 +541,27 @@ func initGitRepo(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0o644))
 	run(t, dir, "git", "add", ".")
 	run(t, dir, "git", "commit", "-m", "Initial commit")
+}
+
+func TestInstall_SkillOnly_InstallsSkillButNotPlugin(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--skill-only")
+	require.Contains(t, out, "Installed skill")
+
+	// Skill must be present.
+	_, err := os.Stat(filepath.Join(home, ".claude", "skills", "subtask", "SKILL.md"))
+	require.NoError(t, err, "skill should be installed")
+
+	// Plugin directory must NOT be created by --skill-only.
+	_, err = os.Stat(filepath.Join(home, ".claude", "plugins", "subtask"))
+	require.ErrorIs(t, err, os.ErrNotExist, "--skill-only must not write the plugin dir")
 }
 
 func TestInstallCLI_UsesWindowsExeName(t *testing.T) {

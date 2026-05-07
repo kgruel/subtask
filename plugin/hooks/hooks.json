@@ -20,6 +20,10 @@
           },
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stale-workers.sh"
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/probe.sh UserPromptSubmit"
           }
         ]

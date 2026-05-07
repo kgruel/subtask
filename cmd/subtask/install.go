@@ -25,6 +25,7 @@ type InstallCmd struct {
 	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
 	PluginDev     bool   `help:"Symlink the local plugin/ directory into Claude Code's plugins folder for development"`
 	From          string `help:"Plugin source directory (default: <repo-root>/plugin); used with --plugin-dev" placeholder:"PATH"`
+	SkillOnly     bool   `help:"Install the skill only; skip writing the plugin. The marketplace path remains available for manual plugin install: /plugin marketplace add github:kgruel/subtask && /plugin install subtask@subtask"`
 }
 
 func (c *InstallCmd) Run() error {
@@ -123,7 +124,15 @@ func (c *InstallCmd) Run() error {
 		fmt.Println("  subtask config --project  # edit project overrides")
 	}
 
-	printPluginGuidance(homeDir)
+	if !c.SkillOnly {
+		pluginResult, err := install.InstallPluginBinaryTo(homeDir, version)
+		if err != nil {
+			return err
+		}
+		printPluginResult(pluginResult, homeDir)
+	} else {
+		printPluginGuidanceSkillOnly(homeDir)
+	}
 
 	return nil
 }
@@ -161,9 +170,32 @@ func (c *InstallCmd) runPluginDev() error {
 	return nil
 }
 
-// printPluginGuidance shows next-step instructions about the plugin (hooks)
-// based on its current install state.
-func printPluginGuidance(homeDir string) {
+// printPluginResult prints the outcome of a binary plugin install.
+func printPluginResult(res install.PluginBinaryResult, homeDir string) {
+	fmt.Println()
+	switch res.Action {
+	case "installed":
+		printSuccess(fmt.Sprintf("Installed plugin to %s", abbreviatePath(res.Path)))
+	case "updated":
+		printSuccess(fmt.Sprintf("Updated plugin at %s", abbreviatePath(res.Path)))
+	case "noop":
+		printSuccess(fmt.Sprintf("Plugin already up to date at %s", abbreviatePath(res.Path)))
+	case "dev_link":
+		st, _ := install.GetPluginStatusFor(homeDir)
+		if st.SymlinkTarget != "" {
+			fmt.Printf("Plugin: linked (dev) at %s -> %s\n", abbreviatePath(res.Path), abbreviatePath(st.SymlinkTarget))
+		} else {
+			fmt.Printf("Plugin: linked (dev) at %s\n", abbreviatePath(res.Path))
+		}
+	case "marketplace":
+		fmt.Printf("Plugin: marketplace-installed at %s (leaving it alone)\n", abbreviatePath(res.Path))
+	case "stray":
+		printWarning(fmt.Sprintf("Plugin: %s", res.Note))
+	}
+}
+
+// printPluginGuidanceSkillOnly shows marketplace guidance when --skill-only is set.
+func printPluginGuidanceSkillOnly(homeDir string) {
 	st, err := install.GetPluginStatusFor(homeDir)
 	if err != nil {
 		return
@@ -171,22 +203,16 @@ func printPluginGuidance(homeDir string) {
 
 	fmt.Println()
 	switch {
-	case !st.Exists:
-		fmt.Println("Hooks (optional):")
-		fmt.Println("  Subtask ships hooks that surface unread worker replies and reduce")
-		fmt.Println("  the chance of misreading background-task completions. To enable in")
-		fmt.Println("  Claude Code:")
-		fmt.Println()
-		fmt.Println("    /plugin marketplace add github:kgruel/subtask")
-		fmt.Println("    /plugin install subtask@subtask")
-		fmt.Println()
-		fmt.Println("  Or for plugin development: subtask install --plugin-dev")
 	case st.IsSymlink && st.HasManifest:
 		fmt.Printf("Plugin: linked (dev) at %s -> %s\n", abbreviatePath(st.Path), abbreviatePath(st.SymlinkTarget))
 	case st.HasManifest:
 		fmt.Printf("Plugin: installed at %s\n", abbreviatePath(st.Path))
 	default:
-		printWarning(fmt.Sprintf("Plugin path %s exists but is missing .claude-plugin/plugin.json — Claude Code may not load it.", abbreviatePath(st.Path)))
+		fmt.Println("Plugin hooks (--skill-only skipped plugin install):")
+		fmt.Println("  To install the plugin via marketplace:")
+		fmt.Println()
+		fmt.Println("    /plugin marketplace add github:kgruel/subtask")
+		fmt.Println("    /plugin install subtask@subtask")
 	}
 }
 

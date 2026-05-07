@@ -102,3 +102,177 @@ func TestInstallPluginDev_RejectsMissingSource(t *testing.T) {
 	_, err := InstallPluginDevTo(base, filepath.Join(base, "nonexistent"))
 	require.Error(t, err)
 }
+
+// --- Binary install/uninstall tests ---
+
+func TestInstallPluginBinaryTo_FreshInstall(t *testing.T) {
+	base := t.TempDir()
+
+	res, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+	assert.Equal(t, "installed", res.Action)
+
+	pluginDir := PluginPath(base)
+
+	// Marker file present.
+	markerPath := filepath.Join(pluginDir, ".subtask-binary-installed")
+	content, err := os.ReadFile(markerPath)
+	require.NoError(t, err)
+	assert.Equal(t, "0.4.1\n", string(content))
+
+	// plugin.json present.
+	_, err = os.Stat(filepath.Join(pluginDir, ".claude-plugin", "plugin.json"))
+	require.NoError(t, err)
+
+	// .sh files are executable.
+	info, err := os.Stat(filepath.Join(pluginDir, "scripts", "stop-unread.sh"))
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&0o111, ".sh file should be executable")
+
+	// GetPluginStatusFor reflects IsBinaryInstalled.
+	st, err := GetPluginStatusFor(base)
+	require.NoError(t, err)
+	assert.True(t, st.IsBinaryInstalled)
+	assert.True(t, st.HasManifest)
+}
+
+func TestInstallPluginBinaryTo_Noop(t *testing.T) {
+	base := t.TempDir()
+
+	_, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+
+	// Second install with same embedded content → noop.
+	res, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+	assert.Equal(t, "noop", res.Action)
+}
+
+func TestInstallPluginBinaryTo_UpdatesWhenFilesDiffer(t *testing.T) {
+	base := t.TempDir()
+
+	_, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+
+	// Drift a file.
+	drifted := filepath.Join(PluginPath(base), "hooks", "hooks.json")
+	require.NoError(t, os.WriteFile(drifted, []byte("{}"), 0o644))
+
+	res, err := InstallPluginBinaryTo(base, "0.4.2")
+	require.NoError(t, err)
+	assert.Equal(t, "updated", res.Action)
+}
+
+func TestInstallPluginBinaryTo_LeavesMarketplaceDir(t *testing.T) {
+	base := t.TempDir()
+	pluginDir := PluginPath(base)
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+	// Write a manifest but no ownership marker.
+	writeManifest(t, pluginDir)
+
+	res, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+	assert.Equal(t, "marketplace", res.Action)
+
+	// Marker was not created.
+	_, err = os.Stat(filepath.Join(pluginDir, ".subtask-binary-installed"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestInstallPluginBinaryTo_LeavesDevSymlink(t *testing.T) {
+	base := t.TempDir()
+	source := t.TempDir()
+	writeManifest(t, source)
+	_, err := InstallPluginDevTo(base, source)
+	require.NoError(t, err)
+
+	res, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+	assert.Equal(t, "dev_link", res.Action)
+
+	// Symlink still intact.
+	st, err := GetPluginStatusFor(base)
+	require.NoError(t, err)
+	assert.True(t, st.IsSymlink)
+}
+
+func TestInstallPluginBinaryTo_StraySymlink(t *testing.T) {
+	base := t.TempDir()
+	pluginDir := PluginPath(base)
+	require.NoError(t, os.MkdirAll(filepath.Dir(pluginDir), 0o755))
+	// Symlink to non-existent target.
+	require.NoError(t, os.Symlink("/nonexistent/path/subtask", pluginDir))
+
+	res, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+	assert.Equal(t, "stray", res.Action)
+}
+
+func TestUninstallPluginBinaryFrom_RemovesBinaryInstall(t *testing.T) {
+	base := t.TempDir()
+
+	_, err := InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+
+	res, err := UninstallPluginBinaryFrom(base)
+	require.NoError(t, err)
+	assert.Equal(t, "removed", res.Action)
+
+	_, err = os.Stat(PluginPath(base))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestUninstallPluginBinaryFrom_LeavesMarketplaceDir(t *testing.T) {
+	base := t.TempDir()
+	pluginDir := PluginPath(base)
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+	writeManifest(t, pluginDir)
+
+	res, err := UninstallPluginBinaryFrom(base)
+	require.NoError(t, err)
+	assert.Equal(t, "marketplace", res.Action)
+
+	// Marketplace dir still there.
+	_, err = os.Stat(pluginDir)
+	require.NoError(t, err)
+}
+
+func TestUninstallPluginBinaryFrom_RemovesDevSymlink(t *testing.T) {
+	base := t.TempDir()
+	source := t.TempDir()
+	writeManifest(t, source)
+	_, err := InstallPluginDevTo(base, source)
+	require.NoError(t, err)
+
+	res, err := UninstallPluginBinaryFrom(base)
+	require.NoError(t, err)
+	assert.Equal(t, "removed", res.Action)
+
+	_, err = os.Lstat(PluginPath(base))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestUninstallPluginBinaryFrom_NothingWhenAbsent(t *testing.T) {
+	base := t.TempDir()
+
+	res, err := UninstallPluginBinaryFrom(base)
+	require.NoError(t, err)
+	assert.Equal(t, "nothing", res.Action)
+}
+
+func TestGetPluginStatusFor_IsBinaryInstalled(t *testing.T) {
+	base := t.TempDir()
+
+	// Not installed → false.
+	st, err := GetPluginStatusFor(base)
+	require.NoError(t, err)
+	assert.False(t, st.IsBinaryInstalled)
+
+	_, err = InstallPluginBinaryTo(base, "0.4.1")
+	require.NoError(t, err)
+
+	// Installed → true.
+	st, err = GetPluginStatusFor(base)
+	require.NoError(t, err)
+	assert.True(t, st.IsBinaryInstalled)
+}

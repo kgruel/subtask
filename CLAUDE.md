@@ -189,6 +189,12 @@ Task status is what users care about. Worker status is operational detail. Works
     └── history.jsonl                        # source of truth: messages + lifecycle events
 ```
 
+**Claude Code install paths** — `subtask install` writes both:
+- `~/.claude/skills/subtask/SKILL.md` — the Claude Code skill (teaches Claude the subtask workflow)
+- `~/.claude/plugins/subtask/` — the plugin (hooks: unread-reply guard, stale-worker warning)
+
+The plugin directory carries a `.subtask-binary-installed` marker so `subtask uninstall` can distinguish it from a marketplace install (`/plugin install subtask@subtask`), which is left alone. Use `--skill-only` on either command to skip plugin operations.
+
 ### Portability Contract
 
 **Task folder** (`.subtask/tasks/<name>/`) is portable and syncable:

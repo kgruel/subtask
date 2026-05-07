@@ -1,13 +1,21 @@
 package install
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kgruel/subtask/internal/homedir"
+	pluginembed "github.com/kgruel/subtask/plugin"
 )
+
+// ownerMarkerFile is written at the plugin root when we install it.
+// Its presence marks the directory as binary-managed (not marketplace).
+const ownerMarkerFile = ".subtask-binary-installed"
 
 // PluginStatus describes the installed state of the subtask Claude Code plugin.
 //
@@ -15,16 +23,25 @@ import (
 //   - absent (Exists == false)
 //   - a symlink to a developer working tree (IsSymlink == true)
 //   - a real directory installed via Claude Code's plugin marketplace
+//   - a real directory installed by the subtask binary (IsBinaryInstalled == true)
 //
 // HasManifest reports whether the plugin actually looks valid — i.e., contains
 // .claude-plugin/plugin.json. A symlink to a missing or invalid path can leave
 // Exists == true but HasManifest == false.
 type PluginStatus struct {
-	Path          string
-	Exists        bool
-	IsSymlink     bool
-	SymlinkTarget string
-	HasManifest   bool
+	Path              string
+	Exists            bool
+	IsSymlink         bool
+	SymlinkTarget     string
+	HasManifest       bool
+	IsBinaryInstalled bool // true when ownerMarkerFile is present (we installed it)
+}
+
+// PluginBinaryResult reports the outcome of InstallPluginBinaryTo or UninstallPluginBinaryFrom.
+type PluginBinaryResult struct {
+	Path   string
+	Action string // "installed", "updated", "noop", "dev_link", "marketplace", "stray", "removed", "nothing"
+	Note   string // human-readable explanation for non-install actions
 }
 
 // PluginInstallResult reports what InstallPluginDev did.
@@ -95,6 +112,10 @@ func GetPluginStatusFor(baseDir string) (PluginStatus, error) {
 
 	if _, err := os.Stat(PluginManifestPath(path)); err == nil {
 		st.HasManifest = true
+	}
+
+	if _, err := os.Stat(filepath.Join(path, ownerMarkerFile)); err == nil {
+		st.IsBinaryInstalled = true
 	}
 
 	return st, nil
@@ -190,4 +211,195 @@ func InstallPluginDevTo(baseDir, sourceDir string) (PluginInstallResult, error) 
 	}
 	res.Action = "updated"
 	return res, nil
+}
+
+// InstallPluginBinary installs the embedded plugin to ~/.claude/plugins/subtask.
+// version is written into the owner marker for diagnostics.
+func InstallPluginBinary(version string) (PluginBinaryResult, error) {
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return PluginBinaryResult{}, err
+	}
+	return InstallPluginBinaryTo(homeDir, version)
+}
+
+// InstallPluginBinaryTo is the testable form of InstallPluginBinary.
+//
+// Decision matrix:
+//   - absent                    → create dir, write files, drop marker → "installed"
+//   - symlink + valid manifest  → leave it (dev link)                  → "dev_link"
+//   - symlink + no manifest     → warn, skip                           → "stray"
+//   - real dir + our marker     → rewrite files, idempotent            → "updated" or "noop"
+//   - real dir + no marker      → warn, skip (marketplace)             → "marketplace"
+func InstallPluginBinaryTo(baseDir, version string) (PluginBinaryResult, error) {
+	if baseDir == "" {
+		return PluginBinaryResult{}, errors.New("invalid base directory")
+	}
+	pluginPath := PluginPath(baseDir)
+	res := PluginBinaryResult{Path: pluginPath}
+
+	info, err := os.Lstat(pluginPath)
+	if err != nil && !os.IsNotExist(err) {
+		return PluginBinaryResult{}, err
+	}
+
+	if err != nil {
+		// Path does not exist — fresh install.
+		if err := writePluginFiles(pluginPath, version); err != nil {
+			return PluginBinaryResult{}, err
+		}
+		res.Action = "installed"
+		return res, nil
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		// Symlink — check if it resolves to a valid plugin.
+		st, _ := GetPluginStatusFor(baseDir)
+		if st.HasManifest {
+			res.Action = "dev_link"
+			res.Note = fmt.Sprintf("linked (dev) at %s", pluginPath)
+		} else {
+			res.Action = "stray"
+			res.Note = fmt.Sprintf("symlink at %s points to missing or invalid target; skipping", pluginPath)
+		}
+		return res, nil
+	}
+
+	// Real directory — check for our marker.
+	markerPath := filepath.Join(pluginPath, ownerMarkerFile)
+	if _, err := os.Stat(markerPath); err != nil {
+		// No marker — marketplace or manual install; don't clobber.
+		res.Action = "marketplace"
+		res.Note = fmt.Sprintf("%s exists without our ownership marker; leaving it alone", pluginPath)
+		return res, nil
+	}
+
+	// Our directory — check if files need updating.
+	changed, err := pluginFilesChanged(pluginPath)
+	if err != nil {
+		return PluginBinaryResult{}, err
+	}
+	if !changed {
+		res.Action = "noop"
+		return res, nil
+	}
+	if err := writePluginFiles(pluginPath, version); err != nil {
+		return PluginBinaryResult{}, err
+	}
+	res.Action = "updated"
+	return res, nil
+}
+
+// UninstallPluginBinary removes the binary-installed plugin from ~/.claude/plugins/subtask.
+func UninstallPluginBinary() (PluginBinaryResult, error) {
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return PluginBinaryResult{}, err
+	}
+	return UninstallPluginBinaryFrom(homeDir)
+}
+
+// UninstallPluginBinaryFrom is the testable form of UninstallPluginBinary.
+//
+// Decision matrix:
+//   - absent                → "nothing"
+//   - symlink               → remove the symlink → "removed"
+//   - real dir + our marker → remove the directory → "removed"
+//   - real dir + no marker  → leave it, note marketplace → "marketplace"
+func UninstallPluginBinaryFrom(baseDir string) (PluginBinaryResult, error) {
+	if baseDir == "" {
+		return PluginBinaryResult{}, errors.New("invalid base directory")
+	}
+	pluginPath := PluginPath(baseDir)
+	res := PluginBinaryResult{Path: pluginPath}
+
+	info, err := os.Lstat(pluginPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			res.Action = "nothing"
+			return res, nil
+		}
+		return PluginBinaryResult{}, err
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(pluginPath); err != nil {
+			return PluginBinaryResult{}, fmt.Errorf("remove plugin symlink: %w", err)
+		}
+		res.Action = "removed"
+		return res, nil
+	}
+
+	// Real directory.
+	markerPath := filepath.Join(pluginPath, ownerMarkerFile)
+	if _, err := os.Stat(markerPath); err != nil {
+		res.Action = "marketplace"
+		res.Note = "marketplace-installed plugin was not removed; uninstall with: /plugin uninstall subtask"
+		return res, nil
+	}
+
+	if err := os.RemoveAll(pluginPath); err != nil {
+		return PluginBinaryResult{}, fmt.Errorf("remove plugin directory: %w", err)
+	}
+	res.Action = "removed"
+	return res, nil
+}
+
+// writePluginFiles writes the embedded plugin tree to pluginPath, setting
+// executable permissions on .sh files and dropping the owner marker.
+func writePluginFiles(pluginPath, version string) error {
+	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
+		return err
+	}
+
+	err := fs.WalkDir(pluginembed.Files, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == "." {
+			return nil
+		}
+		dest := filepath.Join(pluginPath, filepath.FromSlash(path))
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+		data, err := pluginembed.Files.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		perm := fs.FileMode(0o644)
+		if strings.HasSuffix(path, ".sh") {
+			perm = 0o755
+		}
+		return os.WriteFile(dest, data, perm)
+	})
+	if err != nil {
+		return err
+	}
+
+	// Drop/update the owner marker.
+	markerPath := filepath.Join(pluginPath, ownerMarkerFile)
+	return os.WriteFile(markerPath, []byte(version+"\n"), 0o644)
+}
+
+// pluginFilesChanged reports whether any embedded file differs from disk.
+// Returns true if any file is missing or has different content.
+func pluginFilesChanged(pluginPath string) (bool, error) {
+	var changed bool
+	err := fs.WalkDir(pluginembed.Files, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		embedded, err := pluginembed.Files.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(pluginPath, filepath.FromSlash(path))
+		ondisk, err := os.ReadFile(dest)
+		if err != nil || !bytes.Equal(embedded, ondisk) {
+			changed = true
+		}
+		return nil
+	})
+	return changed, err
 }

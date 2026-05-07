@@ -1,7 +1,7 @@
 {
   "name": "subtask",
   "version": "0.4.1",
-  "description": "Parallel task orchestration for AI coding agents - dispatch work to Codex or Claude Code workers in isolated git workspaces",
+  "description": "Parallel task orchestration for AI coding agents - dispatch work to Claude/Codex/OpenCode/Gemini/Pi workers in isolated git workspaces",
   "repository": "https://github.com/kgruel/subtask",
   "license": "MIT",
   "keywords": ["orchestration", "parallel", "codex", "tasks", "git-worktrees"]
