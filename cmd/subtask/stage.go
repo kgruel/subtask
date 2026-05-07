@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
@@ -16,8 +17,19 @@ import (
 
 // StageCmd implements 'subtask stage'.
 type StageCmd struct {
-	Task  string `arg:"" help:"Task name"`
-	Stage string `arg:"" help:"Stage to set"`
+	Task   string `arg:"" help:"Task name"`
+	Stage  string `arg:"" help:"Stage to set"`
+	Prompt string `arg:"" optional:"" help:"Extra brief appended to worker_instructions (or used alone if no worker_instructions)"`
+	NoSend bool   `name:"no-send" help:"Skip auto-dispatch even if the new stage has worker_instructions"`
+
+	// Internal: injected harness for testing.
+	testHarness harness.Harness
+}
+
+// WithHarness returns a copy with injected harness for testing.
+func (c *StageCmd) WithHarness(h harness.Harness) *StageCmd {
+	c.testHarness = h
+	return c
 }
 
 // Run executes the stage command.
@@ -135,9 +147,35 @@ func (c *StageCmd) Run() error {
 	}
 	printSuccess(header)
 
-	// Print new stage guidance
-	stage := wf.GetStage(c.Stage)
-	if stage != nil && stage.Instructions != "" {
+	// Determine whether to auto-dispatch.
+	newStageObj := wf.GetStage(c.Stage)
+	workerInstructions := ""
+	if newStageObj != nil {
+		workerInstructions = strings.TrimSpace(newStageObj.WorkerInstructions)
+	}
+	extraPrompt := strings.TrimSpace(c.Prompt)
+
+	var dispatchPrompt string
+	switch {
+	case workerInstructions != "" && extraPrompt != "":
+		dispatchPrompt = workerInstructions + "\n\n" + extraPrompt
+	case workerInstructions != "":
+		dispatchPrompt = workerInstructions
+	case extraPrompt != "":
+		dispatchPrompt = extraPrompt
+	}
+
+	if dispatchPrompt != "" && !c.NoSend {
+		preview := []rune(dispatchPrompt)
+		if len(preview) > 60 {
+			preview = append(preview[:60], []rune("...")...)
+		}
+		fmt.Printf("\nWorker dispatched with worker_instructions (%q).\n", string(preview))
+		return (&SendCmd{Task: c.Task, Prompt: dispatchPrompt, testHarness: c.testHarness}).Run()
+	}
+
+	// Passive path: print lead-facing stage guidance.
+	if newStageObj != nil && newStageObj.Instructions != "" {
 		fmt.Println()
 		printStageGuidance(c.Task, wf, c.Stage)
 	}
