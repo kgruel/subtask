@@ -44,9 +44,6 @@ continue_args:
   - "--resume"
   - "{{session_id}}"
 output_parser: gemini
-capabilities:
-  continue_session: true
-  review: true
 session_handler: none
 env:
   OTEL_SDK_DISABLED: "true"
