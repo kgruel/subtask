@@ -85,24 +85,6 @@ func TestConfigurableAdapter_TemplateArgs_PromptInArgs(t *testing.T) {
 	require.Equal(t, []string{"--message", "fix the bug"}, args)
 }
 
-func TestConfigurableAdapter_Review_Unsupported(t *testing.T) {
-	cfg := &AdapterConfig{
-		Name: "test",
-		CLI:  "test-cli",
-		Capabilities: AdapterCaps{
-			Review: false,
-		},
-	}
-	vars := templateVars{}
-
-	a, err := NewConfigurableAdapter(cfg, vars)
-	require.NoError(t, err)
-
-	_, err = a.Review("/tmp", ReviewTarget{Uncommitted: true}, "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "review")
-}
-
 func TestConfigurableAdapter_TemplateArgs_ContinueArgsTemplated(t *testing.T) {
 	cfg := &AdapterConfig{
 		Name:         "test",

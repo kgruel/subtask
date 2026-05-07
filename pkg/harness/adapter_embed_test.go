@@ -20,12 +20,6 @@ func TestLoadBuiltinAdapter_Claude(t *testing.T) {
 	if cfg.OutputParser != "claude" {
 		t.Errorf("OutputParser = %q, want %q", cfg.OutputParser, "claude")
 	}
-	if !cfg.Capabilities.ContinueSession {
-		t.Error("Capabilities.ContinueSession = false, want true")
-	}
-	if !cfg.Capabilities.Review {
-		t.Error("Capabilities.Review = false, want true")
-	}
 	if cfg.SessionHandler != "claude" {
 		t.Errorf("SessionHandler = %q, want %q", cfg.SessionHandler, "claude")
 	}
@@ -47,12 +41,6 @@ func TestLoadBuiltinAdapter_Codex(t *testing.T) {
 	}
 	if cfg.OutputParser != "codex" {
 		t.Errorf("OutputParser = %q, want %q", cfg.OutputParser, "codex")
-	}
-	if !cfg.Capabilities.ContinueSession {
-		t.Error("Capabilities.ContinueSession = false, want true")
-	}
-	if !cfg.Capabilities.Review {
-		t.Error("Capabilities.Review = false, want true")
 	}
 	if cfg.SessionHandler != "codex" {
 		t.Errorf("SessionHandler = %q, want %q", cfg.SessionHandler, "codex")

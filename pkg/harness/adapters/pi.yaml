@@ -21,7 +21,4 @@ parse:
   reply_accumulate: true
   tool_call_match:
     type: "tool_execution_start"
-capabilities:
-  continue_session: true
-  review: false
 session_handler: none

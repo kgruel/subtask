@@ -21,7 +21,9 @@ type ReviewCmd struct {
 	// Optional instructions
 	Prompt string `arg:"" optional:"" help:"Additional review instructions (or use stdin)"`
 
-	// Model/reasoning overrides
+	// Adapter/model/reasoning overrides (do not persist)
+	Adapter   string `help:"Override adapter for this review (does not persist)"`
+	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
 	Model     string `help:"Override model for this review"`
 	Reasoning string `help:"Override reasoning effort (low, medium, high, xhigh)"`
 
@@ -71,7 +73,36 @@ func (c *ReviewCmd) Run() error {
 	}
 	cfg := res.Config
 
-	if err := workspace.ValidateReasoningFlag(cfg.Adapter, c.Reasoning); err != nil {
+	// Load task when --task is set: needed for adapter/model resolution, not just base branch.
+	var t *task.Task
+	if strings.TrimSpace(c.Task) != "" {
+		loaded, err := task.Load(strings.TrimSpace(c.Task))
+		if err != nil {
+			return fmt.Errorf("failed to load task %q: %w", strings.TrimSpace(c.Task), err)
+		}
+		t = loaded
+	}
+
+	// Resolve adapter/model/reasoning — mirror send.go preset resolution.
+	// Precedence: explicit flags > --preset > task snapshot (when --task) > project default.
+	adapterFlag := c.Adapter
+	providerFlag := ""
+	modelFlag := c.Model
+	reasoningFlag := c.Reasoning
+	if c.Preset != "" {
+		p, ok := cfg.Presets[c.Preset]
+		if !ok {
+			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, presetNames(cfg))
+		}
+		applyPreset(p, &adapterFlag, &providerFlag, &modelFlag, &reasoningFlag)
+	}
+
+	adapter := workspace.ResolveAdapter(cfg, t, adapterFlag)
+	provider := workspace.ResolveProvider(cfg, t, providerFlag)
+	model := workspace.ResolveModel(cfg, t, modelFlag)
+	reasoning := workspace.ResolveReasoning(cfg, t, reasoningFlag)
+
+	if err := workspace.ValidateReasoningFlag(adapter, reasoning); err != nil {
 		return err
 	}
 
@@ -82,13 +113,7 @@ func (c *ReviewCmd) Run() error {
 	switch {
 	case strings.TrimSpace(c.Task) != "":
 		taskName := strings.TrimSpace(c.Task)
-		// Load task (for base branch)
-		t, err := task.Load(taskName)
-		if err != nil {
-			return fmt.Errorf("failed to load task %q: %w", taskName, err)
-		}
-
-		// Load state (for workspace)
+		// Load state (for workspace path)
 		state, err := task.LoadState(taskName)
 		if err != nil {
 			return err
@@ -127,10 +152,7 @@ func (c *ReviewCmd) Run() error {
 	if c.testHarness != nil {
 		h = c.testHarness
 	} else {
-		// Apply model/reasoning overrides (nil task since review doesn't use task-level settings)
-		model := workspace.ResolveModel(cfg, nil, c.Model)
-		reasoning := workspace.ResolveReasoning(cfg, nil, c.Reasoning)
-		h, err = harness.New(workspace.ConfigWithModelReasoning(cfg, model, reasoning))
+		h, err = harness.New(workspace.ConfigWithOverrides(cfg, adapter, provider, model, reasoning))
 		if err != nil {
 			return err
 		}
@@ -144,3 +166,4 @@ func (c *ReviewCmd) Run() error {
 	fmt.Println(review)
 	return nil
 }
+

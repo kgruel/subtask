@@ -19,7 +19,6 @@ type AdapterConfig struct {
 	ContinueArgs   []string          `yaml:"continue_args"` // inserted before prompt on continuation
 	OutputParser   string            `yaml:"output_parser"` // "claude", "codex", "opencode", "generic-jsonl", "text"
 	Parse          AdapterParseRules `yaml:"parse"`
-	Capabilities   AdapterCaps       `yaml:"capabilities"`
 	SessionHandler string            `yaml:"session_handler"` // "claude", "codex", "none" (default)
 	Env            map[string]string `yaml:"env,omitempty"`
 }
@@ -31,12 +30,6 @@ type AdapterParseRules struct {
 	Reply           string            `yaml:"reply"`
 	ReplyAccumulate bool              `yaml:"reply_accumulate"`
 	ToolCallMatch   map[string]string `yaml:"tool_call_match,omitempty"`
-}
-
-// AdapterCaps declares what the adapter supports.
-type AdapterCaps struct {
-	ContinueSession bool `yaml:"continue_session"`
-	Review          bool `yaml:"review"`
 }
 
 // LoadAdapterConfigFromDir reads <dir>/<name>.yaml and returns the parsed config.

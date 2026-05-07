@@ -15,7 +15,4 @@ continue_args:
   - "--resume"
   - "{{session_id}}"
 output_parser: claude
-capabilities:
-  continue_session: true
-  review: true
 session_handler: claude

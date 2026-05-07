@@ -113,9 +113,6 @@ func (a *ConfigurableAdapter) Run(ctx context.Context, cwd, prompt, continueFrom
 
 // Review implements Harness.Review.
 func (a *ConfigurableAdapter) Review(cwd string, target ReviewTarget, instructions string) (string, error) {
-	if !a.config.Capabilities.Review {
-		return "", fmt.Errorf("%s adapter does not support review", a.config.Name)
-	}
 	prompt := buildReviewPrompt(cwd, target, instructions)
 	result, err := a.Run(context.Background(), cwd, prompt, "", Callbacks{})
 	if err != nil {

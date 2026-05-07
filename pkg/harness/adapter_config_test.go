@@ -24,9 +24,6 @@ parse:
   reply_accumulate: true
   tool_call_match:
     type: tool_use
-capabilities:
-  continue_session: true
-  review: true
 session_handler: claude
 env:
   FOO: bar
@@ -66,12 +63,6 @@ env:
 	}
 	if cfg.Parse.ToolCallMatch["type"] != "tool_use" {
 		t.Errorf("Parse.ToolCallMatch = %v, want map[type:tool_use]", cfg.Parse.ToolCallMatch)
-	}
-	if !cfg.Capabilities.ContinueSession {
-		t.Error("Capabilities.ContinueSession = false, want true")
-	}
-	if !cfg.Capabilities.Review {
-		t.Error("Capabilities.Review = false, want true")
 	}
 	if cfg.SessionHandler != "claude" {
 		t.Errorf("SessionHandler = %q, want %q", cfg.SessionHandler, "claude")

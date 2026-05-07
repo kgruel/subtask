@@ -11,7 +11,4 @@ continue_args:
   - "--session"
   - "{{session_id}}"
 output_parser: opencode
-capabilities:
-  continue_session: true
-  review: true
 session_handler: none

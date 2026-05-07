@@ -13,7 +13,4 @@ continue_args:
   - "resume"
   - "{{session_id}}"
 output_parser: codex
-capabilities:
-  continue_session: true
-  review: true
 session_handler: codex
