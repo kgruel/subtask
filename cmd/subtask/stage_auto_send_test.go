@@ -62,7 +62,13 @@ func TestStage_AutoDispatchesWhenWorkerInstructionsSet(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, mock.RunCallCount(), "worker should have been dispatched")
-	require.Contains(t, mock.LastRunCall().Prompt, "Review the diff carefully and list any issues.")
+	prompt := mock.LastRunCall().Prompt
+	require.Contains(t, prompt, "Review the diff carefully and list any issues.")
+	// Regression: worker_instructions must appear exactly once. BuildPrompt
+	// injects them into the "## Stage:" block; stage.go must not re-include
+	// them in the user message.
+	require.Equal(t, 1, strings.Count(prompt, "Review the diff carefully and list any issues."),
+		"worker_instructions must not be duplicated")
 }
 
 func TestStage_PassiveWhenNoWorkerInstructions(t *testing.T) {
@@ -133,6 +139,9 @@ func TestStage_CombinesWorkerInstructionsWithPositionalPrompt(t *testing.T) {
 	wiIdx := strings.Index(sentPrompt, "Review the diff carefully")
 	extraIdx := strings.Index(sentPrompt, "Focus on error handling.")
 	require.Greater(t, extraIdx, wiIdx, "extra brief should follow worker_instructions")
+	// Regression: worker_instructions still must appear exactly once.
+	require.Equal(t, 1, strings.Count(sentPrompt, "Review the diff carefully and list any issues."),
+		"worker_instructions must not be duplicated when combined with positional prompt")
 }
 
 func TestStage_PositionalPromptWithoutWorkerInstructionsDispatches(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 type StageCmd struct {
 	Task   string `arg:"" help:"Task name"`
 	Stage  string `arg:"" help:"Stage to set"`
-	Prompt string `arg:"" optional:"" help:"Extra brief appended to worker_instructions (or used alone if no worker_instructions)"`
+	Prompt string `arg:"" optional:"" help:"Extra user message sent alongside the new stage's worker_instructions (or alone if there are none)"`
 	NoSend bool   `name:"no-send" help:"Skip auto-dispatch even if the new stage has worker_instructions"`
 
 	// Internal: injected harness for testing.
@@ -148,30 +148,37 @@ func (c *StageCmd) Run() error {
 	printSuccess(header)
 
 	// Determine whether to auto-dispatch.
+	//
+	// BuildPrompt (pkg/harness/prompt.go) already injects the new stage's
+	// worker_instructions into a "## Stage:" block on every send, so we only
+	// pass the lead's positional prompt as the user message. Including
+	// worker_instructions here would produce them twice.
 	newStageObj := wf.GetStage(c.Stage)
 	workerInstructions := ""
 	if newStageObj != nil {
 		workerInstructions = strings.TrimSpace(newStageObj.WorkerInstructions)
 	}
 	extraPrompt := strings.TrimSpace(c.Prompt)
+	shouldDispatch := !c.NoSend && (workerInstructions != "" || extraPrompt != "")
 
-	var dispatchPrompt string
-	switch {
-	case workerInstructions != "" && extraPrompt != "":
-		dispatchPrompt = workerInstructions + "\n\n" + extraPrompt
-	case workerInstructions != "":
-		dispatchPrompt = workerInstructions
-	case extraPrompt != "":
-		dispatchPrompt = extraPrompt
-	}
-
-	if dispatchPrompt != "" && !c.NoSend {
-		preview := []rune(dispatchPrompt)
+	if shouldDispatch {
+		leadPrompt := extraPrompt
+		dispatchSource := "prompt"
+		switch {
+		case workerInstructions != "" && extraPrompt != "":
+			dispatchSource = "worker_instructions + prompt"
+		case workerInstructions != "":
+			// SendCmd requires a non-empty prompt; the worker_instructions are
+			// in the "## Stage:" block, so we just need a short trigger.
+			leadPrompt = fmt.Sprintf("Proceed with the %s stage.", c.Stage)
+			dispatchSource = "worker_instructions"
+		}
+		preview := []rune(leadPrompt)
 		if len(preview) > 60 {
 			preview = append(preview[:60], []rune("...")...)
 		}
-		fmt.Printf("\nWorker dispatched with worker_instructions (%q).\n", string(preview))
-		return (&SendCmd{Task: c.Task, Prompt: dispatchPrompt, testHarness: c.testHarness}).Run()
+		fmt.Printf("\nWorker dispatched (%s): %q\n", dispatchSource, string(preview))
+		return (&SendCmd{Task: c.Task, Prompt: leadPrompt, testHarness: c.testHarness}).Run()
 	}
 
 	// Passive path: print lead-facing stage guidance.
