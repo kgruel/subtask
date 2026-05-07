@@ -39,6 +39,8 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show task conversation and history |
 | `subtask trace <task>` | Debug what a worker is doing and thinking internally |
+| `subtask presets` | List available presets from project config |
+| `subtask types` | List available task types from project config |
 
 **Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
 
@@ -60,14 +62,17 @@ subtask send fix/bug --model claude-sonnet-4-20250514 "Review the edge cases"
 subtask ask --model claude-sonnet-4-20250514 "Explain the pool logic"
 ```
 
-| Flag | `draft` | `send` | `ask` |
-|------|---------|--------|-------|
-| `--adapter` | persists | per-prompt | — |
-| `--provider` | persists | per-prompt | per-prompt |
-| `--model` | persists | per-prompt | per-prompt |
-| `--reasoning` | persists | per-prompt | per-prompt |
+| Flag | `draft` | `send` | `review` | `ask` |
+|------|---------|--------|----------|-------|
+| `--adapter` | persists | per-prompt | per-review | per-prompt |
+| `--provider` | persists | per-prompt | — | per-prompt |
+| `--model` | persists | per-prompt | per-review | per-prompt |
+| `--reasoning` | persists | per-prompt | per-review | per-prompt |
+| `--preset` | persists | per-prompt | per-review | per-prompt |
 
-Resolution order: CLI flag → task config → project config → global config.
+Resolution order: explicit flag → `--preset` overlay → task snapshot (when `--task`/`--follow-up` resolves to a task) → project config → global config.
+
+**Snapshot semantics:** When you `draft` a task, the resolved adapter, model, and reasoning are written into TASK.md ("snapshot"). Editing `.subtask/config.json` later does **not** update existing tasks. To run an existing task with a different preset without editing TASK.md: pass `--preset <name>` to `send`, `review`, or `ask --follow-up <task>`. To swap the preset automatically on a stage transition, bind `preset:` in the workflow YAML.
 
 ## Review
 
@@ -81,6 +86,8 @@ subtask review --commit abc123                   # Review a specific commit
 ```
 
 Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
+
+`review` accepts `--adapter`/`--model`/`--reasoning`/`--preset` overrides (ephemeral, do not persist). When `--task` is used, the task's stored adapter is the default; pass `--preset` to override it for this review only.
 
 ## Flow
 
@@ -138,7 +145,21 @@ All tasks have stages: `doing → review → ready`
 | `review` | Worker done, you're reviewing code |
 | `ready` | Ready for human to decide (human review, merge, more work, etc.) |
 
-Advance with: `subtask stage <task> <stage>`
+`subtask stage <task> <stage>` advances the stage. It always:
+- Writes the new stage to history
+- Applies any preset bound to the new stage in the workflow YAML (and clears the session if the adapter changes — cross-stage context comes from the workspace, PLAN.md, and PROGRESS.json)
+
+**Auto-dispatch:** If the new stage has `worker_instructions:` defined in the workflow YAML, `stage` automatically dispatches the worker with those instructions and blocks until it replies — same as `subtask send`. An optional positional argument is appended to the instructions (or used alone if `worker_instructions:` is absent):
+
+```bash
+subtask stage fix/bug review                        # passive — no worker_instructions, returns immediately
+subtask stage fix/bug review "Focus on error paths" # auto-dispatches, BLOCKS — run with run_in_background: true
+subtask stage fix/bug review --no-send              # always passive, even with worker_instructions
+```
+
+When `stage` auto-dispatches, it blocks like `subtask send`. Run it with `run_in_background: true` so you can keep talking to the user while you wait. You'll be notified when the bash exits; read the worker's reply with `subtask reply <task>`.
+
+Pass `--no-send` to stay passive even when `worker_instructions:` is defined.
 
 ## Planning Workflows
 
@@ -149,7 +170,7 @@ For complex tasks, add a plan stage: `plan → implement → review → ready`
 
 ## Notes
 
-- Use `subtask list` to see what’s in flight.
+- Use `subtask list` to see what's in flight.
 - Use `subtask show <task>` to see progress and details.
 - Use `subtask log <task>` to see task conversation and events.
 - Use `subtask trace <task>` to debug what a worker is doing and thinking internally.

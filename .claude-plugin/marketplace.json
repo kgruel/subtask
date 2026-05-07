@@ -10,7 +10,7 @@
     {
       "name": "subtask",
       "source": "./plugin",
-      "description": "Dispatch work to parallel Codex workers in isolated git workspaces",
+      "description": "Dispatch work to parallel AI workers (Claude, Codex, OpenCode, Gemini, Pi) in isolated git workspaces",
       "version": "0.4.1",
       "repository": "https://github.com/kgruel/subtask",
       "license": "MIT",
