@@ -68,6 +68,79 @@ func TestClaudeMigrateSession_RewritesPathsAndVerifies(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
+func TestClaudeMigrateSession_HandlesXDGRoot(t *testing.T) {
+	// When the user's Claude install stores sessions under
+	// $XDG_CONFIG_HOME/claude/projects (~/.config/claude/projects by
+	// default) rather than the legacy ~/.claude/projects, migrate must
+	// find the source there and write the destination beside it.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	oldCwd := "/private/tmp/ws-old"
+	newCwd := "/private/tmp/ws-new"
+	sessionID := "22222222-2222-2222-2222-222222222222"
+
+	xdgRoot := filepath.Join(tmp, ".config", "claude", "projects")
+	oldProject := filepath.Join(xdgRoot, escapeClaudeProjectDir(oldCwd))
+	newProject := filepath.Join(xdgRoot, escapeClaudeProjectDir(newCwd))
+
+	require.NoError(t, os.MkdirAll(oldProject, 0o700))
+	src := filepath.Join(oldProject, sessionID+".jsonl")
+	require.NoError(t, os.WriteFile(src, []byte(`{"cwd":"`+oldCwd+`"}`+"\n"), 0o600))
+
+	require.NoError(t, migrateClaudeSession(sessionID, oldCwd, newCwd))
+
+	// Destination lives under the XDG root, not the legacy root.
+	dst := filepath.Join(newProject, sessionID+".jsonl")
+	out, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Contains(t, string(out), newCwd)
+
+	// Legacy root must NOT have been written to.
+	legacyNew := filepath.Join(tmp, ".claude", "projects", escapeClaudeProjectDir(newCwd), sessionID+".jsonl")
+	_, err = os.Stat(legacyNew)
+	require.ErrorIs(t, err, os.ErrNotExist, "must not write to legacy root when source is at XDG")
+
+	// Source removed (move semantics).
+	_, err = os.Stat(src)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestClaudeProjectDirFor_PrefersXDGOverLegacy(t *testing.T) {
+	// When both roots happen to contain the project dir, the XDG copy wins.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	cwd := "/private/tmp/ws"
+	xdgProject := filepath.Join(tmp, ".config", "claude", "projects", escapeClaudeProjectDir(cwd))
+	legacyProject := filepath.Join(tmp, ".claude", "projects", escapeClaudeProjectDir(cwd))
+	require.NoError(t, os.MkdirAll(xdgProject, 0o700))
+	require.NoError(t, os.MkdirAll(legacyProject, 0o700))
+
+	got := claudeProjectDirFor(cwd)
+	require.Equal(t, xdgProject, got)
+}
+
+func TestClaudeProjectDirFor_FallsBackToXDGForFreshWrite(t *testing.T) {
+	// When neither root contains the project, return the XDG path so a
+	// fresh migrate/duplicate lands at XDG by default rather than the
+	// legacy location.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	cwd := "/private/tmp/never-existed"
+	want := filepath.Join(tmp, ".config", "claude", "projects", escapeClaudeProjectDir(cwd))
+
+	got := claudeProjectDirFor(cwd)
+	require.Equal(t, want, got)
+}
+
 func TestClaudeDuplicateSession_CopiesAndRewritesSessionID(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

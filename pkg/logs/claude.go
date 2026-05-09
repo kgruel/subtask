@@ -11,7 +11,9 @@ import (
 	"github.com/kgruel/subtask/internal/homedir"
 )
 
-// ClaudeParser parses Claude Code session JSONL files stored under ~/.claude/projects.
+// ClaudeParser parses Claude Code session JSONL files stored under
+// $XDG_CONFIG_HOME/claude/projects (default ~/.config/claude/projects) or
+// ~/.claude/projects (legacy default).
 type ClaudeParser struct{}
 
 type claudeLogEvent struct {
@@ -24,36 +26,62 @@ type claudeLogEvent struct {
 	Message json.RawMessage `json:"message,omitempty"`
 }
 
-// FindSessionFile finds the session file for a given session ID.
-// Searches ~/.claude/projects/ recursively.
+// FindSessionFile finds the session file for a given session ID by walking
+// each candidate Claude projects root in preference order (XDG first, legacy
+// second). Returns the first match.
 func (p *ClaudeParser) FindSessionFile(sessionID string) (string, error) {
-	home, err := homedir.Dir()
-	if err != nil {
-		return "", err
+	for _, projectsDir := range claudeProjectsRoots() {
+		var found string
+		err := filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if filepath.Base(path) == sessionID+".jsonl" {
+				found = path
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if err != nil && err != filepath.SkipAll {
+			return "", err
+		}
+		if found != "" {
+			return found, nil
+		}
 	}
-	projectsDir := filepath.Join(home, ".claude", "projects")
+	return "", os.ErrNotExist
+}
 
-	var found string
-	err = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Base(path) == sessionID+".jsonl" {
-			found = path
-			return filepath.SkipAll
-		}
+// claudeProjectsRoots returns candidate Claude Code projects roots to search,
+// in preference order. Mirrors harness.claudeProjectRoots; duplicated here to
+// avoid pkg/logs depending on pkg/harness.
+func claudeProjectsRoots() []string {
+	home, err := homedir.Dir()
+	if err != nil || home == "" {
 		return nil
-	})
-	if err != nil && err != filepath.SkipAll {
-		return "", err
 	}
-	if found == "" {
-		return "", os.ErrNotExist
+	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
 	}
-	return found, nil
+	roots := []string{
+		filepath.Join(xdg, "claude", "projects"),
+		filepath.Join(home, ".claude", "projects"),
+	}
+	// Dedupe in case XDG_CONFIG_HOME points at $HOME/.config.
+	seen := make(map[string]struct{}, len(roots))
+	out := make([]string, 0, len(roots))
+	for _, r := range roots {
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 // ParseFile parses a Claude session file and emits entries via callback.

@@ -58,13 +58,14 @@ func migrateClaudeSession(sessionID, oldCwd, newCwd string) error {
 		return nil
 	}
 
-	home, err := homedir.Dir()
-	if err != nil {
-		return err
+	// Locate the source project dir across XDG/legacy roots; the destination
+	// goes into the same root so an XDG install stays XDG and a legacy install
+	// stays legacy.
+	oldProject := claudeProjectDirFor(oldCwd)
+	if oldProject == "" {
+		return fmt.Errorf("could not resolve claude projects root")
 	}
-
-	oldProject := filepath.Join(home, ".claude", "projects", escapeClaudeProjectDir(oldCwd))
-	newProject := filepath.Join(home, ".claude", "projects", escapeClaudeProjectDir(newCwd))
+	newProject := filepath.Join(filepath.Dir(oldProject), escapeClaudeProjectDir(newCwd))
 
 	srcJSONL := filepath.Join(oldProject, sessionID+".jsonl")
 	dstJSONL := filepath.Join(newProject, sessionID+".jsonl")
@@ -136,13 +137,13 @@ func duplicateClaudeSession(sessionID, oldCwd, newCwd string) (string, error) {
 	}
 	sameCwd := filepath.Clean(oldCwd) == filepath.Clean(newCwd)
 
-	home, err := homedir.Dir()
-	if err != nil {
-		return "", err
+	// Locate the source project dir across XDG/legacy roots; the duplicate
+	// lands in the same root so the install layout stays consistent.
+	oldProject := claudeProjectDirFor(oldCwd)
+	if oldProject == "" {
+		return "", fmt.Errorf("could not resolve claude projects root")
 	}
-
-	oldProject := filepath.Join(home, ".claude", "projects", escapeClaudeProjectDir(oldCwd))
-	newProject := filepath.Join(home, ".claude", "projects", escapeClaudeProjectDir(newCwd))
+	newProject := filepath.Join(filepath.Dir(oldProject), escapeClaudeProjectDir(newCwd))
 
 	srcJSONL := filepath.Join(oldProject, sessionID+".jsonl")
 	if _, err := os.Stat(srcJSONL); err != nil {
@@ -221,6 +222,60 @@ func escapeClaudeProjectDir(cwd string) string {
 		}
 	}
 	return b.String()
+}
+
+// claudeProjectRoots returns candidate "projects" roots Claude Code may use,
+// in preference order. Order matters for find: the first existing match wins.
+// For write, callers should target the same root as an existing source so a
+// migrated/duplicated session lands beside its sibling rather than splitting
+// the install across two roots.
+//
+//   - XDG: $XDG_CONFIG_HOME/claude/projects (defaults to ~/.config/claude/projects)
+//   - Legacy: ~/.claude/projects (the default-on-install today)
+//
+// Both are returned regardless of whether they exist; the caller stats them.
+func claudeProjectRoots() []string {
+	home, err := homedir.Dir()
+	if err != nil || home == "" {
+		return nil
+	}
+	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	roots := []string{
+		filepath.Join(xdg, "claude", "projects"),
+		filepath.Join(home, ".claude", "projects"),
+	}
+	// Dedupe in case XDG_CONFIG_HOME points at $HOME/.config (the default).
+	seen := make(map[string]struct{}, len(roots))
+	out := make([]string, 0, len(roots))
+	for _, r := range roots {
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	return out
+}
+
+// claudeProjectDirFor returns the full path to projects/<escaped-cwd> in the
+// first root that contains it. If no root contains it, returns the path under
+// the first (XDG) root — a fresh write lands there by default.
+func claudeProjectDirFor(cwd string) string {
+	escaped := escapeClaudeProjectDir(cwd)
+	roots := claudeProjectRoots()
+	for _, root := range roots {
+		candidate := filepath.Join(root, escaped)
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			return candidate
+		}
+	}
+	if len(roots) > 0 {
+		return filepath.Join(roots[0], escaped)
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------
