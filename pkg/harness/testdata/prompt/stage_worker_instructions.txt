@@ -4,6 +4,13 @@ Title: Stage worker instructions
 Branch: prompt/stage-worker
 Directory: .subtask/tasks/prompt--stage-worker
 
+## Workspace
+Your working directory is `/tmp/ws`. This IS your copy of the project — a git worktree of `main` on branch `prompt/stage-worker`.
+
+- Use paths relative to cwd, or absolute paths under cwd.
+- Never use absolute paths to other clones of this project (e.g. `/Users/.../Code/<projectname>`). Edits outside your worktree will not appear on your task branch and will not merge.
+- If unsure, run `pwd` and `git rev-parse --show-toplevel` — both should match cwd.
+
 ## Description
 Implement then review.
 

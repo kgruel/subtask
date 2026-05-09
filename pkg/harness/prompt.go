@@ -82,6 +82,35 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		sb.WriteString("\n")
 	}
 
+	// Workspace orientation: name the worktree explicitly and forbid editing
+	// outside it. Without this the LLM may infer (from a workspace path that
+	// contains "subtask") that cwd is orchestration infrastructure and the
+	// "real" project lives at a sibling absolute path — leading to edits
+	// outside the worktree that won't appear on the task branch and won't
+	// merge. Skipped when workspace is empty (e.g. tests building prompts in
+	// isolation).
+	if workspace != "" {
+		sb.WriteString("\n## Workspace\n")
+		fmt.Fprintf(&sb, "Your working directory is `%s`. This IS your copy of the project — a git worktree of `%s` on branch `%s`.\n", workspace, t.BaseBranch, t.Name)
+		sb.WriteString("\n")
+		sb.WriteString("- Use paths relative to cwd, or absolute paths under cwd.\n")
+		sb.WriteString("- Never use absolute paths to other clones of this project (e.g. `/Users/.../Code/<projectname>`). Edits outside your worktree will not appear on your task branch and will not merge.\n")
+		sb.WriteString("- If unsure, run `pwd` and `git rev-parse --show-toplevel` — both should match cwd.\n")
+	}
+
+	// Project-wide worker brief, if .subtask/WORKER.md exists. This is project
+	// context every worker should carry — regen recipes, commit conventions,
+	// "architecture tests are load-bearing" — distinct from CLAUDE.md (which
+	// targets the lead) and from TASK.md (per-task).
+	if data, err := os.ReadFile(filepath.Join(task.ProjectDirAbs(), "WORKER.md")); err == nil {
+		body := strings.TrimSpace(string(data))
+		if body != "" {
+			sb.WriteString("\n## Project\n")
+			sb.WriteString(body)
+			sb.WriteString("\n")
+		}
+	}
+
 	// Description
 	if t.Description != "" {
 		sb.WriteString("\n## Description\n")
@@ -102,10 +131,23 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		if activeStage == "" {
 			activeStage = wf.FirstStage()
 		}
-		if s := wf.GetStage(activeStage); s != nil && s.WorkerInstructions != "" {
-			fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStage)
-			sb.WriteString(strings.TrimSpace(s.WorkerInstructions))
-			sb.WriteString("\n")
+		if s := wf.GetStage(activeStage); s != nil {
+			wi := strings.TrimSpace(s.WorkerInstructions)
+			wc := strings.TrimSpace(s.WorkerContext)
+			if wi != "" || wc != "" {
+				fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStage)
+				if wi != "" {
+					sb.WriteString(wi)
+					sb.WriteString("\n")
+				}
+				if wc != "" {
+					if wi != "" {
+						sb.WriteString("\n")
+					}
+					sb.WriteString(wc)
+					sb.WriteString("\n")
+				}
+			}
 		}
 	}
 
