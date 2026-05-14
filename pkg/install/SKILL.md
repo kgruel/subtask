@@ -91,27 +91,6 @@ Resolution order: explicit flag → `--preset` overlay → task snapshot (when `
 
 **Snapshot semantics:** When you `draft` a task, the resolved adapter, model, and reasoning are written into TASK.md ("snapshot"). Editing `.subtask/config.json` later does **not** update existing tasks. To run an existing task with a different preset without editing TASK.md: pass `--preset <name>` to `send`, `review`, or `ask --follow-up <task>`. To swap the preset automatically on a stage transition, bind `preset:` in the workflow YAML.
 
-## Review
-
-AI code review without creating a task. Four modes (mutually exclusive):
-
-```bash
-subtask review --task fix/bug                    # Review a task's changes against its base branch
-subtask review --base main                       # Review current branch against main (PR-style)
-subtask review --uncommitted                     # Review staged + unstaged + untracked changes
-subtask review --commit abc123                   # Review a specific commit
-```
-
-Add `--plan` to `--task` to review PLAN.md against the task spec (TASK.md description) instead of the diff. Useful before approving a plan-stage handoff in `they-plan`/`you-plan` workflows — catches drift between what the spec asked for and what the plan proposes.
-
-```bash
-subtask review --task fix/bug --plan             # Review the plan against the spec
-```
-
-Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
-
-`review` accepts `--adapter`/`--model`/`--reasoning`/`--preset` overrides (ephemeral, do not persist). When `--task` is used, the task's stored adapter is the default; pass `--preset` to override it for this review only.
-
 ## Flow
 
 ```bash
@@ -124,21 +103,31 @@ EOF
 # 2. Start the worker (blocks until worker replies; run in background)
 subtask send fix/bug "Go ahead."
 
-# 3. When notified, read the reply and review
+# 3. When notified, read the reply and advance to review
 subtask reply fix/bug
 subtask stage fix/bug review
-# Review with `subtask diff --stat fix/bug`, or read the files at `cd $(subtask workspace fix/bug)`.
+subtask diff --stat fix/bug
 
-# 4. Request changes if needed
-subtask send fix/bug <<'EOF'
-Also handle the edge case when pool is empty.
-EOF
+# 4. Run a cross-adapter AI review pass
+subtask review --task fix/bug --preset <reviewer-preset> "..."
+# (list reviewer options with `subtask presets`; pick a preset whose adapter
+# differs from the worker's for blind-spot coverage)
 
-# 5. When ready, merge or close
+# 5. Address findings if any; re-run review after substantive fixes
+subtask send fix/bug "Please also handle the edge case when pool is empty."
+subtask review --task fix/bug --preset <reviewer-preset>
+
+# 6. When ready, merge or close
 subtask stage fix/bug ready
 subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
+
+### Why the review pass, and when not to
+
+**Cross-adapter review pass** (what step 4 does): a different adapter/model stack reads the diff one-shot, independent of the worker's session. Different adapter → different priors → catches the worker's blind spots. Pick a reviewer that is **cheaper / lighter** than the implementer — it reads the diff, it doesn't generate it. Re-run after substantive fix cycles; the first review only covered the first implementation.
+
+**Same-adapter swap mid-task** (advanced, project-template territory): some workflows bind a stronger preset to the review stage so the worker continues the same conversation under a heavier model (e.g., sonnet → opus). This is configured at the workflow-template level via stage `preset:` bindings; the lead doesn't invoke it directly. Don't conflate the two — cross-adapter means an independent perspective via `subtask review`; same-adapter swap means heavier reasoning continuing the same conversation.
 
 **Running `subtask send`:**
 
@@ -147,6 +136,28 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 **When notified that send completed, read the reply with `subtask reply <task>`.** This prints the worker's reply from durable history — it works regardless of how the bash output was captured. Exit code 0 alone does not mean "kicked off" — it means the worker has already replied. Don't confuse the two.
 
 Don't pipe `subtask send` through `tail`, `head`, or other filters; you'll truncate the reply marker. If you want quieter output, use `subtask send -q`. Either way, `subtask reply <task>` is the canonical way to retrieve the reply.
+
+## Review
+
+AI code review. The `--task` form is part of the canonical Flow above; the others are for ad-hoc reviews of branches, uncommitted changes, or specific commits.
+
+```bash
+subtask review --task fix/bug --preset <reviewer>  # Cross-adapter review pass (canonical; use `subtask presets` to list options)
+subtask review --task fix/bug                      # Same-adapter review (uses task's stored adapter)
+subtask review --base main                         # Review current branch against main (PR-style)
+subtask review --uncommitted                       # Review staged + unstaged + untracked changes
+subtask review --commit abc123                     # Review a specific commit
+```
+
+Add `--plan` to `--task` to review PLAN.md against the task spec (TASK.md description) instead of the diff. Useful before approving a plan-stage handoff in `they-plan`/`you-plan` workflows — catches drift between what the spec asked for and what the plan proposes.
+
+```bash
+subtask review --task fix/bug --plan             # Review the plan against the spec
+```
+
+Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
+
+`review` accepts `--adapter`/`--model`/`--reasoning`/`--preset` overrides (ephemeral, do not persist). When `--task` is used, the task's stored adapter is the default; pass `--preset` to override it for this review only.
 
 ## Merging
 
