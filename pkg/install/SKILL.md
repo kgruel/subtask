@@ -19,6 +19,23 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 2. **Own the complexity** — stay on top of all tasks. Surface progress and blockers. Don't make the user chase status.
 3. **Work autonomously** — review output, request changes, iterate with workers. Only involve the user for decisions they need to make.
 4. **Ask before merging** — get user sign-off before merging. Don't merge without user approval.
+5. **Pace parallelism to your bandwidth** — worker time runs in parallel; your review is serial. If you have N tasks already awaiting your review, drafting an (N+1)th costs more than it gains. A practical rule: at most 2–3 tasks in flight, and architect-typed tasks (long-running, low-touch) count less than mechanical ones.
+
+## Narration discipline
+
+The user can read your tool calls; they can't read every worker reply, every stage transition, every commit landing. Adapt your output to what actually warrants their attention.
+
+**Surface to the user:**
+- Decisions only they can make (merge/close, design tradeoffs, scope changes)
+- Errors that need their judgment to resolve
+- Batch milestones (all tasks reviewed; queue empty; merged set ready)
+
+**Stay silent on:**
+- Stage transitions, commit confirmations, snapshot regenerations, "your branch is uncommitted" round-trips
+- Worker progress between dispatch and reply
+- Routine review findings you can address yourself
+
+When in doubt: would the user redirect this back to you? If yes, handle it silently.
 
 ## Commands
 

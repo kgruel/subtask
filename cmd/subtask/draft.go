@@ -204,6 +204,16 @@ func (c *DraftCmd) Run() error {
 	fmt.Println("  Files here are shared with worker (PLAN.md, notes, etc.)")
 	fmt.Println()
 
+	// Soft parallelism caution: lead review is serial, worker time is parallel.
+	// If the lead already has multiple unread worker replies, queueing more
+	// drafts costs more than it gains. Visibility, not enforcement.
+	if pending := unreadTaskNames(c.Task); len(pending) >= 2 {
+		fmt.Fprintf(os.Stderr, "Note: %d task(s) already awaiting your review (%s).\n",
+			len(pending), strings.Join(pending, ", "))
+		fmt.Fprintln(os.Stderr, "Parallel workers ≤ your review bandwidth — consider reviewing before queueing more.")
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Show lead instructions from workflow
 	if wf.Instructions.Lead != "" {
 		printSection("Workflow: " + wf.Name)
@@ -229,6 +239,34 @@ func (c *DraftCmd) Run() error {
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)
 
 	return nil
+}
+
+// unreadTaskNames returns names of open tasks whose most recent worker reply
+// has not been read by the lead, excluding `exclude` (the task just drafted).
+// Errors are swallowed — this is advisory only, never blocks draft.
+//
+// Iterates index-open tasks (same view `subtask list` uses) rather than disk
+// folders, so closed/merged or otherwise cleaned-up tasks don't surface as
+// phantom unread entries.
+func unreadTaskNames(exclude string) []string {
+	names, err := openTaskNames()
+	if err != nil {
+		return nil
+	}
+	var pending []string
+	for _, name := range names {
+		if name == exclude {
+			continue
+		}
+		unread, err := taskHasUnreadReply(name)
+		if err != nil {
+			continue
+		}
+		if unread {
+			pending = append(pending, name)
+		}
+	}
+	return pending
 }
 
 // readStdinForDraft reads from stdin if data is piped/heredoc.
