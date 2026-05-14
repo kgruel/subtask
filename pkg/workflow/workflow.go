@@ -24,11 +24,31 @@ type Stage struct {
 	// WorkerInstructions is appended to the worker prompt by harness.BuildPrompt
 	// when the task is in this stage. Use it when the worker's role changes per
 	// stage (e.g. a review stage where the worker must not modify files).
+	// Also triggers `subtask stage` auto-dispatch — presence indicates the
+	// stage has an active task for the worker to start on transition.
 	WorkerInstructions string `yaml:"worker_instructions,omitempty"`
+	// WorkerContext is also appended to the worker prompt for this stage, but
+	// unlike WorkerInstructions it does NOT trigger auto-dispatch on `subtask
+	// stage`. Use it for passive reminders that should ride along with the
+	// lead's prompt (e.g. "Commit your work when done") without changing the
+	// stage's dispatch shape.
+	WorkerContext string `yaml:"worker_context,omitempty"`
 	// Preset names a config preset to swap to when the task enters this stage.
 	// Resolved against cfg.Presets at draft and on `subtask stage` transitions.
 	// Empty means "stay on the last-used harness."
 	Preset string `yaml:"preset,omitempty"`
+	// Notify controls whether worker replies in this stage surface via
+	// `subtask unread` (and the Stop hook nudge that depends on it). Pointer
+	// because the unset case must default to "notify on"; only an explicit
+	// `notify: false` marks the stage as plumbing. Use it on transitions like
+	// "commit your work" that don't need lead attention.
+	Notify *bool `yaml:"notify,omitempty"`
+}
+
+// IsSilent returns true when the stage explicitly opted out of notification.
+// Default (nil pointer) is "notify on" — silence requires explicit consent.
+func (s *Stage) IsSilent() bool {
+	return s != nil && s.Notify != nil && !*s.Notify
 }
 
 // Instructions contains guidance for lead and worker.
