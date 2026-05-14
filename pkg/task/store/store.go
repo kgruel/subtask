@@ -14,7 +14,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/index"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -306,8 +305,6 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		if r, err := routine.LoadByName(routineName); err == nil {
 			view.Routine = r
 		}
-	} else if wf, err := workflow.LoadFromTask(name); err == nil {
-		view.Workflow = wf
 	}
 
 	// Task folder files.

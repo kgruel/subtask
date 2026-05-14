@@ -45,7 +45,7 @@ When in doubt: would the user redirect this back to you? If yes, handle it silen
 | `subtask draft <task> --base-branch <branch> --title "..." <<'EOF'` | Create a task |
 | `subtask send <task> <prompt>` | Prompt worker on task (blocks until reply) |
 | `subtask reply <task>` | Print the most recent worker reply |
-| `subtask stage <task> <stage>` | Advance workflow stage |
+| `subtask stage <task> <step>` | Advance routine step |
 | `subtask list` | View all tasks |
 | `subtask show <task>` | View task details |
 | `subtask diff [--stat] <task>` | Show changes (from merge base) |
@@ -88,13 +88,13 @@ subtask ask --model claude-sonnet-4-20250514 "Explain the pool logic"
 
 Resolution order: explicit flag → `--preset` overlay → task snapshot (when `--task`/`--follow-up` resolves to a task) → project config → global config.
 
-**Snapshot semantics:** When you `draft` a task, the resolved adapter, model, and reasoning are written into TASK.md ("snapshot"). Editing `.subtask/config.json` later does **not** update existing tasks. To run an existing task with a different preset without editing TASK.md: pass `--preset <name>` to `send`, `review`, or `ask --follow-up <task>`. To swap the preset automatically on a stage transition, bind `preset:` in the workflow YAML.
+**Snapshot semantics:** When you `draft` a task, the resolved adapter, model, and reasoning are written into TASK.md ("snapshot"). Editing `.subtask/config.json` later does **not** update existing tasks. To run an existing task with a different preset without editing TASK.md: pass `--preset <name>` to `send`, `review`, or `ask --follow-up <task>`. To swap the preset automatically on a step transition, bind `preset:` in the routine YAML.
 
 ## Flow
 
 ```bash
 # 1. Draft (task name is branch name, task description is shared with worker)
-subtask draft fix/bug --base-branch main --title "Fix worker pool panic" <<'EOF'
+subtask draft fix/bug --routine default --base-branch main --title "Fix worker pool panic" <<'EOF'
 There's an intermittent panic in the worker pool under high concurrency—likely a race condition in pool.go.
 Reproduce, find root cause, fix, and add tests.
 EOF
@@ -126,7 +126,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 
 **Cross-adapter review pass** (what step 4 does): a different adapter/model stack reads the diff one-shot, independent of the worker's session. Different adapter → different priors → catches the worker's blind spots. Pick a reviewer that is **cheaper / lighter** than the implementer — it reads the diff, it doesn't generate it. Re-run after substantive fix cycles; the first review only covered the first implementation.
 
-**Same-adapter swap mid-task** (advanced, project-template territory): some workflows bind a stronger preset to the review stage so the worker continues the same conversation under a heavier model (e.g., sonnet → opus). This is configured at the workflow-template level via stage `preset:` bindings; the lead doesn't invoke it directly. Don't conflate the two — cross-adapter means an independent perspective via `subtask review`; same-adapter swap means heavier reasoning continuing the same conversation.
+**Same-adapter swap mid-task** (advanced, project-template territory): some routines bind a stronger preset to the review step so the worker continues the same conversation under a heavier model (e.g., sonnet → opus). This is configured at the routine level via step `preset:` bindings; the lead doesn't invoke it directly. Don't conflate the two — cross-adapter means an independent perspective via `subtask review`; same-adapter swap means heavier reasoning continuing the same conversation.
 
 **Running `subtask send`:**
 
@@ -168,21 +168,21 @@ subtask merge fix/bug -m "Fix race condition"
 
 **If conflicts occur**, merge will fail with instructions. Follow them.
 
-## Stages
+## Stages and Routines
 
-All tasks have stages: `doing → review → ready`
+Routine-based tasks have named steps that structure the work. The canonical `default` routine uses: `doing → review → ready`
 
-| Stage | When to advance |
-|-------|-----------------|
-| `doing` | Worker is working (default) |
+| Step | When to advance |
+|------|-----------------|
+| `doing` | Worker is working (default entry step) |
 | `review` | Worker done, you're reviewing code |
 | `ready` | Ready for human to decide (human review, merge, more work, etc.) |
 
-`subtask stage <task> <stage>` advances the stage. It always:
-- Writes the new stage to history
-- Applies any preset bound to the new stage in the workflow YAML (and clears the session if the adapter changes — cross-stage context comes from the workspace, PLAN.md, and PROGRESS.json)
+`subtask stage <task> <step>` advances to the named step. It always:
+- Writes the new step to history
+- Applies any preset bound to the step in the routine YAML (and clears the session if the adapter changes — cross-step context comes from the workspace, PLAN.md, and PROGRESS.json)
 
-**Auto-dispatch:** If the new stage has `worker_instructions:` defined in the workflow YAML, `stage` automatically dispatches the worker with those instructions and blocks until it replies — same as `subtask send`. An optional positional argument is appended to the instructions (or used alone if `worker_instructions:` is absent):
+**Auto-dispatch:** If the target step has `worker_instructions:` defined in the routine YAML, `stage` automatically dispatches the worker with those instructions and blocks until it replies — same as `subtask send`. An optional positional argument is appended to the instructions (or used alone if `worker_instructions:` is absent):
 
 ```bash
 subtask stage fix/bug review                        # passive — no worker_instructions, returns immediately
@@ -194,30 +194,37 @@ When `stage` auto-dispatches, it blocks like `subtask send`. Run it with `run_in
 
 Pass `--no-send` to stay passive even when `worker_instructions:` is defined.
 
-## Planning Workflows
+## Planning Routines
 
-For complex tasks, add a plan stage: `plan → implement → review → ready`
+For complex tasks, add a plan step: `plan → implement → review → ready`
 
-**You plan (`--workflow you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
-**They plan (`--workflow they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
+**You plan (`--routine you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
+**They plan (`--routine they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
+
+```bash
+subtask draft fix/bug --routine they-plan --title "..." <<'EOF'
+Task description here.
+EOF
+```
 
 ## Project-wide worker brief
 
-If `.subtask/WORKER.md` exists, its contents are auto-prepended to every worker prompt as a `## Project` section. This is the place for project-wide expectations every worker should carry — regen recipes, commit conventions, "the architecture tests are load-bearing, fix the cause not the test." Distinct from `CLAUDE.md` (which targets you, the lead) and `TASK.md` (per-task).
+Routines carry a `default_prompt:` field in their YAML — the text that becomes the `## Project` section in every worker prompt for that routine. The canonical routines ship with a PROGRESS.json brief; you can override by putting your own routine YAML at `.subtask/routines/<name>.yaml`.
 
-When you notice the same instruction landing in multiple task briefs, lift it into `WORKER.md`.
+This is the place for project-wide expectations every worker should carry — regen recipes, commit conventions, "the architecture tests are load-bearing, fix the cause not the test."
 
-## Silent stages
+## Silent steps
 
-A workflow stage can opt out of the unread-reply nudge by setting `notify: false` in its YAML:
+A routine step can opt out of the unread-reply nudge by setting `notify: false` in the routine YAML:
 
 ```yaml
-- name: commit
-  notify: false
-  worker_instructions: Commit your work.
+steps:
+  - id: commit
+    notify: false
+    worker_instructions: Commit your work.
 ```
 
-While a task sits in a stage marked `notify: false`, worker replies in that stage are treated as plumbing — they don't surface via `subtask unread` and don't trigger the Stop-hook reminder. Use it for transitions where the worker is doing mechanical bookkeeping (committing, regenerating snapshots) that doesn't need your eyes. The silence applies to *any* reply while the task is in that stage, not just auto-dispatched ones.
+While a task sits in a step marked `notify: false`, worker replies in that step are treated as plumbing — they don't surface via `subtask unread` and don't trigger the Stop-hook reminder. Use it for transitions where the worker is doing mechanical bookkeeping (committing, regenerating snapshots) that doesn't need your eyes. The silence applies to *any* reply while the task is in that step, not just auto-dispatched ones.
 
 ## Notes
 

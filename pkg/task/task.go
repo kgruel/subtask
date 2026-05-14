@@ -21,7 +21,7 @@ type Task struct {
 	Model       string // Optional: override model for this task
 	Reasoning   string // Optional: override reasoning (adapter-dependent) for this task
 	Agent       string // Optional: agent name; resolved against .subtask/agents/<name>.yaml at send/stage time
-	Routine     string // Optional: routine name; resolved against .subtask/routines/<name>.yaml. Mutually exclusive with a workflow (no <task>/WORKFLOW.yaml).
+	Routine     string // Optional: routine name; resolved against .subtask/routines/<name>.yaml (or embedded canonical).
 	Schema      int    // Task schema version (0 if missing)
 	Description string // Optional task description/context (not the prompt)
 }

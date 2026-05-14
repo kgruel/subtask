@@ -70,8 +70,7 @@ type TaskCard struct {
 	Workspace     string
 	Progress      string // "3/5" or empty
 	ProgressSteps []ProgressStep
-	Workflow      string
-	Routine       string // Routine name (mutex with Workflow at the source — never both set)
+	Routine       string
 	Stage         string // Formatted progression string
 	TaskDir       string // Task directory path (e.g., .subtask/tasks/fix--foo)
 	Files         []string
@@ -155,9 +154,6 @@ func (c *TaskCard) RenderPlain() string {
 
 	if c.Progress != "" {
 		fmt.Fprintf(&buf, "Progress: %s\n", c.Progress)
-	}
-	if c.Workflow != "" {
-		fmt.Fprintf(&buf, "Workflow: %s\n", c.Workflow)
 	}
 	if c.Routine != "" {
 		fmt.Fprintf(&buf, "Routine: %s\n", c.Routine)

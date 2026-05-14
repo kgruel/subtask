@@ -16,7 +16,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -30,11 +29,10 @@ type DraftCmd struct {
 	Provider    string `help:"Provider for this task (adapter-dependent; overrides project config)"`
 	Model       string `help:"Default model for this task (overrides project config)"`
 	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
-	Workflow    string `help:"Workflow template to use (e.g., they-plan)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
 	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
 	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles preset + role prompt. Mutually exclusive with --preset"`
-	Routine     string `help:"Routine file from .subtask/routines/<name>.yaml; runs a multi-step recipe. Mutually exclusive with --workflow"`
+	Routine     string `help:"Routine file from .subtask/routines/<name>.yaml; runs a multi-step recipe"`
 }
 
 // Run executes the draft command.
@@ -75,43 +73,29 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("--agent and --preset are mutually exclusive: an agent already bundles a preset.\n\nDrop one, or use explicit --adapter/--model flags to override an agent's preset")
 	}
 
-	// --routine and --workflow are mutually exclusive. A routine drives
-	// its own sequence of steps and replaces the workflow stage machinery
-	// (no WORKFLOW.yaml is copied for routine tasks). Pairing them would
-	// produce ambiguous detection in send.go's auto-advance hook.
-	if c.Routine != "" && c.Workflow != "" {
-		return fmt.Errorf("--routine and --workflow are mutually exclusive\n\nA routine carries its own step sequence; --workflow is the legacy path")
-	}
-
 	// --routine and --agent are mutually exclusive. Routine steps define
 	// their own per-step agents; harness.BuildPrompt sources the ## Agent
 	// block from the current routine step (not t.Agent) for routine
 	// tasks. Persisting t.Agent alongside t.Routine would create mixed
 	// state: the worker would run with the agent's preset (adapter/model)
 	// while reading the routine step's role prompt — silently
-	// inconsistent. Reject before any resolution so the user sees the
-	// intent conflict, not a subtle behavioural diff. (--agent + --workflow
-	// is intentionally allowed; that's step 3's ad-hoc agent dispatch.)
+	// inconsistent.
 	if c.Routine != "" && c.Agent != "" {
-		return fmt.Errorf("--agent and --routine are mutually exclusive: routine steps define their own agents.\n\nUse the routine's step config to set per-step agents, or use --workflow/--agent for ad-hoc agent dispatch outside a routine")
+		return fmt.Errorf("--agent and --routine are mutually exclusive: routine steps define their own agents.\n\nUse the routine's step config to set per-step agents")
 	}
 
 	if c.Routine != "" {
 		return c.runRoutineDraft(description, cfg)
 	}
 
-	// Resolve adapter/model/reasoning/workflow with this precedence (each layer
-	// only fills fields not already set by an earlier layer):
-	//   1. Explicit flags (--adapter/--model/--reasoning/--workflow) win.
-	//   2. --agent's preset (overlay via existing ApplyPreset).
-	//   3. --preset resolves the named preset.
-	//   4. The workflow's first stage preset fills remaining fields.
-	//   5. Anything still unset falls through to project then user config defaults.
+	// Resolve adapter/model/reasoning with this precedence:
+	//   1. --agent's preset (overlay via existing ApplyPreset).
+	//   2. --preset resolves the named preset.
+	//   3. Anything still unset falls through to project then user config defaults.
 	resolvedAdapter := c.Adapter
 	resolvedProvider := c.Provider
 	resolvedModel := c.Model
 	resolvedReasoning := c.Reasoning
-	resolvedWorkflow := c.Workflow
 
 	if c.Agent != "" {
 		ag, err := agent.LoadByName(c.Agent)
@@ -131,31 +115,6 @@ func (c *DraftCmd) Run() error {
 			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, workspace.PresetNames(cfg))
 		}
 		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-	}
-
-	// Load workflow (default if not specified)
-	if resolvedWorkflow == "" {
-		resolvedWorkflow = "default"
-	}
-	wf, err := workflow.Load(workflow.TemplateDir(resolvedWorkflow))
-	if err != nil {
-		return fmt.Errorf("workflow %q: %w", resolvedWorkflow, err)
-	}
-
-	// Validate any preset references in the workflow (workflow.Load doesn't
-	// have access to cfg). If the first stage has a preset binding, use it as
-	// the starting harness when not already set by an explicit flag/preset.
-	for _, st := range wf.Stages {
-		if st.Preset == "" {
-			continue
-		}
-		if _, ok := cfg.Presets[st.Preset]; !ok {
-			return fmt.Errorf("workflow %q stage %q references unknown preset %q\n\nAvailable: %s",
-				resolvedWorkflow, st.Name, st.Preset, workspace.PresetNames(cfg))
-		}
-	}
-	if first := wf.GetStage(wf.FirstStage()); first != nil && first.Preset != "" {
-		workspace.ApplyPreset(cfg.Presets[first.Preset], &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 	}
 
 	// Create task
@@ -180,11 +139,6 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("failed to save task: %w", err)
 	}
 
-	// Copy workflow files to task folder
-	if err := workflow.CopyToTask(resolvedWorkflow, c.Task); err != nil {
-		return fmt.Errorf("failed to copy workflow: %w", err)
-	}
-
 	// Capture base branch commit for staleness/conflict heuristics.
 	repoRoot := task.ProjectRoot()
 
@@ -201,7 +155,6 @@ func (c *DraftCmd) Run() error {
 		"reason":      "draft",
 		"branch":      c.Task,
 		"base_branch": c.Base,
-		"workflow":    wf.Name,
 		"title":       c.Title,
 		"follow_up":   c.FollowUp,
 		"adapter":     resolvedAdapter,
@@ -210,13 +163,8 @@ func (c *DraftCmd) Run() error {
 		"base_ref":    baseRef,
 		"base_commit": baseCommit,
 	})
-	stageData, _ := json.Marshal(map[string]any{
-		"from": "",
-		"to":   wf.FirstStage(),
-	})
 	if err := history.WriteAll(c.Task, []history.Event{
 		{TS: time.Now().UTC(), Type: "task.opened", Data: openedData},
-		{TS: time.Now().UTC(), Type: "stage.changed", Data: stageData},
 	}); err != nil {
 		return fmt.Errorf("failed to write history: %w", err)
 	}
@@ -251,27 +199,6 @@ func (c *DraftCmd) Run() error {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// Show lead instructions from workflow
-	if wf.Instructions.Lead != "" {
-		printSection("Workflow: " + wf.Name)
-		printSectionContent(wf.Instructions.Lead)
-	}
-
-	// Show current stage
-	printSection("Stage: " + wf.FirstStage())
-	fmt.Println(render.FormatStageProgression(wf.StageNames(), wf.FirstStage()))
-	fmt.Println()
-
-	stage := wf.GetStage(wf.FirstStage())
-	if stage != nil && stage.Instructions != "" {
-		lines := strings.Split(strings.TrimSpace(stage.Instructions), "\n")
-		for _, line := range lines {
-			line = strings.ReplaceAll(line, "<task>", c.Task)
-			fmt.Println(line)
-		}
-	}
-
-	// Show how to run
 	printSection("Usage")
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)
 
@@ -433,6 +360,15 @@ func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) er
 	printSection("Routine: " + r.Name)
 	fmt.Println(render.FormatStageProgression(r.StepIDs(), entry.ID))
 	fmt.Println()
+
+	if entry.Instructions != "" {
+		lines := strings.Split(strings.TrimSpace(entry.Instructions), "\n")
+		for _, line := range lines {
+			line = strings.ReplaceAll(line, "<task>", c.Task)
+			fmt.Println(line)
+		}
+		fmt.Println()
+	}
 
 	printSection("Usage")
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)

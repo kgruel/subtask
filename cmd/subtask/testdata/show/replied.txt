@@ -7,12 +7,10 @@ Workspace: ws1
 Status: replied
 Changes: +4 -0
 Commits: 1
-Workflow: default
-Stage: doing → (review) → ready
 
 Steps:
   [x] First step
   [ ] Second step
   [ ] Third step
 
-Directory: .subtask/tasks/show--replied (contains PLAN.md, PROGRESS.json, TASK.md, WORKFLOW.yaml, history.jsonl)
+Directory: .subtask/tasks/show--replied (contains PLAN.md, PROGRESS.json, TASK.md, history.jsonl)

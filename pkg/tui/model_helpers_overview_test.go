@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
-	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 func TestWrapWithIndent_IndentsContinuationLines(t *testing.T) {
@@ -24,7 +24,7 @@ func TestWrapWithIndent_IndentsContinuationLines(t *testing.T) {
 	}
 }
 
-func TestUpdateOverviewContent_RendersProgressAndWorkflow(t *testing.T) {
+func TestUpdateOverviewContent_RendersProgressAndRoutine(t *testing.T) {
 	m := newModel()
 	m.vpOverview = viewport.New(80, 30)
 
@@ -42,11 +42,11 @@ func TestUpdateOverviewContent_RendersProgressAndWorkflow(t *testing.T) {
 			{Step: "first step", Done: true},
 			{Step: "second step", Done: false},
 		},
-		Workflow: &workflow.Workflow{
+		Routine: &routine.Routine{
 			Name: "test",
-			Stages: []workflow.Stage{
-				{Name: "plan"},
-				{Name: "review"},
+			Steps: []routine.Step{
+				{ID: "plan"},
+				{ID: "review"},
 			},
 		},
 	}
@@ -63,7 +63,7 @@ func TestUpdateOverviewContent_RendersProgressAndWorkflow(t *testing.T) {
 	if !strings.Contains(out, "□ second step") {
 		t.Fatalf("expected pending progress step in output; got:\n%s", out)
 	}
-	if !strings.Contains(out, "Workflow") || !strings.Contains(out, "plan") || !strings.Contains(out, "review") {
-		t.Fatalf("expected workflow section in output; got:\n%s", out)
+	if !strings.Contains(out, "Routine") || !strings.Contains(out, "plan") || !strings.Contains(out, "review") {
+		t.Fatalf("expected routine section in output; got:\n%s", out)
 	}
 }

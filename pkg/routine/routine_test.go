@@ -744,3 +744,72 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, "Be terse.", body)
 }
+
+// ---- embedded canonical routines -------------------------------------------
+
+func TestLoadByName_EmbeddedDefaultLoads(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("default")
+	require.NoError(t, err)
+	require.Equal(t, "default", r.Name)
+	require.NotEmpty(t, r.Steps, "default routine must have steps")
+	require.Equal(t, "doing", r.EntryStep())
+	require.NotNil(t, r.DefaultPrompt, "default routine must have a default_prompt")
+}
+
+func TestLoadByName_EmbeddedTheyPlanLoads(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("they-plan")
+	require.NoError(t, err)
+	require.Equal(t, "they-plan", r.Name)
+	require.Equal(t, "plan", r.EntryStep())
+	require.NotNil(t, r.DefaultPrompt)
+}
+
+func TestLoadByName_EmbeddedYouPlanLoads(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("you-plan")
+	require.NoError(t, err)
+	require.Equal(t, "you-plan", r.Name)
+	require.Equal(t, "plan", r.EntryStep())
+	require.NotNil(t, r.DefaultPrompt)
+}
+
+func TestLoadByName_EmbeddedDefaultHasReadyTerminal(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("default")
+	require.NoError(t, err)
+	ready := r.GetStep("ready")
+	require.NotNil(t, ready)
+	require.Equal(t, KindTerminal, ready.Kind)
+	require.NotEmpty(t, ready.Instructions, "ready step must have lead instructions")
+}
+
+func TestLoadByName_EmbeddedTheyPlanImplementHasWorkerContext(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("they-plan")
+	require.NoError(t, err)
+	impl := r.GetStep("implement")
+	require.NotNil(t, impl)
+	require.NotEmpty(t, impl.WorkerContext, "implement step must have worker_context")
+}
+
+func TestLoadByName_ProjectRoutineShadowsEmbedded(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "default.yaml"), []byte(`name: default
+steps:
+  - id: custom
+    instructions: Custom step.
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	r, err := LoadByName("default")
+	require.NoError(t, err)
+	require.Equal(t, "custom", r.EntryStep(), "project routine must shadow embedded")
+	custom := r.GetStep("custom")
+	require.NotNil(t, custom)
+	require.Equal(t, "Custom step.", custom.Instructions)
+}

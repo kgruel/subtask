@@ -18,7 +18,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
 	"github.com/kgruel/subtask/pkg/testutil"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -398,7 +397,6 @@ func TestGolden_Show_Draft(t *testing.T) {
 		Description: "Draft description",
 		Schema:      gitredesign.TaskSchemaVersion,
 	}).Save())
-	require.NoError(t, workflow.CopyToTask("default", taskName))
 	require.NoError(t, history.WriteAll(taskName, mustHistoryOpen(t, "main")))
 
 	for _, pretty := range []bool{false, true} {
@@ -426,7 +424,6 @@ func TestGolden_Show_RepliedWithProgressAndDiff(t *testing.T) {
 
 	taskName := "show/replied"
 	env.CreateTask(taskName, "Replied task", "main", "Replied description")
-	require.NoError(t, workflow.CopyToTask("default", taskName))
 	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(taskName), "PLAN.md"), []byte("# Plan\n"), 0o644))
 	writeProgressJSON(t, taskName, `
 [

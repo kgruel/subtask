@@ -21,7 +21,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -429,9 +428,8 @@ func (c *SendCmd) Run() error {
 	// swap, session clear) on top of the just-committed run's
 	// session/adapter — not the other way around.
 	//
-	// Routine and workflow detection are mutually exclusive: a task that
-	// sets `routine:` in frontmatter routes through pkg/routine; everything
-	// else stays on the workflow path (byte-identical behavior).
+	// Routine auto-advance: re-enter SendCmd when the step's advance policy
+	// triggers immediately after the worker finishes.
 	if t.Routine != "" {
 		r, rErr := routine.LoadByName(t.Routine)
 		if rErr != nil {
@@ -470,18 +468,6 @@ func (c *SendCmd) Run() error {
 			}
 			next.dispatchDepth = c.dispatchDepth + 1
 			return next.Run()
-		}
-	} else if wf, wfErr := workflow.LoadFromTask(c.Task); wfErr == nil && wf != nil {
-		currentStage := tail.Stage
-		if currentStage == "" {
-			currentStage = wf.FirstStage()
-		}
-		if st := wf.GetStage(currentStage); st != nil && st.Advance == "auto" {
-			if next := wf.NextStage(currentStage); next != "" {
-				if _, err := transitionStage(c.Task, next, cfg, wf, finished); err != nil {
-					return err
-				}
-			}
 		}
 	}
 

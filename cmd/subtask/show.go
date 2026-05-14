@@ -108,20 +108,10 @@ func (c *ShowCmd) render() (string, error) {
 		card.LastReviewer = rs.LastAdapter
 	}
 
-	// Workflow OR routine — never both. Render the same visual surface
-	// either way so the lead sees the recipe name + current node in the
-	// progression. Stage in the gather.Detail field carries the step id
-	// for routine tasks (polymorphic with workflow stage name).
-	switch {
-	case detail.Routine != nil:
+	if detail.Routine != nil {
 		card.Routine = detail.Routine.Name
 		if strings.TrimSpace(detail.Stage) != "" {
 			card.Stage = render.FormatStageProgression(detail.Routine.StepIDs(), detail.Stage)
-		}
-	case detail.Workflow != nil:
-		card.Workflow = detail.Workflow.Name
-		if strings.TrimSpace(detail.Stage) != "" {
-			card.Stage = render.FormatStageProgression(detail.Workflow.StageNames(), detail.Stage)
 		}
 	}
 
@@ -160,7 +150,6 @@ type showJSON struct {
 	WorkerStatus    string                 `json:"worker_status,omitempty"`
 	Error           string                 `json:"error,omitempty"`
 	Workspace       string                 `json:"workspace,omitempty"`
-	Workflow        string                 `json:"workflow,omitempty"`
 	Routine         string                 `json:"routine,omitempty"`
 	Stage           string                 `json:"stage,omitempty"`
 	TaskDir         string                 `json:"task_dir,omitempty"`
@@ -221,11 +210,8 @@ func (c *ShowCmd) renderJSON() (string, error) {
 		}
 	}
 
-	switch {
-	case detail.Routine != nil:
+	if detail.Routine != nil {
 		out.Routine = detail.Routine.Name
-	case detail.Workflow != nil:
-		out.Workflow = detail.Workflow.Name
 	}
 
 	if steps := detail.ProgressSteps; len(steps) > 0 {

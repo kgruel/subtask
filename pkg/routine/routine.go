@@ -1,16 +1,17 @@
-// Package routine loads Routine YAML files from .subtask/routines/<name>.yaml.
+// Package routine loads Routine YAML files from .subtask/routines/<name>.yaml,
+// with fallback to embedded canonical routines (default, they-plan, you-plan).
 //
 // A Routine composes a sequence of Steps with conditional loopback edges,
 // optional gate decisions, and explicit terminal markers. It is the second
 // half of the Routine + Agent layer described in
 // docs/dev/_audit-skill-workflow-primitives.md.
-//
-// Routines and Workflows coexist during the transition (step 4 of the
-// refactor); pkg/workflow.Stage stays untouched here. Step 5 deletes Stage.
 package routine
 
 import (
+	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,9 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
+
+//go:embed templates/*.yaml
+var embeddedTemplates embed.FS
 
 // Step kinds. Regular (default) steps may auto-dispatch and advance.
 // Gate and terminal steps never auto-dispatch.
@@ -43,8 +47,7 @@ type Routine struct {
 	Steps []Step
 }
 
-// Step is a single node in a routine. Distinct from pkg/workflow.Stage:
-// Stage is part of the legacy substrate and stays untouched until step 5.
+// Step is a single node in a routine.
 type Step struct {
 	// ID is unique within the routine.
 	ID string `yaml:"id"`
@@ -60,9 +63,8 @@ type Step struct {
 	// Preset names a cfg.Presets entry. Mutually exclusive with Agent.
 	Preset string `yaml:"preset,omitempty"`
 
-	// Consumes / Produces are inert metadata for downstream tooling
-	// (mirrors pkg/workflow.Stage). Produces is a single filename; a step
-	// can produce at most one artifact for v1.
+	// Consumes / Produces are inert metadata for downstream tooling.
+	// Produces is a single filename; a step can produce at most one artifact for v1.
 	Consumes []string `yaml:"consumes,omitempty"`
 	Produces string   `yaml:"produces,omitempty"`
 
@@ -70,15 +72,20 @@ type Step struct {
 	// recognized value; anything else is a no-op.
 	Advance string `yaml:"advance,omitempty"`
 
-	// Notify mirrors workflow.Stage.Notify — when explicitly false,
-	// worker replies during this step do not surface via subtask unread.
+	// Notify — when explicitly false, worker replies during this step
+	// do not surface via subtask unread.
 	Notify *bool `yaml:"notify,omitempty"`
 
-	// WorkerInstructions / WorkerContext mirror workflow.Stage semantics:
+	// WorkerInstructions / WorkerContext are worker-facing:
 	// instructions trigger auto-dispatch on entry; context rides along
 	// without triggering dispatch.
 	WorkerInstructions string `yaml:"worker_instructions,omitempty"`
 	WorkerContext      string `yaml:"worker_context,omitempty"`
+
+	// Instructions is rendered to the lead's terminal on `subtask stage`
+	// (passive path) and `subtask draft`. Lead-facing only; never reaches
+	// the worker prompt.
+	Instructions string `yaml:"instructions,omitempty"`
 
 	// Branches are loopback / forward edges evaluated in declaration
 	// order. Allowed only on regular steps that also set Produces.
@@ -198,6 +205,8 @@ func validateArtifactPath(p, field string) error {
 }
 
 // LoadByName reads, parses, and validates a routine.
+// First checks .subtask/routines/<name>.yaml; on not-found, falls back to
+// the embedded canonical routines (default, they-plan, you-plan).
 func LoadByName(name string) (*Routine, error) {
 	if err := validateRoutineName(name); err != nil {
 		return nil, err
@@ -206,7 +215,20 @@ func LoadByName(name string) (*Routine, error) {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf(".subtask/routines/%s.yaml not found", name)
+			// Fall back to embedded canonical routines.
+			embedded, embErr := embeddedTemplates.ReadFile("templates/" + name + ".yaml")
+			if embErr != nil {
+				if errors.Is(embErr, fs.ErrNotExist) {
+					return nil, fmt.Errorf(".subtask/routines/%s.yaml not found (no embedded canonical with that name)", name)
+				}
+				return nil, fmt.Errorf("read embedded routine %q: %w", name, embErr)
+			}
+			r, parseErr := parseRoutine(embedded)
+			if parseErr != nil {
+				return nil, fmt.Errorf("embedded routine %q: %w", name, parseErr)
+			}
+			r.Name = name
+			return r, nil
 		}
 		return nil, fmt.Errorf("read routine %q: %w", name, err)
 	}
@@ -472,10 +494,7 @@ func validateSteps(steps []Step) error {
 // the actual environment (filesystem agent YAMLs, cfg.Presets). Called
 // at draft time so a typo in a later step's reference fails fast at
 // the boundary instead of mid-routine after worker rounds.
-//
-// Matches the workflow draft behavior: workflow drafting validates all
-// stage presets up front. parseRoutine handles schema shape (no cfg
-// dependency); ValidateReferences handles environmental lookups.
+// parseRoutine handles schema shape; ValidateReferences handles lookups.
 func (r *Routine) ValidateReferences(cfg *workspace.Config) error {
 	for _, s := range r.Steps {
 		if s.Agent != "" {

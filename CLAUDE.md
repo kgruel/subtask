@@ -89,19 +89,27 @@ Isolated git worktree where tasks execute. Created on-demand from a configured p
 
 Worker backend that executes prompts. Built-in adapters: `codex`, `claude`, `opencode`, `gemini`, `pi`. Configured in `.subtask/config.json`. See [docs/adding-an-adapter.md](docs/adding-an-adapter.md) for adding a new one.
 
-### Workflow & Stages
+### Routines
 
-Default: `doing → review → ready`
+A **routine** is a named sequence of steps that structures how a task moves from start to finish. Routines replace the legacy workflow system.
 
-Planning workflows add a plan stage: `plan → implement → review → ready`
-- `--workflow you-plan`: Lead drafts PLAN.md, worker reviews
-- `--workflow they-plan`: Worker drafts PLAN.md, lead reviews
+**Canonical routines** (built-in, no config needed):
+- `default`: `doing → review → ready` — plain execution, lead reviews diff
+- `they-plan`: `plan → implement → review → ready` — worker drafts PLAN.md, lead approves
+- `you-plan`: `plan → implement → review → ready` — lead drafts PLAN.md, worker reviews
 
-Workflows are project-extensible. Drop a YAML at `.subtask/workflows/<name>/WORKFLOW.yaml` to override an embedded one or add a new workflow. Stages can optionally bind a preset (see below) to swap the harness on stage transitions, and optionally set `worker_instructions` to inject a per-stage brief into the worker prompt (in contrast to `instructions`, which is rendered to the lead's terminal only). For passive reminders that should ride along with whatever the lead sends — without changing the stage's dispatch shape — use `worker_context:` instead; it injects into the same `## Stage:` block but does not trigger `subtask stage` auto-dispatch. A stage may also set `notify: false` to mark itself as plumbing — while a task sits in such a stage, worker replies are suppressed from `subtask unread` (and the Stop-hook nudge that depends on it). The silence applies to any reply during the stage, not just auto-dispatched ones.
+Use `--routine <name>` on `subtask draft` to select one:
+```
+subtask draft fix/bug --routine they-plan --title "..."
+```
 
-### Project-wide worker brief
+Routines are project-extensible. Drop a YAML at `.subtask/routines/<name>.yaml` to override a built-in or add a custom one. Each step can optionally:
+- Bind a `preset:` to swap the harness on transition
+- Set `worker_instructions:` to inject a brief into the worker prompt (triggers auto-dispatch on `subtask stage`)
+- Set `worker_context:` for passive per-step context that rides along without triggering dispatch
+- Set `notify: false` to suppress unread-reply nudges while the task is in that step
 
-Optional file at `.subtask/WORKER.md`. When present, its contents are auto-prepended to every worker prompt as a `## Project` section by `harness.BuildPrompt`. Audience is workers (the slice-doing role), distinct from `CLAUDE.md` (the lead-collaborating role) and from per-task `TASK.md`. Use it to lift recurring brief content — regen recipes, project commit conventions, "architecture tests are load-bearing" — out of repeat copy-paste.
+**`subtask stage` auto-dispatches when the target step has `worker_instructions:`** — it writes the new step, applies any preset (clearing the session on cross-adapter swaps), appends a history event, and then sends those instructions to the worker and blocks until reply. When `worker_instructions:` is absent or empty, `stage` is passive and the lead must `subtask send` next. Pass `--no-send` to stay passive even when `worker_instructions:` is defined. An optional positional prompt extends the worker_instructions (or dispatches on its own if no `worker_instructions:` is set).
 
 ### Presets (optional)
 
@@ -109,9 +117,9 @@ Optional concept in `.subtask/config.json` for projects that want per-project di
 
 - **Preset** — named `adapter+model+reasoning` bundle. `subtask draft <task> --preset opus-high` instead of three flags. List with `subtask presets`.
 
-Workflow stages can optionally name a preset (`preset: opus-high`); the harness automatically swaps when the task advances into that stage. Cross-adapter swaps clear the session — cross-stage context comes from the workspace, `PLAN.md`, and `PROGRESS.json` (file-based collaboration; design principle #5). See [docs/presets.md](docs/presets.md). **`subtask stage` auto-dispatches when the new stage has `worker_instructions:`** — it mutates task state (writes the new stage, applies any preset, clears the session on cross-adapter swaps, appends a history event) and then sends those instructions to the worker and blocks until reply. When `worker_instructions:` is absent or empty, `stage` is passive and the lead must `subtask send` next. Pass `--no-send` to stay passive even when `worker_instructions:` is defined. An optional positional prompt extends the worker_instructions (or dispatches on its own if no `worker_instructions:` is set).
+Routine steps can optionally name a preset (`preset: opus-high`); the harness automatically swaps when the task advances into that step. Cross-adapter swaps clear the session — cross-step context comes from the workspace, `PLAN.md`, and `PROGRESS.json` (file-based collaboration; design principle #5). See [docs/presets.md](docs/presets.md).
 
-**Adapter/model snapshot in TASK.md.** When a task is drafted, the resolved adapter, model, and reasoning are written into TASK.md frontmatter (the "snapshot"). This is intentional — design principle #5, portability. `send`, `review --task`, and `stage` all resolve adapter/model from the snapshot first, falling back to project config. Editing `.subtask/config.json` after a task is drafted does **not** retroactively update the snapshot. To run with a different preset for a one-off `send` or `review` without editing TASK.md, pass `--preset <name>`. `stage` has its own preset mechanism: bind `preset:` to the target stage in the workflow YAML, and the harness swaps automatically (and persistently, into the snapshot) on transition.
+**Adapter/model snapshot in TASK.md.** When a task is drafted, the resolved adapter, model, and reasoning are written into TASK.md frontmatter (the "snapshot"). This is intentional — design principle #5, portability. `send`, `review --task`, and `stage` all resolve adapter/model from the snapshot first, falling back to project config. Editing `.subtask/config.json` after a task is drafted does **not** retroactively update the snapshot. To run with a different preset for a one-off `send` or `review` without editing TASK.md, pass `--preset <name>`. `stage` has its own preset mechanism: bind `preset:` to the target step in the routine YAML, and the harness swaps automatically (and persistently, into the snapshot) on transition.
 
 ### Status & Transitions
 
@@ -157,7 +165,7 @@ Task status is what users care about. Worker status is operational detail. Works
 | `subtask draft <task>` | Create a task without running it |
 | `subtask send <task>` | Send a message (starts or resumes task; blocks until reply) |
 | `subtask reply <task>` | Print the most recent worker reply (from history) |
-| `subtask stage <task> <stage>` | Advance workflow stage |
+| `subtask stage <task> <step>` | Advance routine step |
 | `subtask list` | Show all tasks and workspaces |
 | `subtask show <task>` | Task details, progress, diff stats |
 | `subtask diff <task>` | Show task diff |
@@ -235,7 +243,7 @@ The plugin directory carries a `.subtask-binary-installed` marker so `subtask un
 │   │   └── adapters/        # built-in adapters: codex, claude, opencode, gemini, pi
 │   ├── git/                 # git operations (branches, merge, diff, worktrees)
 │   ├── render/              # CLI output formatting (TTY detection, colors)
-│   ├── workflow/            # workflow stage templates (YAML, embedded)
+│   ├── routine/             # routine definitions (YAML, embedded canonicals)
 │   ├── logs/                # session log parsing and formatting
 │   ├── logging/             # subtask's own logger
 │   ├── diffparse/           # parse `git diff` output

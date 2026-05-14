@@ -180,7 +180,6 @@ steps:
 	require.NotNil(t, detail.Routine, "gather.Detail must load the routine when t.Routine is set")
 	require.Equal(t, "show", detail.Routine.Name)
 	require.Equal(t, "plan", detail.Stage, "draft should initialize stage to entry step")
-	require.Nil(t, detail.Workflow, "routine tasks have no workflow")
 
 	// show output: routine name + step progression rendered.
 	out, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
@@ -269,10 +268,7 @@ steps:
 // mixed state (worker runs with the agent's adapter/model but reads the
 // routine step's role prompt).
 //
-// Also asserts the three positive cases the brief calls out: routine
-// alone, agent alone (step 3's path), and workflow+agent (step 3's
-// ad-hoc agent dispatch). The last is the trickiest — it must continue
-// to work.
+// Also asserts two positive cases: routine alone and agent alone.
 func TestDraft_RoutineAndAgentMutex(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withOutputMode(t, false)
@@ -305,10 +301,7 @@ steps:
 		}).Run()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "--agent and --routine are mutually exclusive")
-		// Actionable hint must mention the per-step config and the
-		// workflow+agent escape hatch.
 		require.Contains(t, err.Error(), "step config")
-		require.Contains(t, err.Error(), "--workflow")
 
 		_, statErr := os.Stat(task.Dir("mutex/both"))
 		require.True(t, os.IsNotExist(statErr), "rejected combination must leave no task folder behind")
@@ -342,21 +335,4 @@ steps:
 		require.Empty(t, tk.Routine)
 	})
 
-	t.Run("workflow + agent allowed", func(t *testing.T) {
-		// Step 3 deliberately allows --workflow + --agent for ad-hoc
-		// agent dispatch on top of the default workflow. This must
-		// continue to work.
-		require.NoError(t, (&DraftCmd{
-			Task:        "mutex/workflow-agent",
-			Title:       "T",
-			Description: "Workflow + agent ad-hoc dispatch",
-			Base:        "main",
-			Workflow:    "default",
-			Agent:       "a",
-		}).Run())
-		tk, err := task.Load("mutex/workflow-agent")
-		require.NoError(t, err)
-		require.Equal(t, "a", tk.Agent)
-		require.Empty(t, tk.Routine)
-	})
 }

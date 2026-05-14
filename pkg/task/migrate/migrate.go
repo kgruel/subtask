@@ -9,7 +9,6 @@ import (
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
-	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 const CurrentSchema = 1
@@ -72,11 +71,6 @@ func buildSchema1History(taskName string, t *task.Task) ([]history.Event, error)
 	stageTo := ""
 	if legacy != nil {
 		stageTo = strings.TrimSpace(legacy.Stage)
-	}
-	if stageTo == "" {
-		if wf, err := workflow.LoadFromTask(taskName); err == nil && wf != nil {
-			stageTo = wf.FirstStage()
-		}
 	}
 	if stageTo == "" {
 		stageTo = "implement"

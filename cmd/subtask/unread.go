@@ -11,7 +11,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/index"
-	"github.com/kgruel/subtask/pkg/workflow"
 )
 
 // UnreadCmd implements 'subtask unread' — lists open tasks where the most
@@ -185,10 +184,6 @@ func taskHasUnreadReply(name string) (bool, error) {
 						return false, nil
 					}
 				}
-			}
-		} else if wf, _ := workflow.LoadFromTask(name); wf != nil {
-			if wf.GetStage(policyStage).IsSilent() {
-				return false, nil
 			}
 		}
 	}

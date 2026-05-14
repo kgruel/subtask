@@ -6,7 +6,6 @@ import (
 
 	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -83,9 +82,7 @@ type TaskView struct {
 	BaseCommit   string
 	State        *task.State
 	ProgressMeta *task.Progress
-	Workflow     *workflow.Workflow
-	// Routine is non-nil for routine-driven tasks. Mutually exclusive
-	// with Workflow at the source — draft refuses both.
+	// Routine is non-nil for routine-driven tasks.
 	Routine *routine.Routine
 
 	TaskStatus   task.TaskStatus

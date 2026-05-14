@@ -60,68 +60,6 @@ func TestUnread_LeadFollowedUp_ReportsRead(t *testing.T) {
 	assert.False(t, unread, "lead message after worker.finished should mark task as read")
 }
 
-func TestUnread_SilentStage_NotUnread(t *testing.T) {
-	// Event-sourced policy: a worker reply stamped with a silent stage
-	// stays silenced regardless of where the task sits later. The brief's
-	// workflow scenario: stage X (notify:false), reply during X, then
-	// manual move into stage Y; reply must NOT surface even after the
-	// stage change. Refactored to send DURING the silent stage so the
-	// reply's stage stamp drives the suppression (the previous version
-	// sent during implement and relied on current-stage lookup, which
-	// the round-6 fix removed in favor of the reply-stage lookup).
-	env := testutil.NewTestEnv(t, 1)
-	withOutputMode(t, false)
-
-	installCustomWorkflow(t, env, "silent-flow", `name: silent-flow
-description: Workflow with a silent commit stage
-stages:
-  - name: implement
-    instructions: Do work.
-  - name: commit
-    notify: false
-    instructions: Commit it.
-  - name: ready
-    instructions: Done.
-`)
-
-	taskName := "fix/silent"
-	require.NoError(t, (&DraftCmd{
-		Task:        taskName,
-		Title:       "Silent stage test",
-		Description: "Testing notify:false",
-		Base:        "main",
-		Workflow:    "silent-flow",
-	}).Run())
-
-	// First: reply during non-silent implement should surface.
-	mock := harness.NewMockHarness().WithResult("ok", "sess-1")
-	require.NoError(t, (&SendCmd{Task: taskName, Prompt: "Go"}).WithHarness(mock).Run())
-	unread, err := taskHasUnreadReply(taskName)
-	require.NoError(t, err)
-	assert.True(t, unread, "reply during non-silent stage must be unread")
-
-	// Advance to the silent stage and send AGAIN — that reply's stage
-	// stamp is commit (notify:false) and must NOT surface.
-	require.NoError(t, (&StageCmd{Task: taskName, Stage: "commit", NoSend: true}).Run())
-	mock2 := harness.NewMockHarness().WithResult("ok", "sess-2")
-	require.NoError(t, (&SendCmd{Task: taskName, Prompt: "Go again"}).WithHarness(mock2).Run())
-
-	unread, err = taskHasUnreadReply(taskName)
-	require.NoError(t, err)
-	assert.False(t, unread, "reply stamped with notify:false stage must be silenced")
-
-	// Move forward to ready (non-silent) WITHOUT a new send. The most
-	// recent worker.finished is still stamped with commit (silent), so
-	// the reply must REMAIN silenced even though the task no longer
-	// sits in a silent stage. This is the bug the round-6 fix targets:
-	// previously the current-stage lookup would re-surface the reply
-	// once the task moved past commit.
-	require.NoError(t, (&StageCmd{Task: taskName, Stage: "ready", NoSend: true}).Run())
-	unread, err = taskHasUnreadReply(taskName)
-	require.NoError(t, err)
-	assert.False(t, unread, "silent reply must stay silenced after the task moves into a non-silent stage")
-}
-
 // Regression: a closed task whose folder still resides on disk must not
 // surface in the unread view. task.List() returns disk-resident folders,
 // so without index-aware filtering, closed tasks show as phantom unread.
@@ -534,45 +472,6 @@ steps:
 
 // Workflow tasks must NOT see routine.surfaced events (none are
 // emitted on the workflow path). Behavior unchanged.
-func TestUnread_WorkflowTaskUnaffectedByRoutineSurfaceLogic(t *testing.T) {
-	env := testutil.NewTestEnv(t, 1)
-	withOutputMode(t, false)
-
-	installCustomWorkflow(t, env, "plain-flow", `name: plain-flow
-description: Plain workflow
-stages:
-  - name: implement
-    instructions: Do it.
-  - name: ready
-    instructions: Done.
-`)
-
-	taskName := "fix/workflow-unaffected"
-	require.NoError(t, (&DraftCmd{
-		Task:        taskName,
-		Title:       "Workflow unaffected",
-		Description: "Workflow tasks emit no routine.surfaced",
-		Base:        "main",
-		Workflow:    "plain-flow",
-	}).Run())
-
-	mock := harness.NewMockHarness().WithResult("ok", "sess-1")
-	require.NoError(t, (&SendCmd{Task: taskName, Prompt: "Go"}).WithHarness(mock).Run())
-
-	// Walk history; no routine.surfaced events should exist.
-	evs, err := history.Read(taskName, history.ReadOptions{})
-	require.NoError(t, err)
-	for _, ev := range evs {
-		require.NotEqual(t, "routine.surfaced", ev.Type,
-			"workflow tasks must never emit routine.surfaced")
-	}
-
-	// Worker reply was in non-silent implement → unread is true.
-	unread, err := taskHasUnreadReply(taskName)
-	require.NoError(t, err)
-	assert.True(t, unread)
-}
-
 // Routine gate step with `surface: false` must also suppress unread.
 // The schema (Step.Surface comment) documents surface: false applying
 // to both terminal AND gate steps; earlier this check honored it only

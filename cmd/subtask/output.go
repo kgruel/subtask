@@ -10,8 +10,8 @@ import (
 	"github.com/kgruel/subtask/internal/homedir"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
-	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -296,29 +296,20 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 		}
 	}
 
-	// Print workflow and stage info
-	wf, err := workflow.LoadFromTask(taskName)
-	if err == nil && wf != nil {
-		// Show lead instructions
-		if wf.Instructions.Lead != "" {
-			render.Section("Workflow: " + wf.Name)
-			render.SectionContent(wf.Instructions.Lead)
-		}
-
-		// Show stage info
-		if stage != "" {
-			render.Section("Stage: " + stage)
-			fmt.Println(render.FormatStageProgression(wf.StageNames(), stage))
+	// Print routine and step info (routine-driven tasks only).
+	if t, err := task.Load(taskName); err == nil && t.Routine != "" {
+		if r, err := routine.LoadByName(t.Routine); err == nil {
+			render.Section("Routine: " + r.Name)
+			fmt.Println(render.FormatStageProgression(r.StepIDs(), stage))
 			fmt.Println()
 
-			// Print stage guidance
-			stageInfo := wf.GetStage(stage)
-			if stageInfo != nil && stageInfo.Instructions != "" {
-				lines := strings.Split(strings.TrimSpace(stageInfo.Instructions), "\n")
-				for _, line := range lines {
-					// Replace <task> placeholder with actual task name
-					line = strings.ReplaceAll(line, "<task>", taskName)
-					fmt.Println(line)
+			if stage != "" {
+				if step := r.GetStep(stage); step != nil && step.Instructions != "" {
+					lines := strings.Split(strings.TrimSpace(step.Instructions), "\n")
+					for _, line := range lines {
+						line = strings.ReplaceAll(line, "<task>", taskName)
+						fmt.Println(line)
+					}
 				}
 			}
 		}

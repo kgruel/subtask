@@ -180,14 +180,14 @@ func (m *model) updateOverviewContent() {
 	}
 	sections = append(sections, detailsLines)
 
-	// Workflow section
-	if m.detail.Workflow != nil && strings.TrimSpace(m.detail.Stage) != "" {
-		var workflowLines []string
-		workflowLines = append(workflowLines, styleBold.Render("Workflow"))
-		workflowLines = append(workflowLines, "")
-		stageLines := formatStageProgression(m.detail.Workflow.StageNames(), m.detail.Stage, innerW)
-		workflowLines = append(workflowLines, strings.Split(stageLines, "\n")...)
-		sections = append(sections, workflowLines)
+	// Routine section
+	if m.detail.Routine != nil && strings.TrimSpace(m.detail.Stage) != "" {
+		var routineLines []string
+		routineLines = append(routineLines, styleBold.Render("Routine"))
+		routineLines = append(routineLines, "")
+		stepLines := formatStageProgression(m.detail.Routine.StepIDs(), m.detail.Stage, innerW)
+		routineLines = append(routineLines, strings.Split(stepLines, "\n")...)
+		sections = append(sections, routineLines)
 	}
 
 	// Error section (outside box, after it)

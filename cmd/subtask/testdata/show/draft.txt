@@ -6,7 +6,5 @@ Model: gpt-5.2
 Status: draft
 Changes: -
 Commits: 0
-Workflow: default
-Stage: doing → review → ready
 
-Directory: .subtask/tasks/show--draft (contains TASK.md, WORKFLOW.yaml, history.jsonl)
+Directory: .subtask/tasks/show--draft (contains TASK.md, history.jsonl)
