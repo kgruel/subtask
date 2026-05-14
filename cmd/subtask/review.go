@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kgruel/subtask/pkg/harness"
@@ -17,6 +19,10 @@ type ReviewCmd struct {
 	Base        string `help:"Review changes on the current branch against BRANCH (PR-style diff via merge-base; BRANCH must be a valid git ref)"`
 	Uncommitted bool   `help:"Review uncommitted changes (staged, unstaged, untracked)"`
 	Commit      string `help:"Review changes introduced by a specific commit SHA"`
+
+	// Plan modifies --task to review PLAN.md against the task's spec instead
+	// of the diff. Catches plan-vs-spec drift before implementation lands.
+	Plan bool `help:"With --task, review PLAN.md against the task spec (TASK.md) instead of the diff"`
 
 	// Optional instructions
 	Prompt string `arg:"" optional:"" help:"Additional review instructions (or use stdin)"`
@@ -59,6 +65,9 @@ func (c *ReviewCmd) Run() error {
 	if count == 0 {
 		return fmt.Errorf("specify one of: --task <name>, --base <branch>, --uncommitted, or --commit <sha>")
 	}
+	if c.Plan && strings.TrimSpace(c.Task) == "" {
+		return fmt.Errorf("--plan requires --task <name>")
+	}
 
 	// Read instructions from arg or stdin
 	instructions := strings.TrimSpace(c.Prompt)
@@ -93,6 +102,13 @@ func (c *ReviewCmd) Run() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Plan-review path: read PLAN.md and TASK.md, run a fresh prompt that
+	// asks the harness to find drift between spec intent and plan steps.
+	// Bypasses the diff-review machinery because there's no diff to inspect.
+	if c.Plan {
+		return c.runPlanReview(cfg, t, r, instructions)
 	}
 
 	// Determine working directory and target
@@ -156,3 +172,76 @@ func (c *ReviewCmd) Run() error {
 	return nil
 }
 
+// runPlanReview reviews PLAN.md against the task's spec (TASK.md description).
+// Catches plan-vs-spec drift before the worker implements something the lead
+// already approved that didn't match the spec.
+func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspace.Resolved, instructions string) error {
+	taskName := strings.TrimSpace(c.Task)
+	taskDir := task.Dir(taskName)
+
+	planPath := filepath.Join(taskDir, "PLAN.md")
+	planData, err := os.ReadFile(planPath)
+	if err != nil {
+		return fmt.Errorf("PLAN.md not found for task %q at %s\n\nThe worker drafts PLAN.md during the plan stage. Wait for it before reviewing.", taskName, planPath)
+	}
+	plan := strings.TrimSpace(string(planData))
+	if plan == "" {
+		return fmt.Errorf("PLAN.md is empty for task %q", taskName)
+	}
+
+	spec := strings.TrimSpace(t.Description)
+	if spec == "" {
+		return fmt.Errorf("task %q has no description (TASK.md spec); nothing to review the plan against", taskName)
+	}
+
+	// Run in the workspace if one exists; otherwise the project root, since
+	// plan review is documentation-only and doesn't need the worktree.
+	cwd := ""
+	if state, err := task.LoadState(taskName); err == nil && state != nil {
+		cwd = state.Workspace
+	}
+	if cwd == "" {
+		if root, err := os.Getwd(); err == nil {
+			cwd = root
+		}
+	}
+
+	prompt := buildPlanReviewPrompt(taskName, spec, plan, instructions)
+
+	var h harness.Harness
+	if c.testHarness != nil {
+		h = c.testHarness
+	} else {
+		var err error
+		h, err = harness.New(workspace.ConfigWithOverrides(cfg, r.Adapter, r.Provider, r.Model, r.Reasoning))
+		if err != nil {
+			return err
+		}
+	}
+
+	result, err := h.Run(context.Background(), cwd, prompt, "", harness.Callbacks{})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(result.Reply)
+	return nil
+}
+
+// buildPlanReviewPrompt frames PLAN.md as the artifact under review and
+// TASK.md description as the spec. The wording mirrors the diff-review
+// pattern: prioritized, actionable findings.
+func buildPlanReviewPrompt(taskName, spec, plan, instructions string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Review PLAN.md for subtask task %q against the spec. ", taskName)
+	sb.WriteString("Find drift between the spec's intent and the plan's steps: missing requirements, scope shrinkage, ambiguous handling, over-engineering, or steps that don't trace back to a spec line. Provide prioritized, actionable findings. Be concrete: cite plan section vs spec line.\n\n")
+	sb.WriteString("## Spec (from TASK.md)\n\n")
+	sb.WriteString(spec)
+	sb.WriteString("\n\n## Plan (from PLAN.md)\n\n")
+	sb.WriteString(plan)
+	if instructions != "" {
+		sb.WriteString("\n\n## Additional instructions\n\n")
+		sb.WriteString(instructions)
+	}
+	return sb.String()
+}

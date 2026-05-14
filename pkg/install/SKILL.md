@@ -102,6 +102,12 @@ subtask review --uncommitted                     # Review staged + unstaged + un
 subtask review --commit abc123                   # Review a specific commit
 ```
 
+Add `--plan` to `--task` to review PLAN.md against the task spec (TASK.md description) instead of the diff. Useful before approving a plan-stage handoff in `they-plan`/`you-plan` workflows — catches drift between what the spec asked for and what the plan proposes.
+
+```bash
+subtask review --task fix/bug --plan             # Review the plan against the spec
+```
+
 Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
 
 `review` accepts `--adapter`/`--model`/`--reasoning`/`--preset` overrides (ephemeral, do not persist). When `--task` is used, the task's stored adapter is the default; pass `--preset` to override it for this review only.
