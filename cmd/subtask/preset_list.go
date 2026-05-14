@@ -20,7 +20,7 @@ func (c *PresetsCmd) Run() error {
 
 	if len(cfg.Presets) == 0 {
 		fmt.Println("No presets defined.")
-		fmt.Println("Add presets to .subtask/config.json — see docs/types-and-presets.md.")
+		fmt.Println("Add presets to .subtask/config.json — see docs/presets.md.")
 		return nil
 	}
 
@@ -29,37 +29,6 @@ func (c *PresetsCmd) Run() error {
 	for _, name := range names {
 		p := cfg.Presets[name]
 		fmt.Printf("  %-20s %s\n", name, formatPreset(p))
-	}
-	return nil
-}
-
-// TypesCmd implements 'subtask types'.
-type TypesCmd struct{}
-
-func (c *TypesCmd) Run() error {
-	res, err := preflightProject()
-	if err != nil {
-		return err
-	}
-	cfg := res.Config
-
-	if len(cfg.Types) == 0 {
-		fmt.Println("No task types defined.")
-		fmt.Println("Add types to .subtask/config.json — see docs/types-and-presets.md.")
-		return nil
-	}
-
-	names := sortedKeys(cfg.Types)
-	fmt.Println("Available task types:")
-	for _, name := range names {
-		t := cfg.Types[name]
-		fmt.Printf("  %-15s %s\n", name, t.Description)
-		if t.DefaultWorkflow != "" {
-			fmt.Printf("    workflow: %s\n", t.DefaultWorkflow)
-		}
-		if t.DefaultPreset != "" {
-			fmt.Printf("    preset:   %s\n", t.DefaultPreset)
-		}
 	}
 	return nil
 }
@@ -79,13 +48,6 @@ func formatPreset(p workspace.Preset) string {
 		parts = append(parts, "reasoning:"+p.Reasoning)
 	}
 	return strings.Join(parts, " / ")
-}
-
-func typeNames(cfg *workspace.Config) string {
-	if len(cfg.Types) == 0 {
-		return "(none defined)"
-	}
-	return strings.Join(sortedKeys(cfg.Types), ", ")
 }
 
 func sortedKeys[V any](m map[string]V) []string {

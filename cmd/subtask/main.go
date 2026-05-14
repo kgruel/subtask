@@ -26,7 +26,6 @@ type CLI struct {
 	Send      SendCmd      `cmd:"" help:"Send a message to a task"`
 	Stage     StageCmd     `cmd:"" help:"Set task workflow stage"`
 	Presets   PresetsCmd   `cmd:"" help:"List available presets from project config"`
-	Types     TypesCmd     `cmd:"" help:"List available task types from project config"`
 	List      ListCmd      `cmd:"" help:"List all tasks"`
 	Show      ShowCmd      `cmd:"" help:"Show task details"`
 	Log       LogCmd       `cmd:"" help:"Show task history (messages + events)"`

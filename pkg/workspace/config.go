@@ -23,8 +23,7 @@ type Config struct {
 	Reasoning     string `json:"reasoning,omitempty"`
 	MaxWorkspaces int    `json:"max_workspaces"`
 
-	Presets map[string]Preset   `json:"presets,omitempty"`
-	Types   map[string]TaskType `json:"types,omitempty"`
+	Presets map[string]Preset `json:"presets,omitempty"`
 
 	// Legacy fields for migration (read from old configs, never written).
 	LegacyHarness string         `json:"harness,omitempty"`
@@ -39,15 +38,6 @@ type Preset struct {
 	Model     string `json:"model,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
 	Provider  string `json:"provider,omitempty"`
-}
-
-// TaskType labels the purpose of a task (e.g., implement, review, docs). It can
-// point at a default workflow and/or a default preset; either may be overridden
-// by explicit flags at draft.
-type TaskType struct {
-	DefaultWorkflow string `json:"default_workflow,omitempty"`
-	DefaultPreset   string `json:"default_preset,omitempty"`
-	Description     string `json:"description,omitempty"`
 }
 
 // Entry defines a workspace.
@@ -92,15 +82,7 @@ func LoadConfig() (*Config, error) {
 
 // validateConfig checks intra-config references. Workflow references are
 // validated at draft time (they require loading templates from disk).
-func validateConfig(c *Config) error {
-	for typeName, t := range c.Types {
-		if t.DefaultPreset != "" {
-			if _, ok := c.Presets[t.DefaultPreset]; !ok {
-				return fmt.Errorf("subtask: type %q references unknown default_preset %q\n\nAvailable presets: %s",
-					typeName, t.DefaultPreset, joinKeys(c.Presets))
-			}
-		}
-	}
+func validateConfig(_ *Config) error {
 	return nil
 }
 
@@ -185,13 +167,9 @@ func mergeConfig(user, project *Config) *Config {
 		Reasoning:     strings.TrimSpace(user.Reasoning),
 		MaxWorkspaces: user.MaxWorkspaces,
 		Presets:       map[string]Preset{},
-		Types:         map[string]TaskType{},
 	}
 	for k, v := range user.Presets {
 		out.Presets[k] = v
-	}
-	for k, v := range user.Types {
-		out.Types[k] = v
 	}
 
 	if project == nil {
@@ -216,9 +194,6 @@ func mergeConfig(user, project *Config) *Config {
 	// Project entries shadow user entries on key collision.
 	for k, v := range project.Presets {
 		out.Presets[k] = v
-	}
-	for k, v := range project.Types {
-		out.Types[k] = v
 	}
 	return out
 }

@@ -38,37 +38,6 @@ func TestDraft_PresetResolvesAdapterAndModel(t *testing.T) {
 	require.Equal(t, "high", tObj.Reasoning)
 }
 
-func TestDraft_TypeResolvesWorkflowAndPreset(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-
-	cfg := &workspace.Config{
-		Adapter: "claude",
-		Presets: map[string]workspace.Preset{
-			"sonnet-medium": {Adapter: "claude", Model: "sonnet", Reasoning: "medium"},
-		},
-		Types: map[string]workspace.TaskType{
-			"implement": {DefaultWorkflow: "they-plan", DefaultPreset: "sonnet-medium"},
-		},
-	}
-	require.NoError(t, cfg.SaveTo(filepath.Join(env.RootDir, ".subtask", "config.json")))
-
-	draft := &DraftCmd{
-		Task:        "type-task",
-		Title:       "Type Test",
-		Description: "Test that --type resolves",
-		Base:        "main",
-		Type:        "implement",
-	}
-	require.NoError(t, draft.Run())
-
-	tObj, err := task.Load("type-task")
-	require.NoError(t, err)
-	require.Equal(t, "implement", tObj.Type)
-	require.Equal(t, "claude", tObj.Adapter)
-	require.Equal(t, "sonnet", tObj.Model)
-	require.Equal(t, "medium", tObj.Reasoning)
-}
-
 func TestDraft_ExplicitFlagsBeatPreset(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 
@@ -95,43 +64,6 @@ func TestDraft_ExplicitFlagsBeatPreset(t *testing.T) {
 	require.Equal(t, "claude", tObj.Adapter) // from preset
 	require.Equal(t, "sonnet", tObj.Model)   // explicit wins
 	require.Equal(t, "high", tObj.Reasoning) // from preset
-}
-
-func TestDraft_FollowUpInheritsType(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-
-	cfg := &workspace.Config{
-		Adapter: "claude",
-		Presets: map[string]workspace.Preset{
-			"sonnet-medium": {Adapter: "claude", Model: "sonnet", Reasoning: "medium"},
-		},
-		Types: map[string]workspace.TaskType{
-			"implement": {DefaultWorkflow: "they-plan", DefaultPreset: "sonnet-medium"},
-		},
-	}
-	require.NoError(t, cfg.SaveTo(filepath.Join(env.RootDir, ".subtask", "config.json")))
-
-	parent := &DraftCmd{
-		Task:        "parent-task",
-		Title:       "Parent",
-		Description: "Parent task",
-		Base:        "main",
-		Type:        "implement",
-	}
-	require.NoError(t, parent.Run())
-
-	child := &DraftCmd{
-		Task:        "child-task",
-		Title:       "Child",
-		Description: "Child task",
-		Base:        "main",
-		FollowUp:    "parent-task",
-	}
-	require.NoError(t, child.Run())
-
-	tObj, err := task.Load("child-task")
-	require.NoError(t, err)
-	require.Equal(t, "implement", tObj.Type, "follow-up should inherit parent's type")
 }
 
 func TestDraft_UnknownPresetErrors(t *testing.T) {

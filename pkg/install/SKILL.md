@@ -57,7 +57,6 @@ When in doubt: would the user redirect this back to you? If yes, handle it silen
 | `subtask log <task>` | Show task conversation and history |
 | `subtask trace <task>` | Debug what a worker is doing and thinking internally |
 | `subtask presets` | List available presets from project config |
-| `subtask types` | List available task types from project config |
 
 **Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
 

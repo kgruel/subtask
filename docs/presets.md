@@ -1,19 +1,12 @@
-# Types and presets
+# Presets
 
-Two optional concepts for projects that want their dispatch policy ("codex for backend, claude for UI, opus for review") in versioned config instead of CLAUDE.md prose, plus an extension to workflows for per-stage harness binding.
+An optional concept for projects that want their dispatch policy ("codex for backend, claude for UI, opus for review") in versioned config instead of CLAUDE.md prose, plus an extension to workflows for per-stage harness binding.
 
 If you don't define any of them, subtask works exactly as before.
 
-## The two concepts
+## Presets — shorthand for adapter/model/reasoning
 
-| Layer | What it names | Example |
-|---|---|---|
-| **Preset** | adapter + model + reasoning bundle | `sonnet-medium`, `opus-high`, `gpt-5-low` |
-| **Type** | purpose of a task | `implement`, `review`, `docs`, `explore` |
-
-A type can bind a default workflow and/or a default preset; both fall through to project / user config defaults when unset. Per-stage harness binding lives in workflow YAML — see "Per-stage presets in workflows" below.
-
-## Quick start
+A **Preset** names an `adapter + model + reasoning` bundle. Examples: `sonnet-medium`, `opus-high`, `gpt-5-low`.
 
 `.subtask/config.json`:
 
@@ -26,36 +19,17 @@ A type can bind a default workflow and/or a default preset; both fall through to
     "sonnet-medium": { "adapter": "claude", "model": "sonnet", "reasoning": "medium" },
     "opus-high":     { "adapter": "claude", "model": "opus",   "reasoning": "high" },
     "gpt-5-low":     { "adapter": "codex",  "model": "gpt-5",  "reasoning": "low" }
-  },
-
-  "types": {
-    "implement": {
-      "default_workflow": "they-plan",
-      "default_preset":   "sonnet-medium",
-      "description":      "Backend or feature implementation"
-    },
-    "review": {
-      "default_preset": "opus-high",
-      "description":    "Audit task — worker reviews code in scope"
-    },
-    "explore": {
-      "default_preset": "sonnet-medium",
-      "description":    "Investigation, no plan needed"
-    }
   }
 }
 ```
 
-Listing commands:
+Listing command:
 
 ```
 subtask presets    # show available presets
-subtask types      # show available types
 ```
 
 ## Usage
-
-### Presets — shorthand for adapter/model/reasoning
 
 ```
 subtask draft fix-bug --preset gpt-5-low --base-branch main --title "Fix bug"
@@ -63,16 +37,6 @@ subtask send  fix-bug --preset opus-high "Take another look"
 ```
 
 `--preset` on `send` is a one-off override that does not change the task's locked harness.
-
-### Types — name the kind of work
-
-```
-subtask draft fix-bug --type implement --base-branch main --title "Fix bug"
-```
-
-The type's default_workflow + default_preset resolve. The type label is recorded in TASK.md frontmatter.
-
-Follow-up tasks (`--follow-up <parent>`) inherit the parent's type when no `--type` is given. The inherited type's defaults then apply normally.
 
 ## Per-stage presets in workflows
 
@@ -146,27 +110,9 @@ Each layer fills only fields not already set by an earlier layer:
 
 1. Explicit flags (`--adapter`, `--provider`, `--model`, `--reasoning`, `--workflow`) win.
 2. `--preset <name>` resolves the preset's fields.
-3. `--type <name>` (or inherited from parent on follow-up) resolves the type's `default_workflow` + `default_preset`.
-4. The workflow loads. If its first stage has a `preset:` binding, that preset is the starting harness — only filling fields still unset.
-5. Anything still unset falls through to project then user config defaults.
-
-## Validation
-
-`.subtask/config.json` is validated at load time:
-
-- A type's `default_preset` references a preset that doesn't exist → error with the available alternatives.
-
-Workflow `preset:` references are validated at draft time when the workflow is loaded (workspace can't validate them at config load — workflows live on disk and may be project-overridden).
-
-## Disambiguation: `review` task type vs. `review` workflow stage
-
-Different things at different layers:
-
-- A `review` **task type** is "worker reviews code as a subtask" — a whole-task audit, typically with an `opus-high`-style preset.
-- A workflow's `review` **stage** is the in-task review pass after implementation, where the harness swaps to a stronger preset for the same task.
-
-A project can have both. They don't conflict.
+3. The workflow loads. If its first stage has a `preset:` binding, that preset is the starting harness — only filling fields still unset.
+4. Anything still unset falls through to project then user config defaults.
 
 ## What doesn't exist (and why)
 
-We don't have a separate "flow" config concept. Per-stage harness binding lives in workflow YAML directly, since that's where stage definitions already live and they're already snapshotted into the task folder. Splitting "stage names" (workflow) from "stage→preset map" (a hypothetical flow config) would have been a parallel concept where one already covers the ground. See `docs/dev/issues/task-types-and-flows.md` for the design history.
+We don't have a separate "flow" config concept. Per-stage harness binding lives in workflow YAML directly, since that's where stage definitions already live and they're already snapshotted into the task folder. Splitting "stage names" (workflow) from "stage→preset map" (a hypothetical flow config) would have been a parallel concept where one already covers the ground.

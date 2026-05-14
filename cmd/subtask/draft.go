@@ -30,7 +30,6 @@ type DraftCmd struct {
 	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
 	Workflow    string `help:"Workflow template to use (e.g., they-plan)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
-	Type        string `help:"Task type from project config (e.g., implement, review)"`
 	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
 }
 
@@ -67,22 +66,13 @@ func (c *DraftCmd) Run() error {
 	// only fills fields not already set by an earlier layer):
 	//   1. Explicit flags (--adapter/--model/--reasoning/--workflow) win.
 	//   2. --preset resolves the named preset.
-	//   3. --type resolves the type's default_workflow / default_preset.
-	//   4. Follow-up inherits the parent's type.
+	//   3. The workflow's first stage preset fills remaining fields.
+	//   4. Anything still unset falls through to project then user config defaults.
 	resolvedAdapter := c.Adapter
 	resolvedProvider := c.Provider
 	resolvedModel := c.Model
 	resolvedReasoning := c.Reasoning
 	resolvedWorkflow := c.Workflow
-	resolvedType := c.Type
-
-	// Follow-up inherits the parent's type when caller didn't pick one.
-	// Done first so subsequent type-default resolution applies.
-	if resolvedType == "" && c.FollowUp != "" {
-		if parent, err := task.Load(c.FollowUp); err == nil && parent.Type != "" {
-			resolvedType = parent.Type
-		}
-	}
 
 	if c.Preset != "" {
 		p, ok := cfg.Presets[c.Preset]
@@ -90,23 +80,6 @@ func (c *DraftCmd) Run() error {
 			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, workspace.PresetNames(cfg))
 		}
 		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-	}
-
-	if resolvedType != "" {
-		tt, ok := cfg.Types[resolvedType]
-		if !ok {
-			return fmt.Errorf("unknown type %q\n\nAvailable: %s", resolvedType, typeNames(cfg))
-		}
-		if resolvedWorkflow == "" && tt.DefaultWorkflow != "" {
-			resolvedWorkflow = tt.DefaultWorkflow
-		}
-		if tt.DefaultPreset != "" {
-			p, ok := cfg.Presets[tt.DefaultPreset]
-			if !ok {
-				return fmt.Errorf("type %q references unknown default_preset %q", resolvedType, tt.DefaultPreset)
-			}
-			workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-		}
 	}
 
 	// Load workflow (default if not specified)
@@ -120,7 +93,7 @@ func (c *DraftCmd) Run() error {
 
 	// Validate any preset references in the workflow (workflow.Load doesn't
 	// have access to cfg). If the first stage has a preset binding, use it as
-	// the starting harness when not already set by an explicit flag/preset/type.
+	// the starting harness when not already set by an explicit flag/preset.
 	for _, st := range wf.Stages {
 		if st.Preset == "" {
 			continue
@@ -144,7 +117,6 @@ func (c *DraftCmd) Run() error {
 		BaseBranch:  c.Base,
 		Description: description,
 		FollowUp:    c.FollowUp,
-		Type:        resolvedType,
 		Adapter:     resolvedAdapter,
 		Provider:    resolvedProvider,
 		Model:       resolvedModel,
@@ -180,7 +152,6 @@ func (c *DraftCmd) Run() error {
 		"workflow":    wf.Name,
 		"title":       c.Title,
 		"follow_up":   c.FollowUp,
-		"type":        resolvedType,
 		"adapter":     resolvedAdapter,
 		"model":       resolvedModel,
 		"reasoning":   resolvedReasoning,
