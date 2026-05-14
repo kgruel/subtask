@@ -169,6 +169,20 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("failed to write history: %w", err)
 	}
 
+	if c.FollowUp != "" {
+		childData, _ := json.Marshal(map[string]any{
+			"child_name":  c.Task,
+			"base_commit": baseCommit,
+		})
+		if err := history.Append(c.FollowUp, history.Event{
+			TS:   time.Now().UTC(),
+			Type: "child.drafted",
+			Data: childData,
+		}); err != nil {
+			return fmt.Errorf("failed to write child.drafted to parent history: %w", err)
+		}
+	}
+
 	// Output
 	printSuccess(fmt.Sprintf("Drafted task: %s", c.Task))
 	fmt.Printf("Task folder: %s/\n", filepath.ToSlash(task.Dir(c.Task)))

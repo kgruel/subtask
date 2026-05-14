@@ -146,13 +146,42 @@ ORDER BY last_history_ns DESC, name ASC;
 	return i.queryList(ctx, q)
 }
 
+func (i *Index) ListChildren(ctx context.Context, parentName string) ([]ListItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const q = `
+SELECT
+	name, title, follow_up, base_branch, base_commit,
+	task_status, worker_status, stage,
+	workspace, started_at_ns, last_error,
+	last_history_ns,
+	last_active_ns, tool_calls,
+	last_run_duration_ms,
+	progress_done, progress_total,
+	git_lines_added, git_lines_removed
+FROM tasks
+WHERE follow_up = ?
+ORDER BY last_history_ns DESC, name ASC;
+`
+	rows, err := i.db.QueryContext(ctx, q, parentName)
+	if err != nil {
+		return nil, fmt.Errorf("index list children: %w", err)
+	}
+	defer rows.Close()
+	return i.scanList(rows)
+}
+
 func (i *Index) queryList(ctx context.Context, q string) ([]ListItem, error) {
 	rows, err := i.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("index list: %w", err)
 	}
 	defer rows.Close()
+	return i.scanList(rows)
+}
 
+func (i *Index) scanList(rows *sql.Rows) ([]ListItem, error) {
 	var out []ListItem
 	for rows.Next() {
 		var (

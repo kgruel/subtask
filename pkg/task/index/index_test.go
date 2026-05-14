@@ -257,6 +257,57 @@ func TestIndex_ArtifactProduced_Ignored(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestIndex_ListChildren(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	ctx := context.Background()
+
+	// parent task
+	env.CreateTask("parent", "Parent", "main", "parent desc")
+	env.CreateTaskHistory("parent", []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+	})
+
+	// child1 with follow_up = "parent"
+	child1 := env.CreateTask("child1", "Child One", "main", "child1 desc")
+	child1.FollowUp = "parent"
+	require.NoError(t, child1.Save())
+	env.CreateTaskHistory("child1", []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "follow_up": "parent"})},
+	})
+
+	// child2 with follow_up = "parent"
+	child2 := env.CreateTask("child2", "Child Two", "main", "child2 desc")
+	child2.FollowUp = "parent"
+	require.NoError(t, child2.Save())
+	env.CreateTaskHistory("child2", []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "follow_up": "parent"})},
+	})
+
+	// unrelated task
+	env.CreateTask("other", "Other", "main", "other desc")
+	env.CreateTaskHistory("other", []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+	})
+
+	idx, err := taskindex.OpenDefault()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+
+	require.NoError(t, idx.Refresh(ctx, taskindex.RefreshPolicy{}))
+
+	children, err := idx.ListChildren(ctx, "parent")
+	require.NoError(t, err)
+	require.Len(t, children, 2)
+
+	names := []string{children[0].Name, children[1].Name}
+	require.ElementsMatch(t, []string{"child1", "child2"}, names)
+
+	// unrelated task must not appear
+	for _, c := range children {
+		require.NotEqual(t, "other", c.Name)
+	}
+}
+
 func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b

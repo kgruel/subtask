@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 func migrateSchema(ctx context.Context, db *sql.DB) error {
 	var v int
@@ -74,6 +74,13 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 		v = 7
+	}
+
+	if v == 7 {
+		if err := migrateToV8(ctx, tx); err != nil {
+			return err
+		}
+		v = 8
 	}
 
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d;", v)); err != nil {
@@ -288,6 +295,22 @@ func migrateToV7(ctx context.Context, tx *sql.Tx) error {
 			}
 			return fmt.Errorf("migrate v7: %w", err)
 		}
+	}
+	return nil
+}
+
+func migrateToV8(ctx context.Context, tx *sql.Tx) error {
+	// Ensure follow_up column exists before indexing it. The column is part of the
+	// v1 schema, but stripped-down test databases may omit it.
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE tasks ADD COLUMN follow_up TEXT;`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("migrate v8: add follow_up: %w", err)
+		}
+	}
+	// Add a covering index on follow_up to support O(1) parent→children queries.
+	// CREATE INDEX IF NOT EXISTS makes this idempotent on repeated runs.
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_follow_up ON tasks(follow_up);`); err != nil {
+		return fmt.Errorf("migrate v8: %w", err)
 	}
 	return nil
 }
