@@ -99,6 +99,10 @@ Planning workflows add a plan stage: `plan → implement → review → ready`
 
 Workflows are project-extensible. Drop a YAML at `.subtask/workflows/<name>/WORKFLOW.yaml` to override an embedded one or add a new workflow. Stages can optionally bind a preset (see below) to swap the harness on stage transitions, and optionally set `worker_instructions` to inject a per-stage brief into the worker prompt (in contrast to `instructions`, which is rendered to the lead's terminal only). For passive reminders that should ride along with whatever the lead sends — without changing the stage's dispatch shape — use `worker_context:` instead; it injects into the same `## Stage:` block but does not trigger `subtask stage` auto-dispatch. A stage may also set `notify: false` to mark itself as plumbing — while a task sits in such a stage, worker replies are suppressed from `subtask unread` (and the Stop-hook nudge that depends on it). The silence applies to any reply during the stage, not just auto-dispatched ones.
 
+### Project-wide worker brief
+
+Optional file at `.subtask/WORKER.md`. When present, its contents are auto-prepended to every worker prompt as a `## Project` section by `harness.BuildPrompt`. Audience is workers (the slice-doing role), distinct from `CLAUDE.md` (the lead-collaborating role) and from per-task `TASK.md`. Use it to lift recurring brief content — regen recipes, project commit conventions, "architecture tests are load-bearing" — out of repeat copy-paste.
+
 ### Presets and Types (optional)
 
 Two optional concepts in `.subtask/config.json` for projects that want per-project dispatch policy in versioned config:

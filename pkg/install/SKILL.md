@@ -191,6 +191,12 @@ For complex tasks, add a plan stage: `plan → implement → review → ready`
 **You plan (`--workflow you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
 **They plan (`--workflow they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
 
+## Project-wide worker brief
+
+If `.subtask/WORKER.md` exists, its contents are auto-prepended to every worker prompt as a `## Project` section. This is the place for project-wide expectations every worker should carry — regen recipes, commit conventions, "the architecture tests are load-bearing, fix the cause not the test." Distinct from `CLAUDE.md` (which targets you, the lead) and `TASK.md` (per-task).
+
+When you notice the same instruction landing in multiple task briefs, lift it into `WORKER.md`.
+
 ## Silent stages
 
 A workflow stage can opt out of the unread-reply nudge by setting `notify: false` in its YAML:
