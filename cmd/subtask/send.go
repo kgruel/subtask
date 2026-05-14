@@ -17,6 +17,7 @@ import (
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/logging"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
@@ -42,7 +43,21 @@ type SendCmd struct {
 
 	// Internal: injected harness for testing
 	testHarness harness.Harness
+
+	// dispatchDepth counts how many auto-advance rounds have chained
+	// within a single user-level `subtask send`. Routine branches can
+	// loop back (e.g. needs_more_data: true on the produced artifact
+	// keeps re-entering the same step), so the recursion is NOT bounded
+	// by step count in general. Cap with autoDispatchCap.
+	dispatchDepth int
 }
+
+// autoDispatchCap bounds the number of routine auto-advance rounds that
+// can chain inside a single `subtask send` invocation. The cap is a
+// safety net for loopback misuse, not a feature limit — if a routine
+// legitimately needs more iterations, the lead can re-run `subtask
+// send` to continue.
+const autoDispatchCap = 25
 
 // WithHarness returns a copy with injected harness for testing.
 func (c *SendCmd) WithHarness(h harness.Harness) *SendCmd {
@@ -180,6 +195,7 @@ func (c *SendCmd) Run() error {
 					"error":         errMsg,
 					"error_message": errMsg,
 					"tool_calls":    int(runToolCalls.Load()),
+					"stage":         tail.Stage,
 				}),
 				TS: finished,
 			})
@@ -335,6 +351,7 @@ func (c *SendCmd) Run() error {
 				"outcome":       "error",
 				"error":         errMsg,
 				"error_message": errMsg,
+				"stage":         tail.Stage,
 			}),
 			TS: finished,
 		})
@@ -365,6 +382,13 @@ func (c *SendCmd) Run() error {
 	changedFiles := ChangedTaskFiles(sharedBefore, sharedAfter)
 
 	// Success: append worker message + finish event.
+	//
+	// Stamp the stage active when the worker ran on worker.finished. The
+	// routine auto-advance below moves t.Stage, so by the time `subtask
+	// unread` evaluates the notification policy, tail.Stage is already
+	// past the silent step. Recording the stage at finish time lets the
+	// unread reader evaluate notify: false / surface: false against the
+	// stage the reply ACTUALLY belongs to, not the post-advance stage.
 	_ = history.Append(c.Task, history.Event{
 		Type:    "message",
 		Role:    "worker",
@@ -378,6 +402,7 @@ func (c *SendCmd) Run() error {
 			"duration_ms": durationMS,
 			"tool_calls":  int(runToolCalls.Load()),
 			"outcome":     "replied",
+			"stage":       tail.Stage,
 		}),
 		TS: finished,
 	})
@@ -399,11 +424,54 @@ func (c *SendCmd) Run() error {
 		return st.Save(c.Task)
 	})
 
-	// Auto-advance stage if the current stage has advance: auto. Runs after the
-	// cleanup block so transitionStage layers next-stage state (adapter swap,
-	// session clear) on top of the just-committed run's session/adapter — not
-	// the other way around.
-	if wf, wfErr := workflow.LoadFromTask(c.Task); wfErr == nil && wf != nil {
+	// Auto-advance stage/step if the current node has advance: auto. Runs
+	// after the cleanup block so transition layers next-step state (adapter
+	// swap, session clear) on top of the just-committed run's
+	// session/adapter — not the other way around.
+	//
+	// Routine and workflow detection are mutually exclusive: a task that
+	// sets `routine:` in frontmatter routes through pkg/routine; everything
+	// else stays on the workflow path (byte-identical behavior).
+	if t.Routine != "" {
+		r, rErr := routine.LoadByName(t.Routine)
+		if rErr != nil {
+			return rErr
+		}
+		currentStep := tail.Stage
+		if currentStep == "" {
+			currentStep = r.EntryStep()
+		}
+		adv, advErr := routine.HandleAutoAdvance(c.Task, r, currentStep, cfg, finished)
+		if advErr != nil {
+			return advErr
+		}
+		if adv.Dispatch {
+			// Re-enter SendCmd for the new step. Each dispatch is a full
+			// worker round-trip, but routine branches support loopbacks
+			// (a step can have a `branches:` edge back to itself), so the
+			// chain is NOT bounded by step count. The cap protects against
+			// a runaway loop where the produced artifact keeps satisfying
+			// the loopback predicate.
+			if c.dispatchDepth+1 >= autoDispatchCap {
+				return fmt.Errorf("auto-advance dispatch limit reached (%d rounds in a single send) — routine may be stuck in a loop; inspect the produced artifact and re-run `subtask send %s` to continue if intentional, or fix the loopback condition", autoDispatchCap, c.Task)
+			}
+			// Propagate user-set output mode across the recursion. Quiet
+			// is the only field of c that carries past a single round
+			// — Adapter/Model/etc are deliberately not propagated so a
+			// later routine step's preset binding (or the task's
+			// adapter snapshot) wins over a one-shot CLI override.
+			// PinnedBase only affects first send, so it's irrelevant
+			// for the auto-advance path (branch already exists).
+			next := &SendCmd{
+				Task:        c.Task,
+				Prompt:      adv.DispatchPrompt,
+				Quiet:       c.Quiet,
+				testHarness: c.testHarness,
+			}
+			next.dispatchDepth = c.dispatchDepth + 1
+			return next.Run()
+		}
+	} else if wf, wfErr := workflow.LoadFromTask(c.Task); wfErr == nil && wf != nil {
 		currentStage := tail.Stage
 		if currentStage == "" {
 			currentStage = wf.FirstStage()

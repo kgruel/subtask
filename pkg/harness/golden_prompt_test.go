@@ -359,6 +359,168 @@ func TestBuildPrompt_NoAgentBlockWhenUnset(t *testing.T) {
 	require.NotContains(t, got, "## Agent", "## Agent must be omitted when Task.Agent is empty")
 }
 
+// --- Routine-aware prompt assembly -------------------------------------------
+
+func TestBuildPrompt_RoutineDefaultPromptReplacesWorkerMD(t *testing.T) {
+	// When t.Routine is set, the `## Project` block must source from
+	// routine.default_prompt — even if WORKER.md is present, the routine
+	// path ignores it. This is the load-bearing decision documented in
+	// docs/dev/_audit-skill-workflow-primitives.md.
+	env := testutil.NewTestEnv(t, 0)
+	require.NoError(t, os.WriteFile(filepath.Join(env.RootDir, ".subtask", "WORKER.md"),
+		[]byte("Should be ignored for routine tasks."), 0o644))
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "flow.yaml"), []byte(
+		`name: flow
+default_prompt:
+  text: Routine project brief — be terse.
+steps:
+  - id: plan
+    advance: auto
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	tk := &task.Task{
+		Name:        "rt/project",
+		Title:       "Routine project block",
+		BaseBranch:  "main",
+		Routine:     "flow",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
+	require.Contains(t, got, "## Project\n", "## Project header must be present")
+	require.Contains(t, got, "Routine project brief", "default_prompt body must appear")
+	require.NotContains(t, got, "Should be ignored", "WORKER.md must NOT leak into routine prompts")
+}
+
+func TestBuildPrompt_RoutineNoDefaultPromptNoProjectBlock(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	// WORKER.md exists but must be ignored — routine path skips it.
+	require.NoError(t, os.WriteFile(filepath.Join(env.RootDir, ".subtask", "WORKER.md"),
+		[]byte("Should be ignored."), 0o644))
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "noProj.yaml"), []byte(
+		`name: noProj
+steps:
+  - id: plan
+    advance: auto
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	tk := &task.Task{
+		Name:        "rt/no-project",
+		Title:       "Routine without default_prompt",
+		BaseBranch:  "main",
+		Routine:     "noProj",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Project", "no ## Project block when routine omits default_prompt")
+}
+
+func TestBuildPrompt_RoutineAgentPerStep(t *testing.T) {
+	// Routine tasks pick the agent from the current step (not t.Agent).
+	env := testutil.NewTestEnv(t, 0)
+
+	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
+		`preset:
+  adapter: codex
+  model: gpt-5
+prompt:
+  text: |
+    You are the planner. Read the spec, write PLAN.md.
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "reviewer.yaml"), []byte(
+		`preset:
+  adapter: codex
+  model: gpt-5
+prompt:
+  text: |
+    You are the reviewer. Inspect; do not modify files.
+`), 0o644))
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "perStep.yaml"), []byte(
+		`name: perStep
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: review
+    agent: reviewer
+    advance: auto
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	tk := &task.Task{
+		Name:        "rt/per-step",
+		Title:       "Routine per-step agent",
+		BaseBranch:  "main",
+		Routine:     "perStep",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	gotPlan, err := BuildPrompt(tk, "/tmp/ws", false, "plan", "Plan.", nil)
+	require.NoError(t, err)
+	require.Contains(t, gotPlan, "You are the planner.", "plan step should inject the planner agent's prompt")
+	require.NotContains(t, gotPlan, "You are the reviewer.")
+
+	gotReview, err := BuildPrompt(tk, "/tmp/ws", false, "review", "Review.", nil)
+	require.NoError(t, err)
+	require.Contains(t, gotReview, "You are the reviewer.")
+	require.NotContains(t, gotReview, "You are the planner.")
+}
+
+func TestBuildPrompt_RoutinePresetOnlyStepHasNoAgentBlock(t *testing.T) {
+	// A routine step that names only a preset (no agent:) must produce
+	// NO `## Agent` block — t.Agent is not a fallback for routine tasks.
+	env := testutil.NewTestEnv(t, 0)
+	_ = env
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "presetOnly.yaml"), []byte(
+		`name: presetOnly
+steps:
+  - id: impl
+    preset: opus-high
+    advance: auto
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	tk := &task.Task{
+		Name:        "rt/preset-only",
+		Title:       "Routine preset-only step",
+		BaseBranch:  "main",
+		Routine:     "presetOnly",
+		Agent:       "should-not-load", // routine ignores t.Agent
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Build.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Agent", "preset-only step must not emit ## Agent block")
+}
+
 func TestBuildPrompt_AgentLoadFailurePropagates(t *testing.T) {
 	// Missing agent file → BuildPrompt returns an actionable error
 	// citing the expected path.

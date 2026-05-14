@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/index"
 	"github.com/kgruel/subtask/pkg/workflow"
@@ -16,6 +17,9 @@ type TaskDetail struct {
 	State        *task.State
 	ProgressMeta *task.Progress
 	Workflow     *workflow.Workflow
+	// Routine is non-nil for routine-driven tasks (Task.Routine != "").
+	// Mutually exclusive with Workflow at the source — draft refuses both.
+	Routine *routine.Routine
 
 	TaskStatus   task.TaskStatus
 	WorkerStatus task.WorkerStatus
@@ -92,8 +96,21 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		}
 	}
 
-	// Workflow for this task, if any.
-	if wf, err := workflow.LoadFromTask(taskName); err == nil {
+	// Workflow OR routine — never both. The SQLite index projection
+	// doesn't carry t.Routine (only the disk-resident TASK.md does), so
+	// look it up via task.Load before deciding which path to render.
+	routineName := t.Routine
+	if routineName == "" {
+		if diskT, err := task.Load(taskName); err == nil && diskT.Routine != "" {
+			routineName = diskT.Routine
+			t.Routine = diskT.Routine
+		}
+	}
+	if routineName != "" {
+		if r, err := routine.LoadByName(routineName); err == nil {
+			d.Routine = r
+		}
+	} else if wf, err := workflow.LoadFromTask(taskName); err == nil {
 		d.Workflow = wf
 	}
 

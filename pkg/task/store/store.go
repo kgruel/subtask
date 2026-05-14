@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kgruel/subtask/pkg/git"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/index"
@@ -291,8 +292,21 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		view.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 	}
 
-	// Workflow for this task, if any.
-	if wf, err := workflow.LoadFromTask(name); err == nil {
+	// Workflow OR routine — never both. The SQLite index projection
+	// doesn't carry t.Routine; read TASK.md from disk to recover it
+	// before deciding which path to render. Mirrors gather.Detail.
+	routineName := t.Routine
+	if routineName == "" {
+		if diskT, err := task.Load(name); err == nil && diskT.Routine != "" {
+			routineName = diskT.Routine
+			t.Routine = diskT.Routine
+		}
+	}
+	if routineName != "" {
+		if r, err := routine.LoadByName(routineName); err == nil {
+			view.Routine = r
+		}
+	} else if wf, err := workflow.LoadFromTask(name); err == nil {
 		view.Workflow = wf
 	}
 

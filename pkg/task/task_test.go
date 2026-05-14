@@ -60,6 +60,49 @@ func TestTaskSaveLoad_AgentRoundTrip(t *testing.T) {
 	require.Equal(t, "planner", out.Agent)
 }
 
+func TestTaskSaveLoad_RoutineRoundTrip(t *testing.T) {
+	origDir, _ := os.Getwd()
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	in := &Task{
+		Name:        "test/routine",
+		Title:       "Title",
+		BaseBranch:  "main",
+		Routine:     "jira-ticket",
+		Description: "Description",
+	}
+	require.NoError(t, in.Save())
+
+	raw, err := os.ReadFile(in.Path())
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "routine: jira-ticket")
+
+	out, err := Load(in.Name)
+	require.NoError(t, err)
+	require.Equal(t, "jira-ticket", out.Routine)
+}
+
+func TestTaskSave_OmitsRoutineWhenEmpty(t *testing.T) {
+	origDir, _ := os.Getwd()
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	in := &Task{
+		Name:        "test/no-routine",
+		Title:       "Title",
+		BaseBranch:  "main",
+		Description: "Description",
+	}
+	require.NoError(t, in.Save())
+
+	raw, err := os.ReadFile(in.Path())
+	require.NoError(t, err)
+	require.False(t, strings.Contains(string(raw), "routine:"), "frontmatter must omit routine: when Task.Routine is empty")
+}
+
 func TestTaskSave_OmitsAgentWhenEmpty(t *testing.T) {
 	origDir, _ := os.Getwd()
 	tmpDir := t.TempDir()

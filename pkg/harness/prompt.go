@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kgruel/subtask/pkg/agent"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workflow"
 )
@@ -99,24 +100,72 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		sb.WriteString("- If unsure, run `pwd` and `git rev-parse --show-toplevel` — both should match cwd.\n")
 	}
 
-	// Project-wide worker brief, if .subtask/WORKER.md exists. This is project
-	// context every worker should carry — regen recipes, commit conventions,
-	// "architecture tests are load-bearing" — distinct from CLAUDE.md (which
-	// targets the lead) and from TASK.md (per-task).
-	if data, err := os.ReadFile(filepath.Join(task.ProjectDirAbs(), "WORKER.md")); err == nil {
-		body := strings.TrimSpace(string(data))
+	// Routine vs workflow dispatch.
+	//
+	// Routine tasks (t.Routine != ""): the `## Project` block sources
+	// from routine.default_prompt (not .subtask/WORKER.md), and the
+	// `## Agent` block sources from the current routine step's `agent:`
+	// (not t.Agent). WORKER.md is ignored for routine tasks — they live
+	// under a different project-context anchor by design.
+	//
+	// Non-routine tasks: existing paths unchanged (WORKER.md + t.Agent).
+	var rt *routine.Routine
+	if t.Routine != "" {
+		r, err := routine.LoadByName(t.Routine)
+		if err != nil {
+			return "", err
+		}
+		rt = r
+	}
+
+	if rt != nil {
+		// `## Project` from routine.default_prompt.
+		body, err := rt.ResolveDefaultPromptText()
+		if err != nil {
+			return "", err
+		}
+		body = strings.TrimSpace(body)
 		if body != "" {
 			sb.WriteString("\n## Project\n")
 			sb.WriteString(body)
 			sb.WriteString("\n")
 		}
+	} else {
+		// Project-wide worker brief, if .subtask/WORKER.md exists. This is
+		// project context every worker should carry — regen recipes, commit
+		// conventions, "architecture tests are load-bearing" — distinct from
+		// CLAUDE.md (which targets the lead) and from TASK.md (per-task).
+		if data, err := os.ReadFile(filepath.Join(task.ProjectDirAbs(), "WORKER.md")); err == nil {
+			body := strings.TrimSpace(string(data))
+			if body != "" {
+				sb.WriteString("\n## Project\n")
+				sb.WriteString(body)
+				sb.WriteString("\n")
+			}
+		}
 	}
 
-	// Agent role prompt, if the task references one. Re-resolved every
-	// build so prompt-file edits land without redrafting. Layering:
-	// routine.default_prompt (future) → agent.prompt → per-task message.
-	if t.Agent != "" {
-		ag, err := agent.LoadByName(t.Agent)
+	// Agent role prompt. Re-resolved every build so prompt-file edits
+	// land without redrafting. Layering: routine.default_prompt →
+	// agent.prompt → per-task message.
+	//
+	// Routine tasks pick the agent per step (rt.GetStep(stage).Agent).
+	// A preset-only step (no agent) emits NO `## Agent` block — t.Agent
+	// is not a fallback for routine tasks.
+	agentName := ""
+	if rt != nil {
+		activeStep := stage
+		if activeStep == "" {
+			activeStep = rt.EntryStep()
+		}
+		if s := rt.GetStep(activeStep); s != nil {
+			agentName = s.Agent
+		}
+	} else {
+		agentName = t.Agent
+	}
+	if agentName != "" {
+		ag, err := agent.LoadByName(agentName)
 		if err != nil {
 			return "", err
 		}
@@ -139,24 +188,19 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		sb.WriteString("\n")
 	}
 
-	// Workflow instructions (workflow-wide, then per-stage if any)
-	if wf, err := workflow.LoadFromTask(t.Name); err == nil && wf != nil {
-		if wf.Instructions.Worker != "" {
-			sb.WriteString("\n## Workflow\n")
-			sb.WriteString(strings.TrimSpace(wf.Instructions.Worker))
-			sb.WriteString("\n")
+	// Routine per-step worker_instructions / worker_context, when in a
+	// routine task. Mirrors the workflow stage block below but reads
+	// from the current routine step.
+	if rt != nil {
+		activeStep := stage
+		if activeStep == "" {
+			activeStep = rt.EntryStep()
 		}
-		// Empty stage means "implicit first stage" — same convention as
-		// cmd/subtask/stage.go uses when no stage.changed event has fired yet.
-		activeStage := stage
-		if activeStage == "" {
-			activeStage = wf.FirstStage()
-		}
-		if s := wf.GetStage(activeStage); s != nil {
+		if s := rt.GetStep(activeStep); s != nil {
 			wi := strings.TrimSpace(s.WorkerInstructions)
 			wc := strings.TrimSpace(s.WorkerContext)
 			if wi != "" || wc != "" {
-				fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStage)
+				fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStep)
 				if wi != "" {
 					sb.WriteString(wi)
 					sb.WriteString("\n")
@@ -167,6 +211,42 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 					}
 					sb.WriteString(wc)
 					sb.WriteString("\n")
+				}
+			}
+		}
+	}
+
+	// Workflow instructions (workflow-wide, then per-stage if any). Skipped
+	// for routine tasks — they don't ship a WORKFLOW.yaml.
+	if rt == nil {
+		if wf, err := workflow.LoadFromTask(t.Name); err == nil && wf != nil {
+			if wf.Instructions.Worker != "" {
+				sb.WriteString("\n## Workflow\n")
+				sb.WriteString(strings.TrimSpace(wf.Instructions.Worker))
+				sb.WriteString("\n")
+			}
+			// Empty stage means "implicit first stage" — same convention as
+			// cmd/subtask/stage.go uses when no stage.changed event has fired yet.
+			activeStage := stage
+			if activeStage == "" {
+				activeStage = wf.FirstStage()
+			}
+			if s := wf.GetStage(activeStage); s != nil {
+				wi := strings.TrimSpace(s.WorkerInstructions)
+				wc := strings.TrimSpace(s.WorkerContext)
+				if wi != "" || wc != "" {
+					fmt.Fprintf(&sb, "\n## Stage: %s\n", activeStage)
+					if wi != "" {
+						sb.WriteString(wi)
+						sb.WriteString("\n")
+					}
+					if wc != "" {
+						if wi != "" {
+							sb.WriteString("\n")
+						}
+						sb.WriteString(wc)
+						sb.WriteString("\n")
+					}
 				}
 			}
 		}

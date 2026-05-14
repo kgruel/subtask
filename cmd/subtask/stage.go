@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/render"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
@@ -40,81 +40,47 @@ type stageTransitionResult struct {
 }
 
 // transitionStage validates the target stage's preset, updates TASK.md and
-// state if the adapter changes, and appends a stage.changed event. It takes
-// its own lock internally and is safe to call from both StageCmd and the
-// send.go auto-advance path.
+// state if the adapter changes, and appends a stage.changed event. It is
+// safe to call from both StageCmd and the send.go auto-advance path.
+//
+// Workflow-specific wrapper: resolves the to-stage preset by name and
+// supplies a from-stage resolver to workspace.ApplyStageTransition,
+// which reads the raw fromStage from history.Tail INSIDE the lock so
+// concurrent transitions can't both observe a stale fromStage.
 func transitionStage(taskName, toStage string, cfg *workspace.Config, wf *workflow.Workflow, ts time.Time) (stageTransitionResult, error) {
 	var result stageTransitionResult
 	result.ToStage = toStage
 
-	err := task.WithLock(taskName, func() error {
-		state, _ := task.LoadState(taskName)
-
-		tail, _ := history.Tail(taskName)
-		fromStage := tail.Stage
-		if fromStage == "" {
-			fromStage = wf.FirstStage()
+	var toPreset *workspace.Preset
+	toPresetName := ""
+	if newStage := wf.GetStage(toStage); newStage != nil && newStage.Preset != "" {
+		p, ok := cfg.Presets[newStage.Preset]
+		if !ok {
+			return result, fmt.Errorf("workflow stage %q references unknown preset %q\n\nAvailable: %s",
+				toStage, newStage.Preset, workspace.PresetNames(cfg))
 		}
-		result.FromStage = fromStage
+		toPreset = &p
+		toPresetName = newStage.Preset
+		result.ToPreset = newStage.Preset
+	}
 
-		fromPreset := ""
-		if fromS := wf.GetStage(fromStage); fromS != nil {
-			fromPreset = fromS.Preset
+	resolveFrom := func(raw string) workspace.FromState {
+		if raw == "" {
+			raw = wf.FirstStage()
 		}
-
-		// Harness swap: if the new stage has a preset binding in the workflow,
-		// resolve it and update the task's locked harness fields. Clear the
-		// session if the adapter changes — a fresh session on the new adapter
-		// reads the workspace, PLAN.md, and PROGRESS.json for cross-stage
-		// context (file-based collaboration; see design principle #5).
-		newStage := wf.GetStage(toStage)
-		if newStage != nil && newStage.Preset != "" {
-			p, ok := cfg.Presets[newStage.Preset]
-			if !ok {
-				return fmt.Errorf("workflow stage %q references unknown preset %q\n\nAvailable: %s",
-					toStage, newStage.Preset, workspace.PresetNames(cfg))
-			}
-			result.ToPreset = newStage.Preset
-
-			t, err := task.Load(taskName)
-			if err != nil {
-				return err
-			}
-			oldAdapter := t.Adapter
-			if p.Adapter != "" {
-				t.Adapter = p.Adapter
-			}
-			if p.Provider != "" {
-				t.Provider = p.Provider
-			}
-			if p.Model != "" {
-				t.Model = p.Model
-			}
-			if p.Reasoning != "" {
-				t.Reasoning = p.Reasoning
-			}
-			if err := t.Save(); err != nil {
-				return fmt.Errorf("failed to save task after harness swap: %w", err)
-			}
-
-			if state != nil && p.Adapter != "" && p.Adapter != oldAdapter {
-				state.SessionID = ""
-				state.Adapter = p.Adapter
-				if err := state.Save(taskName); err != nil {
-					return fmt.Errorf("failed to clear session after adapter swap: %w", err)
-				}
-			}
+		preset := ""
+		if s := wf.GetStage(raw); s != nil {
+			preset = s.Preset
 		}
+		return workspace.FromState{Stage: raw, PresetName: preset}
+	}
 
-		data, _ := json.Marshal(map[string]any{
-			"from":        fromStage,
-			"to":          toStage,
-			"from_preset": fromPreset,
-			"to_preset":   result.ToPreset,
-		})
-		return history.AppendLocked(taskName, history.Event{TS: ts, Type: "stage.changed", Data: data})
-	})
-	return result, err
+	from, err := workspace.ApplyStageTransition(taskName, toStage, toPresetName, toPreset, ts, resolveFrom)
+	if err != nil {
+		return result, err
+	}
+	result.FromStage = from.Stage
+	return result, nil
 }
 
 // Run executes the stage command.
@@ -129,13 +95,24 @@ func (c *StageCmd) Run() error {
 		return err
 	}
 
+	// Routine tasks take a different path: gate-option resolution and
+	// step-id matching live in pkg/routine. Branch early so the rest of
+	// the function (workflow flavor) stays unchanged.
+	t, err := task.Load(c.Task)
+	if err != nil {
+		return err
+	}
+	if t.Routine != "" {
+		return c.runRoutineStage(t, cfg)
+	}
+
 	// Load workflow from task folder
 	wf, err := workflow.LoadFromTask(c.Task)
 	if err != nil {
 		return fmt.Errorf("failed to load workflow: %w", err)
 	}
 	if wf == nil {
-		return fmt.Errorf("task %q has no workflow\n\nStage is only for tasks created with --workflow", c.Task)
+		return fmt.Errorf("task %q has no workflow\n\nStage is only for tasks created with --workflow or --routine", c.Task)
 	}
 
 	// Validate stage exists
@@ -218,6 +195,158 @@ func (c *StageCmd) Run() error {
 	}
 
 	return nil
+}
+
+// runRoutineStage handles `subtask stage` for routine-driven tasks.
+//
+// Resolution order for the positional <stage> arg:
+//  1. If the current step is `kind: gate`, match arg against option
+//     names first. Match → advance to that option's `to:` step.
+//  2. Otherwise, match arg against step ids in the routine.
+//  3. Else error, listing both option names AND option `to:` targets
+//     when applicable.
+func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
+	r, err := routine.LoadByName(t.Routine)
+	if err != nil {
+		return err
+	}
+
+	tail, _ := history.Tail(c.Task)
+	currentID := tail.Stage
+	if currentID == "" {
+		currentID = r.EntryStep()
+	}
+	current := r.GetStep(currentID)
+
+	// Resolve the requested name → target step id.
+	target, err := resolveRoutineStageArg(r, current, c.Stage)
+	if err != nil {
+		return err
+	}
+
+	// Guard: fail if a worker is currently running.
+	if err := task.WithLock(c.Task, func() error {
+		state, _ := task.LoadState(c.Task)
+		if state != nil && state.SupervisorPID != 0 && !state.IsStale() {
+			return fmt.Errorf("task %q is working\n\nWait for it to finish first", c.Task)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	targetStep := r.GetStep(target)
+	if targetStep == nil {
+		return fmt.Errorf("routine %q: target step %q not found", r.Name, target)
+	}
+
+	// Resolve preset for the target step (preset-swap + session-clear
+	// semantics are identical to workflow stage transitions; share the
+	// same helper). The from-step is resolved by closure inside
+	// ApplyStageTransition's lock so a concurrent routine auto-advance
+	// (from a worker reply that just landed) can't observe the same
+	// stale fromStage.
+	toPreset, toPresetName, err := routine.ResolveStepPreset(targetStep, cfg)
+	if err != nil {
+		return err
+	}
+	resolveFrom := func(raw string) workspace.FromState {
+		if raw == "" {
+			raw = r.EntryStep()
+		}
+		preset := ""
+		if s := r.GetStep(raw); s != nil {
+			preset = routine.StepPresetName(s)
+		}
+		return workspace.FromState{Stage: raw, PresetName: preset}
+	}
+	_ = current // resolveFrom re-derives from history.Tail; outside-lock `current` is used only for the gate-arg resolution above.
+
+	ts := time.Now().UTC()
+	from, err := workspace.ApplyStageTransition(c.Task, target, toPresetName, toPreset, ts, resolveFrom)
+	if err != nil {
+		return err
+	}
+	// Use the lock-observed from for the display header below.
+	currentID = from.Stage
+
+	// Note: routine.surfaced is intentionally NOT emitted from the
+	// manual-advance path. The runner emits it on auto-advance so the
+	// lead sees the handoff; when the lead is the one driving the
+	// transition (this code path), they've already engaged with the
+	// task and surfacing it as unread would be confusing.
+
+	// Print result.
+	header := fmt.Sprintf("%s: %s", c.Task, target)
+	if currentID != "" && currentID != target {
+		header = fmt.Sprintf("%s: %s → %s", c.Task, currentID, target)
+	}
+	if toPresetName != "" {
+		header += fmt.Sprintf(" | preset: %s", toPresetName)
+	}
+	printSuccess(header)
+
+	// Auto-dispatch when the new step is agent- or worker_instructions-driven,
+	// unless --no-send. Gate and terminal steps never auto-dispatch.
+	workerInstructions := strings.TrimSpace(targetStep.WorkerInstructions)
+	hasAgent := targetStep.Agent != ""
+	extraPrompt := strings.TrimSpace(c.Prompt)
+	regular := targetStep.Kind == ""
+	shouldDispatch := !c.NoSend && regular && (hasAgent || workerInstructions != "" || extraPrompt != "")
+
+	if shouldDispatch {
+		leadPrompt := extraPrompt
+		dispatchSource := "prompt"
+		switch {
+		case (hasAgent || workerInstructions != "") && extraPrompt != "":
+			dispatchSource = "step + prompt"
+		case workerInstructions != "" || hasAgent:
+			leadPrompt = fmt.Sprintf("Proceed with the %s step.", targetStep.ID)
+			dispatchSource = "step"
+		}
+		preview := []rune(leadPrompt)
+		if len(preview) > 60 {
+			preview = append(preview[:60], []rune("...")...)
+		}
+		fmt.Printf("\nWorker dispatched (%s): %q\n", dispatchSource, string(preview))
+		return (&SendCmd{Task: c.Task, Prompt: leadPrompt, testHarness: c.testHarness}).Run()
+	}
+
+	return nil
+}
+
+// resolveRoutineStageArg resolves the user's `subtask stage <task> <arg>`
+// positional. See runRoutineStage for the order.
+func resolveRoutineStageArg(r *routine.Routine, current *routine.Step, arg string) (string, error) {
+	if current != nil && current.Kind == routine.KindGate {
+		for _, opt := range current.Options {
+			if opt.Name == arg {
+				return opt.To, nil
+			}
+		}
+	}
+
+	if s := r.GetStep(arg); s != nil {
+		return s.ID, nil
+	}
+
+	// Error message lists both option names and reachable destinations
+	// when on a gate, plus all step ids — gives the lead a complete
+	// recovery surface in one error message.
+	var optNames, optTargets []string
+	if current != nil && current.Kind == routine.KindGate {
+		for _, opt := range current.Options {
+			optNames = append(optNames, opt.Name)
+			optTargets = append(optTargets, opt.To)
+		}
+	}
+	stepIDs := r.StepIDs()
+
+	if len(optNames) > 0 {
+		return "", fmt.Errorf("unknown stage %q\n\nGate options: %s\nGate targets: %s\nAll step ids: %s",
+			arg, strings.Join(optNames, ", "), strings.Join(optTargets, ", "), strings.Join(stepIDs, ", "))
+	}
+	return "", fmt.Errorf("unknown step %q\n\nValid step ids: %s", arg, strings.Join(stepIDs, ", "))
 }
 
 // printStageGuidance prints the guidance for a stage.

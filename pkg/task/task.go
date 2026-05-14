@@ -21,6 +21,7 @@ type Task struct {
 	Model       string // Optional: override model for this task
 	Reasoning   string // Optional: override reasoning (adapter-dependent) for this task
 	Agent       string // Optional: agent name; resolved against .subtask/agents/<name>.yaml at send/stage time
+	Routine     string // Optional: routine name; resolved against .subtask/routines/<name>.yaml. Mutually exclusive with a workflow (no <task>/WORKFLOW.yaml).
 	Schema      int    // Task schema version (0 if missing)
 	Description string // Optional task description/context (not the prompt)
 }
@@ -36,6 +37,7 @@ type frontmatter struct {
 	Model      string `yaml:"model,omitempty"`
 	Reasoning  string `yaml:"reasoning,omitempty"`
 	Agent      string `yaml:"agent,omitempty"`
+	Routine    string `yaml:"routine,omitempty"`
 }
 
 // Save writes the task to .subtask/tasks/<name>/TASK.md.
@@ -55,6 +57,7 @@ func (t *Task) Save() error {
 		Model:      t.Model,
 		Reasoning:  t.Reasoning,
 		Agent:      t.Agent,
+		Routine:    t.Routine,
 	}
 
 	var buf bytes.Buffer
@@ -116,6 +119,7 @@ func Load(name string) (*Task, error) {
 		Model:       fm.Model,
 		Reasoning:   fm.Reasoning,
 		Agent:       fm.Agent,
+		Routine:     fm.Routine,
 		Description: strings.TrimSpace(prompt),
 	}, nil
 }
