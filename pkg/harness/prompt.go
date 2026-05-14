@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workflow"
 )
@@ -38,7 +39,7 @@ func FormatRepoStatusWarning(baseBranch string, status *RepoStatus) string {
 // non-empty and the workflow defines worker_instructions for that stage, the
 // instructions are appended after the workflow.worker block. Pass "" if the
 // task has no workflow or no recorded stage transitions yet.
-func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage string, prompt string, status *RepoStatus) string {
+func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage string, prompt string, status *RepoStatus) (string, error) {
 	var sb strings.Builder
 	taskDir := filepath.ToSlash(task.Dir(t.Name))
 
@@ -111,6 +112,26 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		}
 	}
 
+	// Agent role prompt, if the task references one. Re-resolved every
+	// build so prompt-file edits land without redrafting. Layering:
+	// routine.default_prompt (future) → agent.prompt → per-task message.
+	if t.Agent != "" {
+		ag, err := agent.LoadByName(t.Agent)
+		if err != nil {
+			return "", err
+		}
+		body, err := ag.ResolvePromptText()
+		if err != nil {
+			return "", err
+		}
+		body = strings.TrimSpace(body)
+		if body != "" {
+			sb.WriteString("\n## Agent\n")
+			sb.WriteString(body)
+			sb.WriteString("\n")
+		}
+	}
+
 	// Description
 	if t.Description != "" {
 		sb.WriteString("\n## Description\n")
@@ -154,5 +175,5 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 	// Separator and prompt
 	sb.WriteString("\n--------------------\n\n")
 	sb.WriteString(prompt)
-	return sb.String()
+	return sb.String(), nil
 }

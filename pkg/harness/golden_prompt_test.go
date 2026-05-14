@@ -29,7 +29,8 @@ func TestBuildPrompt_WorkspaceBlock(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws-block", false, "", "Implement.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws-block", false, "", "Implement.", nil)
+	require.NoError(t, err)
 
 	// Block is present and names the workspace, base branch, and task branch.
 	require.Contains(t, got, "## Workspace\n")
@@ -60,7 +61,8 @@ func TestBuildPrompt_NoWorkspaceBlockWhenEmpty(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "", false, "", "Implement.", nil)
+	got, err := BuildPrompt(tk, "", false, "", "Implement.", nil)
+	require.NoError(t, err)
 	require.NotContains(t, got, "## Workspace", "## Workspace must be omitted when workspace path is empty")
 }
 
@@ -79,7 +81,8 @@ func TestBuildPrompt_InjectsWorkerMD(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
 
 	require.Contains(t, got, "## Project\n", "expected ## Project section header")
 	require.Contains(t, got, "Always regenerate snapshots via UV_PYTHON")
@@ -111,7 +114,8 @@ stages:
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "implement", "Implement.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "implement", "Implement.", nil)
+	require.NoError(t, err)
 
 	require.Contains(t, got, "## Stage: implement", "stage header should be present")
 	require.Contains(t, got, "Commit your work when done.", "worker_context body should be injected")
@@ -128,7 +132,8 @@ func TestBuildPrompt_NoWorkerMDWhenAbsent(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
 	require.NotContains(t, got, "## Project", "## Project section should not appear when WORKER.md is absent")
 }
 
@@ -143,7 +148,8 @@ func TestGolden_BuildPrompt_BasicTask(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Please implement it.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Please implement it.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/basic.txt", got)
 }
 
@@ -159,7 +165,8 @@ func TestGolden_BuildPrompt_ContextSameWorkspace(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", true, "", "Continue.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", true, "", "Continue.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/context_same_workspace.txt", got)
 }
 
@@ -175,7 +182,8 @@ func TestGolden_BuildPrompt_ContextNewWorkspace(t *testing.T) {
 	}
 	require.NoError(t, tk.Save())
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Continue.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Continue.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/context_new_workspace.txt", got)
 }
 
@@ -191,7 +199,8 @@ func TestGolden_BuildPrompt_WithWorkflow(t *testing.T) {
 	require.NoError(t, tk.Save())
 	require.NoError(t, workflow.CopyToTask("default", tk.Name))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Implement as described.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement as described.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/with_workflow.txt", got)
 }
 
@@ -211,7 +220,8 @@ func TestGolden_BuildPrompt_WithExtraFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "PLAN.md"), []byte("# Plan\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "PROGRESS.json"), []byte("[]\n"), 0o644))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "", "Follow PLAN.md and update PROGRESS.json.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Follow PLAN.md and update PROGRESS.json.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/with_extra_files.txt", got)
 }
 
@@ -245,7 +255,8 @@ func TestGolden_BuildPrompt_StageWithWorkerInstructions(t *testing.T) {
 	taskDir := task.Dir(tk.Name)
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "review", "Review now.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "review", "Review now.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/stage_worker_instructions.txt", got)
 }
 
@@ -263,7 +274,8 @@ func TestGolden_BuildPrompt_StageWithoutWorkerInstructions(t *testing.T) {
 	taskDir := task.Dir(tk.Name)
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "implement", "Go.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "implement", "Go.", nil)
+	require.NoError(t, err)
 	testutil.AssertGolden(t, "testdata/prompt/stage_no_worker_instructions.txt", got)
 }
 
@@ -281,6 +293,87 @@ func TestBuildPrompt_UnknownStageDoesNotInject(t *testing.T) {
 	taskDir := task.Dir(tk.Name)
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "WORKFLOW.yaml"), []byte(workflowWithStageWorkerInstructions), 0o644))
 
-	got := BuildPrompt(tk, "/tmp/ws", false, "ghost-stage", "Run.", nil)
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "ghost-stage", "Run.", nil)
+	require.NoError(t, err)
 	require.NotContains(t, got, "## Stage:")
+}
+
+func TestBuildPrompt_InjectsAgent(t *testing.T) {
+	// When Task.Agent is set, a ## Agent block must appear between
+	// ## Project (WORKER.md) and ## Description, carrying the agent's
+	// resolved prompt text.
+	env := testutil.NewTestEnv(t, 0)
+
+	require.NoError(t, os.WriteFile(filepath.Join(env.RootDir, ".subtask", "WORKER.md"), []byte("Project brief."), 0o644))
+
+	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
+		`preset:
+  adapter: codex
+  model: gpt-5.5
+prompt:
+  text: |
+    You are the planner. Read the spec, write PLAN.md.
+`), 0o644))
+
+	tk := &task.Task{
+		Name:        "prompt/with-agent",
+		Title:       "Agent injection",
+		BaseBranch:  "main",
+		Agent:       "planner",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "## Agent\n", "## Agent header must be present")
+	require.Contains(t, got, "You are the planner.")
+
+	// Ordering: Project → Agent → Description.
+	projectIdx := strings.Index(got, "## Project")
+	agentIdx := strings.Index(got, "## Agent")
+	descIdx := strings.Index(got, "## Description")
+	require.Greater(t, agentIdx, projectIdx, "## Agent must follow ## Project")
+	require.Greater(t, descIdx, agentIdx, "## Description must follow ## Agent")
+}
+
+func TestBuildPrompt_NoAgentBlockWhenUnset(t *testing.T) {
+	// Backward-compat: a task without Task.Agent must produce no
+	// ## Agent block. Existing golden snapshots verify byte-identical
+	// output; this test is the local header-absent check.
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/no-agent",
+		Title:       "No agent",
+		BaseBranch:  "main",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Agent", "## Agent must be omitted when Task.Agent is empty")
+}
+
+func TestBuildPrompt_AgentLoadFailurePropagates(t *testing.T) {
+	// Missing agent file → BuildPrompt returns an actionable error
+	// citing the expected path.
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/missing-agent",
+		Title:       "Missing agent",
+		BaseBranch:  "main",
+		Agent:       "ghost",
+		Description: "Test.",
+	}
+	require.NoError(t, tk.Save())
+
+	_, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), ".subtask/agents/ghost.yaml")
 }

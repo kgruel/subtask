@@ -220,8 +220,13 @@ func (c *SendCmd) Run() error {
 		_ = h.MigrateSession(continueFrom, prevWorkspace, wsPath)
 	}
 
-	// Build prompt.
-	fullPrompt := harness.BuildPrompt(t, wsPath, false, tail.Stage, prompt, repoStatus)
+	// Build prompt. A failure here (e.g. missing agent file) must route
+	// through the worker-failure cleanup below — prepareWorkspaceAndState
+	// has already claimed SupervisorPID and appended worker.started, so a
+	// bare return would leave the task stuck "running" until stale
+	// cleanup. We assign the error to runErr, skip h.Run, and let the
+	// existing failure path emit worker.finished + clear state.
+	fullPrompt, buildErr := harness.BuildPrompt(t, wsPath, false, tail.Stage, prompt, repoStatus)
 
 	// Reset start time for the worker run (exclude workspace preparation).
 	startedUnixNano.Store(time.Now().UTC().UnixNano())
@@ -229,40 +234,45 @@ func (c *SendCmd) Run() error {
 	// Snapshot shared files before execution (exclude history.jsonl).
 	sharedBefore := SnapshotTaskFiles(c.Task)
 
-	c.info(fmt.Sprintf("Sending to task: %s", c.Task))
-	c.info("[Waiting for worker...]")
+	var result *harness.Result
+	var runErr error
+	if buildErr != nil {
+		runErr = buildErr
+	} else {
+		c.info(fmt.Sprintf("Sending to task: %s", c.Task))
+		c.info("[Waiting for worker...]")
 
-	// runToolCalls is tracked atomically for accurate interruption accounting.
+		// runToolCalls is tracked atomically for accurate interruption accounting.
+		callbacks := harness.Callbacks{
+			OnToolCall: func(tm time.Time) {
+				runToolCalls.Add(1)
+				progress.ToolCalls++
+				progress.LastActive = tm
+				_ = progress.Save(c.Task)
+			},
+			OnSessionStart: func(sessionID string) {
+				_ = task.WithLock(c.Task, func() error {
+					st, _ := task.LoadState(c.Task)
+					if st == nil {
+						st = &task.State{}
+					}
+					st.SessionID = sessionID
+					st.Adapter = cfg.Adapter
+					return st.Save(c.Task)
+				})
+				_ = history.Append(c.Task, history.Event{
+					Type: "worker.session",
+					Data: mustJSON(map[string]any{
+						"action":     "started",
+						"harness":    cfg.Adapter,
+						"session_id": sessionID,
+					}),
+				})
+			},
+		}
 
-	callbacks := harness.Callbacks{
-		OnToolCall: func(tm time.Time) {
-			runToolCalls.Add(1)
-			progress.ToolCalls++
-			progress.LastActive = tm
-			_ = progress.Save(c.Task)
-		},
-		OnSessionStart: func(sessionID string) {
-			_ = task.WithLock(c.Task, func() error {
-				st, _ := task.LoadState(c.Task)
-				if st == nil {
-					st = &task.State{}
-				}
-				st.SessionID = sessionID
-				st.Adapter = cfg.Adapter
-				return st.Save(c.Task)
-			})
-			_ = history.Append(c.Task, history.Event{
-				Type: "worker.session",
-				Data: mustJSON(map[string]any{
-					"action":     "started",
-					"harness":    cfg.Adapter,
-					"session_id": sessionID,
-				}),
-			})
-		},
+		result, runErr = h.Run(context.Background(), wsPath, fullPrompt, continueFrom, callbacks)
 	}
-
-	result, runErr := h.Run(context.Background(), wsPath, fullPrompt, continueFrom, callbacks)
 	finished := time.Now().UTC()
 	started := time.Unix(0, startedUnixNano.Load()).UTC()
 	durationMS := int(finished.Sub(started).Milliseconds())

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/task"
@@ -31,6 +32,7 @@ type DraftCmd struct {
 	Workflow    string `help:"Workflow template to use (e.g., they-plan)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
 	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
+	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles preset + role prompt. Mutually exclusive with --preset"`
 }
 
 // Run executes the draft command.
@@ -62,17 +64,39 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("task name cannot contain \"--\" (used for path escaping)")
 	}
 
+	// --agent and --preset are mutually exclusive. An agent already
+	// bundles a preset; pairing them would silently shadow one or the
+	// other depending on the precedence chain. Reject before any
+	// resolution so the user sees the intent conflict, not a subtle
+	// behavioural diff.
+	if c.Agent != "" && c.Preset != "" {
+		return fmt.Errorf("--agent and --preset are mutually exclusive: an agent already bundles a preset.\n\nDrop one, or use explicit --adapter/--model flags to override an agent's preset")
+	}
+
 	// Resolve adapter/model/reasoning/workflow with this precedence (each layer
 	// only fills fields not already set by an earlier layer):
 	//   1. Explicit flags (--adapter/--model/--reasoning/--workflow) win.
-	//   2. --preset resolves the named preset.
-	//   3. The workflow's first stage preset fills remaining fields.
-	//   4. Anything still unset falls through to project then user config defaults.
+	//   2. --agent's preset (overlay via existing ApplyPreset).
+	//   3. --preset resolves the named preset.
+	//   4. The workflow's first stage preset fills remaining fields.
+	//   5. Anything still unset falls through to project then user config defaults.
 	resolvedAdapter := c.Adapter
 	resolvedProvider := c.Provider
 	resolvedModel := c.Model
 	resolvedReasoning := c.Reasoning
 	resolvedWorkflow := c.Workflow
+
+	if c.Agent != "" {
+		ag, err := agent.LoadByName(c.Agent)
+		if err != nil {
+			return err
+		}
+		p, err := resolveAgentPreset(ag, cfg)
+		if err != nil {
+			return err
+		}
+		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+	}
 
 	if c.Preset != "" {
 		p, ok := cfg.Presets[c.Preset]
@@ -121,6 +145,7 @@ func (c *DraftCmd) Run() error {
 		Provider:    resolvedProvider,
 		Model:       resolvedModel,
 		Reasoning:   resolvedReasoning,
+		Agent:       c.Agent,
 		Schema:      gitredesign.TaskSchemaVersion,
 	}
 
@@ -252,6 +277,21 @@ func unreadTaskNames(exclude string) []string {
 		}
 	}
 	return pending
+}
+
+// resolveAgentPreset converts an agent's preset declaration (string ref
+// OR inline block) into a workspace.Preset ready for ApplyPreset. String
+// refs are looked up against the merged cfg.Presets map so the resulting
+// overlay matches what `--preset <name>` would produce.
+func resolveAgentPreset(a *agent.Agent, cfg *workspace.Config) (workspace.Preset, error) {
+	if a.PresetInline != nil {
+		return *a.PresetInline, nil
+	}
+	p, ok := cfg.Presets[a.PresetName]
+	if !ok {
+		return workspace.Preset{}, fmt.Errorf("agent %q references unknown preset %q\n\nAvailable: %s", a.Name, a.PresetName, workspace.PresetNames(cfg))
+	}
+	return p, nil
 }
 
 // readStdinForDraft reads from stdin if data is piped/heredoc.

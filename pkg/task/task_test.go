@@ -2,6 +2,7 @@ package task
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,4 +34,47 @@ func TestTaskSaveLoad_IncludesModelAndReasoning(t *testing.T) {
 	require.Equal(t, in.Model, out.Model)
 	require.Equal(t, in.Reasoning, out.Reasoning)
 	require.Equal(t, in.Description, out.Description)
+}
+
+func TestTaskSaveLoad_AgentRoundTrip(t *testing.T) {
+	origDir, _ := os.Getwd()
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	in := &Task{
+		Name:        "test/agent",
+		Title:       "Title",
+		BaseBranch:  "main",
+		Agent:       "planner",
+		Description: "Description",
+	}
+	require.NoError(t, in.Save())
+
+	raw, err := os.ReadFile(in.Path())
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "agent: planner")
+
+	out, err := Load(in.Name)
+	require.NoError(t, err)
+	require.Equal(t, "planner", out.Agent)
+}
+
+func TestTaskSave_OmitsAgentWhenEmpty(t *testing.T) {
+	origDir, _ := os.Getwd()
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	in := &Task{
+		Name:        "test/no-agent",
+		Title:       "Title",
+		BaseBranch:  "main",
+		Description: "Description",
+	}
+	require.NoError(t, in.Save())
+
+	raw, err := os.ReadFile(in.Path())
+	require.NoError(t, err)
+	require.False(t, strings.Contains(string(raw), "agent:"), "frontmatter must omit agent: when Task.Agent is empty")
 }

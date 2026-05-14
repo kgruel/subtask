@@ -20,6 +20,7 @@ type Task struct {
 	Provider    string // Optional: override provider for this task (adapter-dependent)
 	Model       string // Optional: override model for this task
 	Reasoning   string // Optional: override reasoning (adapter-dependent) for this task
+	Agent       string // Optional: agent name; resolved against .subtask/agents/<name>.yaml at send/stage time
 	Schema      int    // Task schema version (0 if missing)
 	Description string // Optional task description/context (not the prompt)
 }
@@ -34,6 +35,7 @@ type frontmatter struct {
 	Provider   string `yaml:"provider,omitempty"`
 	Model      string `yaml:"model,omitempty"`
 	Reasoning  string `yaml:"reasoning,omitempty"`
+	Agent      string `yaml:"agent,omitempty"`
 }
 
 // Save writes the task to .subtask/tasks/<name>/TASK.md.
@@ -52,6 +54,7 @@ func (t *Task) Save() error {
 		Provider:   t.Provider,
 		Model:      t.Model,
 		Reasoning:  t.Reasoning,
+		Agent:      t.Agent,
 	}
 
 	var buf bytes.Buffer
@@ -112,6 +115,7 @@ func Load(name string) (*Task, error) {
 		Provider:    fm.Provider,
 		Model:       fm.Model,
 		Reasoning:   fm.Reasoning,
+		Agent:       fm.Agent,
 		Description: strings.TrimSpace(prompt),
 	}, nil
 }
