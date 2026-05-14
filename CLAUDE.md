@@ -97,7 +97,7 @@ Planning workflows add a plan stage: `plan → implement → review → ready`
 - `--workflow you-plan`: Lead drafts PLAN.md, worker reviews
 - `--workflow they-plan`: Worker drafts PLAN.md, lead reviews
 
-Workflows are project-extensible. Drop a YAML at `.subtask/workflows/<name>/WORKFLOW.yaml` to override an embedded one or add a new workflow. Stages can optionally bind a preset (see below) to swap the harness on stage transitions, and optionally set `worker_instructions` to inject a per-stage brief into the worker prompt (in contrast to `instructions`, which is rendered to the lead's terminal only).
+Workflows are project-extensible. Drop a YAML at `.subtask/workflows/<name>/WORKFLOW.yaml` to override an embedded one or add a new workflow. Stages can optionally bind a preset (see below) to swap the harness on stage transitions, and optionally set `worker_instructions` to inject a per-stage brief into the worker prompt (in contrast to `instructions`, which is rendered to the lead's terminal only). For passive reminders that should ride along with whatever the lead sends — without changing the stage's dispatch shape — use `worker_context:` instead; it injects into the same `## Stage:` block but does not trigger `subtask stage` auto-dispatch.
 
 ### Presets and Types (optional)
 

@@ -35,6 +35,16 @@ stages:
     instructions: Done.
 `
 
+const contextOnlyWorkflow = `name: context-only
+description: Workflow whose stage has worker_context (passive) but no worker_instructions
+stages:
+  - name: implement
+    worker_context: Commit your work when done.
+    instructions: Do the work.
+  - name: ready
+    instructions: Done.
+`
+
 func setupAutoSendEnv(t *testing.T) (*testutil.TestEnv, *workspace.Config) {
 	t.Helper()
 	env := testutil.NewTestEnv(t, 1)
@@ -69,6 +79,28 @@ func TestStage_AutoDispatchesWhenWorkerInstructionsSet(t *testing.T) {
 	// them in the user message.
 	require.Equal(t, 1, strings.Count(prompt, "Review the diff carefully and list any issues."),
 		"worker_instructions must not be duplicated")
+}
+
+func TestStage_WorkerContextDoesNotAutoDispatch(t *testing.T) {
+	env, _ := setupAutoSendEnv(t)
+	withOutputMode(t, false)
+
+	installCustomWorkflow(t, env, "context-only", contextOnlyWorkflow)
+
+	require.NoError(t, (&DraftCmd{
+		Task:        "ctx/passive",
+		Title:       "Context-only test",
+		Description: "Passive worker_context should not trigger dispatch",
+		Base:        "main",
+		Workflow:    "context-only",
+	}).Run())
+
+	mock := harness.NewMockHarness()
+	err := (&StageCmd{Task: "ctx/passive", Stage: "ready"}).WithHarness(mock).Run()
+	require.NoError(t, err)
+
+	require.Equal(t, 0, mock.RunCallCount(),
+		"worker_context must NOT trigger auto-dispatch on its own — only worker_instructions does")
 }
 
 func TestStage_PassiveWhenNoWorkerInstructions(t *testing.T) {

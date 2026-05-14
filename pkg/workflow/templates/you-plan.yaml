@@ -27,6 +27,8 @@ stages:
             `subtask send <task> "Plan approved. Implement it. Update PROGRESS.json as you go, commit when done."`
 
     - name: implement
+      worker_context: |
+          Commit your work when done.
       instructions: |
           Worker is implementing and updating PROGRESS.json.
 
