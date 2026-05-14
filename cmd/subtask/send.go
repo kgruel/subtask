@@ -20,6 +20,7 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/workflow"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -387,6 +388,24 @@ func (c *SendCmd) Run() error {
 		}
 		return st.Save(c.Task)
 	})
+
+	// Auto-advance stage if the current stage has advance: auto. Runs after the
+	// cleanup block so transitionStage layers next-stage state (adapter swap,
+	// session clear) on top of the just-committed run's session/adapter — not
+	// the other way around.
+	if wf, wfErr := workflow.LoadFromTask(c.Task); wfErr == nil && wf != nil {
+		currentStage := tail.Stage
+		if currentStage == "" {
+			currentStage = wf.FirstStage()
+		}
+		if st := wf.GetStage(currentStage); st != nil && st.Advance == "auto" {
+			if next := wf.NextStage(currentStage); next != "" {
+				if _, err := transitionStage(c.Task, next, cfg, wf, finished); err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 

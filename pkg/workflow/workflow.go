@@ -43,6 +43,17 @@ type Stage struct {
 	// `notify: false` marks the stage as plumbing. Use it on transitions like
 	// "commit your work" that don't need lead attention.
 	Notify *bool `yaml:"notify,omitempty"`
+	// Advance controls automatic stage progression when a worker finishes
+	// successfully. Only "auto" is recognized; any other value (including "")
+	// is a no-op. Using a string rather than bool leaves room for future values
+	// like "conditional" without a breaking change.
+	Advance string `yaml:"advance,omitempty"`
+	// Produces declares artifact paths this stage's worker is expected to emit.
+	// Inert metadata; consumed by downstream tooling (step 3+).
+	Produces []string `yaml:"produces,omitempty"`
+	// Consumes declares artifact paths this stage's worker expects to receive.
+	// Inert metadata; consumed by downstream tooling (step 3+).
+	Consumes []string `yaml:"consumes,omitempty"`
 }
 
 // IsSilent returns true when the stage explicitly opted out of notification.

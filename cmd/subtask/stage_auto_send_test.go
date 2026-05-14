@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
@@ -221,4 +223,146 @@ func TestStage_ErrorWhenWorkerAlreadyRunning(t *testing.T) {
 	require.Contains(t, err.Error(), "working")
 
 	require.Equal(t, 0, mock.RunCallCount(), "worker should not be dispatched when task is running")
+}
+
+const autoAdvanceWorkflow = `name: auto-advance
+description: "Workflow with advance: auto on the doing stage"
+stages:
+  - name: doing
+    advance: auto
+    instructions: Do the work.
+  - name: review
+    instructions: Review the work.
+  - name: ready
+    instructions: Done.
+`
+
+const autoAdvanceLastStageWorkflow = `name: auto-advance-last
+description: "Workflow with advance: auto on the last stage"
+stages:
+  - name: doing
+    instructions: Do the work.
+  - name: ready
+    advance: auto
+    instructions: Done.
+`
+
+func TestSend_AutoAdvancesStageOnWorkerReply(t *testing.T) {
+	env, _ := setupAutoSendEnv(t)
+	withOutputMode(t, false)
+
+	installCustomWorkflow(t, env, "auto-advance", autoAdvanceWorkflow)
+
+	require.NoError(t, (&DraftCmd{
+		Task:        "auto/advance",
+		Title:       "Auto advance test",
+		Description: "Tests auto-advance on worker reply",
+		Base:        "main",
+		Workflow:    "auto-advance",
+	}).Run())
+
+	mock := harness.NewMockHarness().WithResult("Done", "sess-1")
+	_, _, err := captureStdoutStderr(t, (&SendCmd{Task: "auto/advance", Prompt: "Do it"}).WithHarness(mock).Run)
+	require.NoError(t, err)
+
+	// history.Tail must reflect the auto-advanced stage.
+	tail, err := history.Tail("auto/advance")
+	require.NoError(t, err)
+	require.Equal(t, "review", tail.Stage, "tail.Stage should be 'review' after auto-advance")
+
+	// A stage.changed event must be present with the correct from/to.
+	events, err := history.Read("auto/advance", history.ReadOptions{})
+	require.NoError(t, err)
+	var stageChanged bool
+	for _, ev := range events {
+		if ev.Type != "stage.changed" {
+			continue
+		}
+		var d map[string]any
+		require.NoError(t, json.Unmarshal(ev.Data, &d))
+		if d["from"] == "doing" && d["to"] == "review" {
+			stageChanged = true
+		}
+	}
+	require.True(t, stageChanged, "expected stage.changed event with from=doing to=review")
+}
+
+const autoAdvanceCrossAdapterWorkflow = `name: auto-advance-swap
+description: "Workflow with advance: auto and a cross-adapter preset on the next stage"
+stages:
+  - name: doing
+    advance: auto
+    instructions: Do the work.
+  - name: review
+    preset: alt-adapter
+    instructions: Review the work.
+  - name: ready
+    instructions: Done.
+`
+
+func TestSend_AutoAdvanceSwapsAdapterAndClearsSession(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	// Config with a preset that uses a different adapter so the auto-advance
+	// swap is cross-adapter, triggering the session-clear path.
+	cfg := &workspace.Config{
+		Adapter: "claude",
+		Presets: map[string]workspace.Preset{
+			"alt-adapter": {Adapter: "codex"},
+		},
+	}
+	require.NoError(t, cfg.SaveTo(filepath.Join(env.RootDir, ".subtask", "config.json")))
+
+	installCustomWorkflow(t, env, "auto-advance-swap", autoAdvanceCrossAdapterWorkflow)
+
+	require.NoError(t, (&DraftCmd{
+		Task:        "swap/advance",
+		Title:       "Cross-adapter auto-advance test",
+		Description: "Tests that adapter swap and session clear happen after auto-advance",
+		Base:        "main",
+		Workflow:    "auto-advance-swap",
+	}).Run())
+
+	mock := harness.NewMockHarness().WithResult("Done", "sess-swap")
+	_, _, err := captureStdoutStderr(t, (&SendCmd{Task: "swap/advance", Prompt: "Do it"}).WithHarness(mock).Run)
+	require.NoError(t, err)
+
+	// Stage advanced.
+	tail, err := history.Tail("swap/advance")
+	require.NoError(t, err)
+	require.Equal(t, "review", tail.Stage, "stage should advance to 'review'")
+
+	// Cross-adapter swap: session cleared and adapter updated.
+	state, err := task.LoadState("swap/advance")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.Empty(t, state.SessionID, "session must be cleared on cross-adapter auto-advance")
+	require.Equal(t, "codex", state.Adapter, "adapter must be updated to the next stage's preset adapter")
+}
+
+func TestSend_AutoAdvanceNoOpOnLastStage(t *testing.T) {
+	env, _ := setupAutoSendEnv(t)
+	withOutputMode(t, false)
+
+	installCustomWorkflow(t, env, "auto-advance-last", autoAdvanceLastStageWorkflow)
+
+	require.NoError(t, (&DraftCmd{
+		Task:        "auto/last-stage",
+		Title:       "Auto advance last stage test",
+		Description: "Tests that advance: auto on last stage is a no-op",
+		Base:        "main",
+		Workflow:    "auto-advance-last",
+	}).Run())
+
+	// Advance to the last stage manually (passive — no worker_instructions to dispatch).
+	require.NoError(t, (&StageCmd{Task: "auto/last-stage", Stage: "ready", NoSend: true}).Run())
+
+	mock := harness.NewMockHarness().WithResult("Done", "sess-2")
+	_, _, err := captureStdoutStderr(t, (&SendCmd{Task: "auto/last-stage", Prompt: "Finish it"}).WithHarness(mock).Run)
+	require.NoError(t, err)
+
+	tail, err := history.Tail("auto/last-stage")
+	require.NoError(t, err)
+	require.Equal(t, "ready", tail.Stage, "stage should remain 'ready' when advance: auto is on the last stage")
 }
