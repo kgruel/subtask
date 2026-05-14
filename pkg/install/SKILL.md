@@ -168,6 +168,18 @@ For complex tasks, add a plan stage: `plan → implement → review → ready`
 **You plan (`--workflow you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
 **They plan (`--workflow they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
 
+## Silent stages
+
+A workflow stage can opt out of the unread-reply nudge by setting `notify: false` in its YAML:
+
+```yaml
+- name: commit
+  notify: false
+  worker_instructions: Commit your work.
+```
+
+While a task sits in a stage marked `notify: false`, worker replies in that stage are treated as plumbing — they don't surface via `subtask unread` and don't trigger the Stop-hook reminder. Use it for transitions where the worker is doing mechanical bookkeeping (committing, regenerating snapshots) that doesn't need your eyes. The silence applies to *any* reply while the task is in that stage, not just auto-dispatched ones.
+
 ## Notes
 
 - Use `subtask list` to see what's in flight.

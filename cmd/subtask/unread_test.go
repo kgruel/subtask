@@ -56,6 +56,75 @@ func TestUnread_LeadFollowedUp_ReportsRead(t *testing.T) {
 	assert.False(t, unread, "lead message after worker.finished should mark task as read")
 }
 
+func TestUnread_SilentStage_NotUnread(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	installCustomWorkflow(t, env, "silent-flow", `name: silent-flow
+description: Workflow with a silent commit stage
+stages:
+  - name: implement
+    instructions: Do work.
+  - name: commit
+    notify: false
+    instructions: Commit it.
+  - name: ready
+    instructions: Done.
+`)
+
+	taskName := "fix/silent"
+	require.NoError(t, (&DraftCmd{
+		Task:        taskName,
+		Title:       "Silent stage test",
+		Description: "Testing notify:false",
+		Base:        "main",
+		Workflow:    "silent-flow",
+	}).Run())
+
+	mock := harness.NewMockHarness().WithResult("ok", "sess-1")
+	require.NoError(t, (&SendCmd{Task: taskName, Prompt: "Go"}).WithHarness(mock).Run())
+
+	// Default first stage ("implement") is not silent — reply should be unread.
+	unread, err := taskHasUnreadReply(taskName)
+	require.NoError(t, err)
+	assert.True(t, unread, "task in non-silent stage should be unread")
+
+	// Move to the silent stage. Use --no-send: commit stage has no
+	// worker_instructions, but we want to be explicit about not dispatching.
+	require.NoError(t, (&StageCmd{Task: taskName, Stage: "commit", NoSend: true}).Run())
+
+	unread, err = taskHasUnreadReply(taskName)
+	require.NoError(t, err)
+	assert.False(t, unread, "task in stage with notify:false should be silenced")
+}
+
+// Regression: a closed task whose folder still resides on disk must not
+// surface in the unread view. task.List() returns disk-resident folders,
+// so without index-aware filtering, closed tasks show as phantom unread.
+func TestUnread_ClosedTaskNotSurfaced(t *testing.T) {
+	env := testutil.NewTestEnv(t, 2)
+	withOutputMode(t, false)
+
+	// Open task with a worker reply (legitimately unread).
+	openName := "fix/open"
+	env.CreateTask(openName, "Open task with reply", "main", "")
+	mockOpen := harness.NewMockHarness().WithResult("open reply", "sess-open")
+	require.NoError(t, (&SendCmd{Task: openName, Prompt: "Go"}).WithHarness(mockOpen).Run())
+
+	// Closed task that previously had a worker reply. The folder remains on
+	// disk but the index should mark it closed and the unread view should skip it.
+	closedName := "fix/closed-but-onfs"
+	env.CreateTask(closedName, "Closed task with stale reply", "main", "")
+	mockClosed := harness.NewMockHarness().WithResult("stale reply", "sess-closed")
+	require.NoError(t, (&SendCmd{Task: closedName, Prompt: "Go"}).WithHarness(mockClosed).Run())
+	require.NoError(t, (&CloseCmd{Task: closedName, Abandon: true}).Run())
+
+	names, err := openTaskNames()
+	require.NoError(t, err)
+	assert.Contains(t, names, openName, "open task with reply must be in openTaskNames")
+	assert.NotContains(t, names, closedName, "closed task must not appear in openTaskNames even if folder remains")
+}
+
 func TestUnread_FreshTask_NotUnread(t *testing.T) {
 	env := testutil.NewTestEnv(t, 1)
 
