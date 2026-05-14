@@ -294,6 +294,11 @@ func HistoryPath(name string) string {
 	return filepath.Join(Dir(name), "history.jsonl")
 }
 
+// ReviewsDir returns the path to the reviews subdirectory of the task folder.
+func ReviewsDir(name string) string {
+	return filepath.Join(Dir(name), "reviews")
+}
+
 // EscapePath converts a path to a safe directory name.
 // It resolves symlinks first to ensure consistency across different cwd resolutions.
 func EscapePath(p string) string {

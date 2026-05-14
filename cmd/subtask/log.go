@@ -154,6 +154,57 @@ func formatHistoryEvent(ev history.Event) string {
 		} else {
 			desc = "task closed"
 		}
+	case "review.started":
+		var d struct {
+			RunID        string `json:"run_id"`
+			Kind         string `json:"kind"`
+			Adapter      string `json:"adapter"`
+			Model        string `json:"model"`
+			Instructions string `json:"instructions"`
+		}
+		_ = json.Unmarshal(ev.Data, &d)
+		desc = "review started"
+		if d.RunID != "" {
+			desc += " run=" + d.RunID
+		}
+		if d.Kind != "" {
+			desc += " kind=" + d.Kind
+		}
+		if d.Adapter != "" {
+			desc += " adapter=" + d.Adapter
+		}
+		if d.Model != "" {
+			desc += " model=" + d.Model
+		}
+	case "review.finished":
+		var d struct {
+			RunID      string `json:"run_id"`
+			Kind       string `json:"kind"`
+			DurationMS int    `json:"duration_ms"`
+			Outcome    string `json:"outcome"`
+			File       string `json:"file"`
+			Error      string `json:"error"`
+		}
+		_ = json.Unmarshal(ev.Data, &d)
+		desc = "review finished"
+		if d.RunID != "" {
+			desc += " run=" + d.RunID
+		}
+		if d.Kind != "" {
+			desc += " kind=" + d.Kind
+		}
+		if d.Outcome != "" {
+			desc += " outcome=" + d.Outcome
+		}
+		if d.Outcome == "error" && d.Error != "" {
+			desc += fmt.Sprintf(" error=%q", d.Error)
+		}
+		if d.DurationMS > 0 {
+			desc += " duration=" + (time.Duration(d.DurationMS) * time.Millisecond).String()
+		}
+		if d.Outcome == "success" && d.File != "" {
+			desc += " file=" + d.File
+		}
 	case "worker.started":
 		var d struct {
 			RunID     string `json:"run_id"`

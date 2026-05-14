@@ -2,15 +2,55 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
+
+// reviewStartedData is the JSON payload for a review.started history event.
+type reviewStartedData struct {
+	RunID        string `json:"run_id"`
+	Kind         string `json:"kind"`
+	Adapter      string `json:"adapter,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Reasoning    string `json:"reasoning,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
+}
+
+// reviewFinishedData is the JSON payload for a review.finished history event.
+type reviewFinishedData struct {
+	RunID      string `json:"run_id"`
+	Kind       string `json:"kind"`
+	DurationMS int    `json:"duration_ms"`
+	Outcome    string `json:"outcome"`
+	File       string `json:"file,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// persistReviewFile writes the review text to the task's reviews/ subdirectory.
+// The filename encodes timestamp, runID, kind, and adapter for uniqueness and
+// sortability: <timestamp>-<runID>-<kind>-<adapter>.md.
+// Returns the relative path from the task folder root (e.g. "reviews/...md").
+func persistReviewFile(taskName, kind, adapter, runID, review string) (string, error) {
+	dir := task.ReviewsDir(taskName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	ts := time.Now().UTC().Format("20060102T150405Z")
+	name := ts + "-" + runID + "-" + kind + "-" + adapter + ".md"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(review), 0o644); err != nil {
+		return "", err
+	}
+	return "reviews/" + name, nil
+}
 
 // ReviewCmd implements 'subtask review'.
 type ReviewCmd struct {
@@ -111,13 +151,13 @@ func (c *ReviewCmd) Run() error {
 		return c.runPlanReview(cfg, t, r, instructions)
 	}
 
-	// Determine working directory and target
+	// Determine working directory and target.
+	taskName := strings.TrimSpace(c.Task)
 	var cwd string
 	var target harness.ReviewTarget
 
 	switch {
-	case strings.TrimSpace(c.Task) != "":
-		taskName := strings.TrimSpace(c.Task)
+	case taskName != "":
 		// Load state (for workspace path)
 		state, err := task.LoadState(taskName)
 		if err != nil {
@@ -152,7 +192,7 @@ func (c *ReviewCmd) Run() error {
 		target = harness.ReviewTarget{Commit: strings.TrimSpace(c.Commit)}
 	}
 
-	// Run review
+	// Build harness
 	var h harness.Harness
 	if c.testHarness != nil {
 		h = c.testHarness
@@ -163,9 +203,74 @@ func (c *ReviewCmd) Run() error {
 		}
 	}
 
-	review, err := h.Review(cwd, target, instructions)
-	if err != nil {
-		return err
+	// Non-task reviews: no event sourcing, straight to stdout.
+	if taskName == "" {
+		review, err := h.Review(cwd, target, instructions)
+		if err != nil {
+			return err
+		}
+		fmt.Println(review)
+		return nil
+	}
+
+	// Task-scoped diff review: append review.started, run, persist, append review.finished.
+	runID, _ := history.NewRunID()
+
+	startData, _ := json.Marshal(reviewStartedData{
+		RunID:        runID,
+		Kind:         "diff",
+		Adapter:      r.Adapter,
+		Model:        r.Model,
+		Reasoning:    r.Reasoning,
+		Instructions: instructions,
+	})
+	if err := history.Append(taskName, history.Event{Type: "review.started", Data: json.RawMessage(startData)}); err != nil {
+		return fmt.Errorf("failed to write review history: %w", err)
+	}
+
+	startedAt := time.Now()
+	review, reviewErr := h.Review(cwd, target, instructions)
+	durationMS := int(time.Since(startedAt).Milliseconds())
+
+	if reviewErr != nil {
+		errData, _ := json.Marshal(reviewFinishedData{
+			RunID:      runID,
+			Kind:       "diff",
+			DurationMS: durationMS,
+			Outcome:    "error",
+			Error:      reviewErr.Error(),
+		})
+		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+		}
+		return reviewErr
+	}
+
+	relPath, persistErr := persistReviewFile(taskName, "diff", r.Adapter, runID, review)
+	if persistErr != nil {
+		errData, _ := json.Marshal(reviewFinishedData{
+			RunID:      runID,
+			Kind:       "diff",
+			DurationMS: durationMS,
+			Outcome:    "error",
+			Error:      persistErr.Error(),
+		})
+		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+		}
+		fmt.Println(review)
+		return fmt.Errorf("failed to persist review file: %w", persistErr)
+	}
+
+	finData, _ := json.Marshal(reviewFinishedData{
+		RunID:      runID,
+		Kind:       "diff",
+		DurationMS: durationMS,
+		Outcome:    "success",
+		File:       relPath,
+	})
+	if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(finData)}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
 	}
 
 	fmt.Println(review)
@@ -219,12 +324,68 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 		}
 	}
 
-	result, err := h.Run(context.Background(), cwd, prompt, "", harness.Callbacks{})
-	if err != nil {
-		return err
+	// Append review.started before dispatching.
+	runID, _ := history.NewRunID()
+
+	startData, _ := json.Marshal(reviewStartedData{
+		RunID:        runID,
+		Kind:         "plan",
+		Adapter:      r.Adapter,
+		Model:        r.Model,
+		Reasoning:    r.Reasoning,
+		Instructions: instructions,
+	})
+	if err := history.Append(taskName, history.Event{Type: "review.started", Data: json.RawMessage(startData)}); err != nil {
+		return fmt.Errorf("failed to write review history: %w", err)
 	}
 
-	fmt.Println(result.Reply)
+	startedAt := time.Now()
+	result, reviewErr := h.Run(context.Background(), cwd, prompt, "", harness.Callbacks{})
+	durationMS := int(time.Since(startedAt).Milliseconds())
+
+	if reviewErr != nil {
+		errData, _ := json.Marshal(reviewFinishedData{
+			RunID:      runID,
+			Kind:       "plan",
+			DurationMS: durationMS,
+			Outcome:    "error",
+			Error:      reviewErr.Error(),
+		})
+		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+		}
+		return reviewErr
+	}
+
+	reply := result.Reply
+	relPath, persistErr := persistReviewFile(taskName, "plan", r.Adapter, runID, reply)
+	if persistErr != nil {
+		errData, _ := json.Marshal(reviewFinishedData{
+			RunID:      runID,
+			Kind:       "plan",
+			DurationMS: durationMS,
+			Outcome:    "error",
+			Error:      persistErr.Error(),
+		})
+		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+		}
+		fmt.Println(reply)
+		return fmt.Errorf("failed to persist review file: %w", persistErr)
+	}
+
+	finData, _ := json.Marshal(reviewFinishedData{
+		RunID:      runID,
+		Kind:       "plan",
+		DurationMS: durationMS,
+		Outcome:    "success",
+		File:       relPath,
+	})
+	if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(finData)}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+	}
+
+	fmt.Println(reply)
 	return nil
 }
 

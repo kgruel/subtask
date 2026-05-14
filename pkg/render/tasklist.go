@@ -18,6 +18,7 @@ type TaskRow struct {
 	LinesAdded    int // Git diff stats
 	LinesRemoved  int
 	ChangesStatus string // "", "applied", "missing"
+	HasReview     bool   // True if task has at least one persisted review file
 }
 
 // TaskListTable renders a list of tasks.
@@ -39,8 +40,12 @@ func (t *TaskListTable) RenderPlain() string {
 			progress = "-"
 		}
 		changes := formatChangesForTask(task, false)
+		title := task.Title
+		if task.HasReview {
+			title += " [reviewed]"
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			task.Name, task.Status, task.Stage, progress, changes, task.LastActive, task.Title)
+			task.Name, task.Status, task.Stage, progress, changes, task.LastActive, title)
 	}
 
 	if t.Footer != "" {
@@ -124,7 +129,11 @@ func (t *TaskListTable) RenderPretty() string {
 
 		// Title row (dimmed, aligned with task name)
 		if task.Title != "" {
-			titleLine := styleDim.Render("└ " + task.Title)
+			title := task.Title
+			if task.HasReview {
+				title += "  [reviewed]"
+			}
+			titleLine := styleDim.Render("└ " + title)
 			lines = append(lines, titleLine)
 		}
 	}

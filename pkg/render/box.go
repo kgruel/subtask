@@ -82,6 +82,11 @@ type TaskCard struct {
 	CommitError   string
 	ShowCommits   bool
 	ConflictFiles []string
+
+	ReviewCount    int
+	LastReviewTS   time.Time
+	LastReviewKind string
+	LastReviewer   string
 }
 
 // RenderPlain renders the task card as plain key-value text.
@@ -136,6 +141,11 @@ func (c *TaskCard) RenderPlain() string {
 				fmt.Fprintf(&buf, "Commits: %d\n", c.CommitCount)
 			}
 		}
+	}
+
+	if c.ReviewCount > 0 {
+		tsStr := c.LastReviewTS.UTC().Format("2006-01-02 15:04 UTC")
+		fmt.Fprintf(&buf, "Reviews: %d (latest: %s, %s by %s)\n", c.ReviewCount, tsStr, c.LastReviewKind, c.LastReviewer)
 	}
 
 	if len(c.ConflictFiles) > 0 {
@@ -251,6 +261,12 @@ func (c *TaskCard) RenderPretty() string {
 				lines = append(lines, fmt.Sprintf("%s  %d", styleBold.Render("Commits"), c.CommitCount))
 			}
 		}
+	}
+
+	if c.ReviewCount > 0 {
+		tsStr := c.LastReviewTS.UTC().Format("2006-01-02 15:04 UTC")
+		reviewInfo := fmt.Sprintf("%d (latest: %s, %s by %s)", c.ReviewCount, tsStr, c.LastReviewKind, c.LastReviewer)
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Reviews"), reviewInfo))
 	}
 
 	if len(c.ConflictFiles) > 0 {

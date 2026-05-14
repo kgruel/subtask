@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
@@ -263,5 +266,249 @@ func TestReviewCmd_Adapter_OverridesProjectDefault(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, stdout)
+}
+
+func TestReviewCmd_Task_DiffEventsAndPersistence(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/diff-events"
+	env.CreateTask(taskName, "Diff events test", "main", "Description")
+	env.CreateTaskState(taskName, &task.State{Workspace: env.Workspaces[0]})
+
+	reviewMock := harness.NewMockHarness().WithReviewResult("Looks clean")
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{
+		Task:   taskName,
+		Prompt: "Focus on correctness",
+	}).WithHarness(reviewMock).Run)
+
+	require.NoError(t, err)
+
+	evs, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+
+	var started, finished *history.Event
+	for i := range evs {
+		switch evs[i].Type {
+		case "review.started":
+			started = &evs[i]
+		case "review.finished":
+			finished = &evs[i]
+		}
+	}
+	require.NotNil(t, started, "review.started event missing")
+	require.NotNil(t, finished, "review.finished event missing")
+
+	var sd struct {
+		RunID        string `json:"run_id"`
+		Kind         string `json:"kind"`
+		Adapter      string `json:"adapter"`
+		Model        string `json:"model"`
+		Instructions string `json:"instructions"`
+	}
+	require.NoError(t, json.Unmarshal(started.Data, &sd))
+	assert.NotEmpty(t, sd.RunID)
+	assert.Equal(t, "diff", sd.Kind)
+	assert.Equal(t, "builtin-mock", sd.Adapter)
+	assert.Equal(t, "gpt-5.2", sd.Model)
+	assert.Equal(t, "Focus on correctness", sd.Instructions)
+
+	var fd struct {
+		RunID   string `json:"run_id"`
+		Kind    string `json:"kind"`
+		Outcome string `json:"outcome"`
+		File    string `json:"file"`
+	}
+	require.NoError(t, json.Unmarshal(finished.Data, &fd))
+	assert.Equal(t, sd.RunID, fd.RunID)
+	assert.Equal(t, "diff", fd.Kind)
+	assert.Equal(t, "success", fd.Outcome)
+	assert.Contains(t, fd.File, "-diff-builtin-mock.md")
+
+	// Review file should exist
+	reviewsDir := task.ReviewsDir(taskName)
+	entries, err := os.ReadDir(reviewsDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Contains(t, entries[0].Name(), "-diff-builtin-mock.md")
+}
+
+func TestReviewCmd_Task_DiffErrorPath(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/diff-error"
+	env.CreateTask(taskName, "Diff error test", "main", "Description")
+	env.CreateTaskState(taskName, &task.State{Workspace: env.Workspaces[0]})
+
+	reviewMock := harness.NewMockHarness().WithReviewError(errors.New("review harness failed"))
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{
+		Task: taskName,
+	}).WithHarness(reviewMock).Run)
+
+	require.Error(t, err)
+
+	evs, readErr := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, readErr)
+
+	var finished *history.Event
+	for i := range evs {
+		if evs[i].Type == "review.finished" {
+			finished = &evs[i]
+		}
+	}
+	require.NotNil(t, finished, "review.finished event missing")
+
+	var fd struct {
+		Outcome string `json:"outcome"`
+		Error   string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(finished.Data, &fd))
+	assert.Equal(t, "error", fd.Outcome)
+	assert.Contains(t, fd.Error, "review harness failed")
+
+	// No review file should be created
+	_, statErr := os.Stat(task.ReviewsDir(taskName))
+	assert.True(t, os.IsNotExist(statErr), "reviews dir should not exist on error path")
+}
+
+func TestReviewCmd_Plan_AppendsHistoryEvents(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/plan-events"
+	env.CreateTask(taskName, "Plan events test", "main", "Spec: implement X, handle Y")
+
+	// Write PLAN.md so --plan can find it
+	planPath := filepath.Join(task.Dir(taskName), "PLAN.md")
+	require.NoError(t, os.WriteFile(planPath, []byte("## Plan\n\nStep 1: implement X"), 0o644))
+
+	planMock := harness.NewMockHarness().WithResult("Plan looks good", "session-1")
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{
+		Task: taskName,
+		Plan: true,
+	}).WithHarness(planMock).Run)
+
+	require.NoError(t, err)
+
+	evs, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+
+	var started, finished *history.Event
+	for i := range evs {
+		switch evs[i].Type {
+		case "review.started":
+			started = &evs[i]
+		case "review.finished":
+			finished = &evs[i]
+		}
+	}
+	require.NotNil(t, started, "review.started event missing")
+	require.NotNil(t, finished, "review.finished event missing")
+
+	var sd struct {
+		Kind string `json:"kind"`
+	}
+	require.NoError(t, json.Unmarshal(started.Data, &sd))
+	assert.Equal(t, "plan", sd.Kind)
+
+	var fd struct {
+		Kind    string `json:"kind"`
+		Outcome string `json:"outcome"`
+		File    string `json:"file"`
+	}
+	require.NoError(t, json.Unmarshal(finished.Data, &fd))
+	assert.Equal(t, "plan", fd.Kind)
+	assert.Equal(t, "success", fd.Outcome)
+	assert.Contains(t, fd.File, "-plan-builtin-mock.md")
+}
+
+// TestReviewCmd_Task_PersistFailure verifies that a persistence failure causes
+// review.finished to record outcome:"error" (not "success"), and the command
+// returns an error. The review text is still printed to stdout.
+func TestReviewCmd_Task_PersistFailure(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/persist-fail"
+	env.CreateTask(taskName, "Persist failure test", "main", "Description")
+	env.CreateTaskState(taskName, &task.State{Workspace: env.Workspaces[0]})
+
+	// Place a regular file at the reviews dir path so MkdirAll fails.
+	reviewsPath := task.ReviewsDir(taskName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(reviewsPath), 0o755))
+	require.NoError(t, os.WriteFile(reviewsPath, []byte("block"), 0o644))
+
+	reviewMock := harness.NewMockHarness().WithReviewResult("Review text")
+
+	stdout, _, err := captureStdoutStderr(t, (&ReviewCmd{
+		Task: taskName,
+	}).WithHarness(reviewMock).Run)
+
+	require.Error(t, err, "expected error when persist fails")
+	assert.Contains(t, stdout, "Review text", "review text should still be printed to stdout")
+
+	evs, readErr := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, readErr)
+
+	var finished *history.Event
+	for i := range evs {
+		if evs[i].Type == "review.finished" {
+			finished = &evs[i]
+		}
+	}
+	require.NotNil(t, finished, "review.finished event missing")
+
+	var fd struct {
+		Outcome string `json:"outcome"`
+		Error   string `json:"error"`
+		File    string `json:"file"`
+	}
+	require.NoError(t, json.Unmarshal(finished.Data, &fd))
+	assert.Equal(t, "error", fd.Outcome, "persist failure should record outcome:error")
+	assert.NotEmpty(t, fd.Error, "error field should be set")
+	assert.Empty(t, fd.File, "file should be empty when persist failed")
+}
+
+// TestReviewCmd_Task_FilenameUniqueness verifies that two back-to-back reviews
+// produce two distinct files (run_id in filename prevents overwrites).
+func TestReviewCmd_Task_FilenameUniqueness(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/uniqueness"
+	env.CreateTask(taskName, "Uniqueness test", "main", "Description")
+	env.CreateTaskState(taskName, &task.State{Workspace: env.Workspaces[0]})
+
+	mock := harness.NewMockHarness().WithReviewResult("Review text")
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{Task: taskName}).WithHarness(mock).Run)
+	require.NoError(t, err)
+
+	_, _, err = captureStdoutStderr(t, (&ReviewCmd{Task: taskName}).WithHarness(mock).Run)
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(task.ReviewsDir(taskName))
+	require.NoError(t, err)
+	assert.Len(t, entries, 2, "two reviews should produce two distinct files")
+}
+
+// TestReviewSummary_EmptyDir verifies that loadReviewSummary returns Count==0
+// when the reviews directory exists but contains no .md files.
+func TestReviewSummary_EmptyDir(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	taskName := "review/empty-dir"
+	_, _, err := captureStdoutStderr(t, (&DraftCmd{
+		Task:        taskName,
+		Description: "Test",
+		Base:        "main",
+		Title:       "Empty dir test",
+	}).Run)
+	require.NoError(t, err)
+
+	// Create the reviews dir but put no .md files in it.
+	require.NoError(t, os.MkdirAll(task.ReviewsDir(taskName), 0o755))
+
+	rs := loadReviewSummary(taskName)
+	assert.Equal(t, 0, rs.Count, "empty reviews dir should report Count==0")
 }
 

@@ -60,6 +60,7 @@ type TaskInfo struct {
 	ChangesStatus string // "", "applied", "missing"
 	LastRunMS     int
 	LastError     string
+	HasReview     bool // True if task has at least one persisted review file
 }
 
 // PrintTaskList prints a formatted table of tasks.
@@ -111,6 +112,7 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 			ChangesStatus: t.ChangesStatus,
 			LastActive:    lastActivity,
 			Title:         title,
+			HasReview:     t.HasReview,
 		})
 	}
 

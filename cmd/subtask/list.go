@@ -70,5 +70,12 @@ func (c *ListCmd) render() (string, error) {
 		tasks = append(tasks, info)
 	}
 
+	// Mark tasks that have at least one persisted review file.
+	for i := range tasks {
+		if loadReviewSummary(tasks[i].Name).Count > 0 {
+			tasks[i].HasReview = true
+		}
+	}
+
 	return RenderTaskList(tasks, data.Workspaces), nil
 }
