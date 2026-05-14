@@ -269,8 +269,17 @@ func (c *ReviewCmd) Run() error {
 		Outcome:    "success",
 		File:       relPath,
 	})
-	if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(finData)}); err != nil {
+	if err := history.Append(taskName, history.Event{Type: history.EventTypeReviewFinished, Data: json.RawMessage(finData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+	}
+
+	artData, _ := json.Marshal(history.ArtifactProducedData{
+		Name: filepath.Base(relPath),
+		Path: relPath,
+		Kind: "review",
+	})
+	if err := history.Append(taskName, history.Event{Type: history.EventTypeArtifactProduced, Data: json.RawMessage(artData)}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write artifact history: %v\n", err)
 	}
 
 	fmt.Println(review)
@@ -381,8 +390,17 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 		Outcome:    "success",
 		File:       relPath,
 	})
-	if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(finData)}); err != nil {
+	if err := history.Append(taskName, history.Event{Type: history.EventTypeReviewFinished, Data: json.RawMessage(finData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
+	}
+
+	artData, _ := json.Marshal(history.ArtifactProducedData{
+		Name: filepath.Base(relPath),
+		Path: relPath,
+		Kind: "review",
+	})
+	if err := history.Append(taskName, history.Event{Type: history.EventTypeArtifactProduced, Data: json.RawMessage(artData)}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write artifact history: %v\n", err)
 	}
 
 	fmt.Println(reply)

@@ -223,6 +223,40 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 	require.NotEmpty(t, matches)
 }
 
+// TestIndex_ArtifactProduced_Ignored verifies that artifact.produced events in
+// history.jsonl do not cause errors during index refresh.
+func TestIndex_ArtifactProduced_Ignored(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	ctx := context.Background()
+
+	name := "artifact/produced"
+	require.NoError(t, (&task.Task{
+		Name:        name,
+		Title:       "Artifact task",
+		BaseBranch:  "main",
+		Description: "desc",
+		Schema:      gitredesign.TaskSchemaVersion,
+	}).Save())
+	require.NoError(t, history.WriteAll(name, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+		{Type: history.EventTypeArtifactProduced, Data: mustJSON(history.ArtifactProducedData{
+			Name: "20260101T000000Z-abc-diff-builtin-mock.md",
+			Path: "reviews/20260101T000000Z-abc-diff-builtin-mock.md",
+			Kind: "review",
+		})},
+	}))
+
+	idx, err := taskindex.OpenDefault()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+
+	require.NoError(t, idx.Refresh(ctx, taskindex.RefreshPolicy{}))
+
+	_, ok, err := idx.Get(ctx, name)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
 func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b

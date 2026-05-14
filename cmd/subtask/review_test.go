@@ -469,6 +469,87 @@ func TestReviewCmd_Task_PersistFailure(t *testing.T) {
 	assert.Empty(t, fd.File, "file should be empty when persist failed")
 }
 
+// TestReviewCmd_Task_EmitsArtifactProduced verifies that a successful task diff
+// review emits both review.finished and artifact.produced events, and that the
+// artifact.produced payload has the expected shape.
+func TestReviewCmd_Task_EmitsArtifactProduced(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/artifact-event"
+	env.CreateTask(taskName, "Artifact event test", "main", "Description")
+	env.CreateTaskState(taskName, &task.State{Workspace: env.Workspaces[0]})
+
+	reviewMock := harness.NewMockHarness().WithReviewResult("All good")
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{Task: taskName}).WithHarness(reviewMock).Run)
+	require.NoError(t, err)
+
+	evs, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+
+	var finished, artifact *history.Event
+	for i := range evs {
+		switch evs[i].Type {
+		case "review.finished":
+			finished = &evs[i]
+		case "artifact.produced":
+			artifact = &evs[i]
+		}
+	}
+	require.NotNil(t, finished, "review.finished event missing")
+	require.NotNil(t, artifact, "artifact.produced event missing")
+
+	var ad struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+		Kind string `json:"kind"`
+	}
+	require.NoError(t, json.Unmarshal(artifact.Data, &ad))
+	assert.Equal(t, "review", ad.Kind)
+	assert.NotEmpty(t, ad.Name)
+	assert.Contains(t, ad.Path, "reviews/")
+	assert.Equal(t, filepath.Base(ad.Path), ad.Name)
+}
+
+// TestReviewCmd_Plan_EmitsArtifactProduced verifies that a successful --plan
+// review also emits artifact.produced.
+func TestReviewCmd_Plan_EmitsArtifactProduced(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+
+	taskName := "review/plan-artifact-event"
+	env.CreateTask(taskName, "Plan artifact event test", "main", "Spec: implement X")
+
+	planPath := filepath.Join(task.Dir(taskName), "PLAN.md")
+	require.NoError(t, os.WriteFile(planPath, []byte("## Plan\n\nStep 1: implement X"), 0o644))
+
+	planMock := harness.NewMockHarness().WithResult("Plan looks good", "session-1")
+
+	_, _, err := captureStdoutStderr(t, (&ReviewCmd{
+		Task: taskName,
+		Plan: true,
+	}).WithHarness(planMock).Run)
+	require.NoError(t, err)
+
+	evs, err := history.Read(taskName, history.ReadOptions{EventsOnly: true})
+	require.NoError(t, err)
+
+	var artifact *history.Event
+	for i := range evs {
+		if evs[i].Type == "artifact.produced" {
+			artifact = &evs[i]
+		}
+	}
+	require.NotNil(t, artifact, "artifact.produced event missing")
+
+	var ad struct {
+		Kind string `json:"kind"`
+		Path string `json:"path"`
+	}
+	require.NoError(t, json.Unmarshal(artifact.Data, &ad))
+	assert.Equal(t, "review", ad.Kind)
+	assert.Contains(t, ad.Path, "reviews/")
+}
+
 // TestReviewCmd_Task_FilenameUniqueness verifies that two back-to-back reviews
 // produce two distinct files (run_id in filename prevents overwrites).
 func TestReviewCmd_Task_FilenameUniqueness(t *testing.T) {
