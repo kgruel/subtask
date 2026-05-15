@@ -134,6 +134,29 @@ type Step struct {
 	Surface *bool `yaml:"surface,omitempty"`
 }
 
+// knownStepKeys is the complete set of recognised YAML keys for a Step.
+// Unknown keys trigger an error at parse time so authors catch typos
+// (e.g. "next: deepdive" instead of relying on declaration order).
+var knownStepKeys = map[string]struct{}{
+	"id": {}, "kind": {}, "agent": {}, "preset": {},
+	"consumes": {}, "produces": {}, "advance": {}, "notify": {},
+	"worker_instructions": {}, "worker_context": {}, "instructions": {},
+	"branches": {}, "options": {}, "surface": {},
+}
+
+// UnmarshalYAML rejects unknown keys with a line-located error.
+// Uses a type alias to decode the rest without recursing into this method.
+func (s *Step) UnmarshalYAML(value *yaml.Node) error {
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		key := value.Content[i].Value
+		if _, ok := knownStepKeys[key]; !ok {
+			return fmt.Errorf("line %d: unknown step key %q (not a recognised field — known: id, kind, agent, preset, consumes, produces, advance, notify, worker_instructions, worker_context, instructions, branches, options, surface)", value.Content[i].Line, key)
+		}
+	}
+	type stepAlias Step
+	return value.Decode((*stepAlias)(s))
+}
+
 // Branch is a conditional edge on a regular step. Only "artifact.field"
 // predicates are supported in v1: read the produced artifact's YAML
 // frontmatter and treat Field as a bool key.
@@ -342,6 +365,12 @@ func LoadByName(name string) (*Routine, error) {
 	return r, nil
 }
 
+// knownRoutineKeys is the complete set of recognised top-level YAML keys
+// for a routine file. Unknown keys error at parse time to catch typos.
+var knownRoutineKeys = map[string]struct{}{
+	"name": {}, "description": {}, "default_prompt": {}, "steps": {},
+}
+
 // rawRoutine is the on-disk YAML shape with default_prompt captured as
 // a yaml.Node so we can decode it polymorphically (string OR map).
 type rawRoutine struct {
@@ -349,6 +378,18 @@ type rawRoutine struct {
 	Description   string    `yaml:"description"`
 	DefaultPrompt yaml.Node `yaml:"default_prompt"`
 	Steps         []Step    `yaml:"steps"`
+}
+
+// UnmarshalYAML rejects unknown top-level routine keys with a line-located error.
+func (r *rawRoutine) UnmarshalYAML(value *yaml.Node) error {
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		key := value.Content[i].Value
+		if _, ok := knownRoutineKeys[key]; !ok {
+			return fmt.Errorf("line %d: unknown routine key %q (not a recognised field — known: name, description, default_prompt, steps)", value.Content[i].Line, key)
+		}
+	}
+	type rawRoutineAlias rawRoutine
+	return value.Decode((*rawRoutineAlias)(r))
 }
 
 // rawPromptSource mirrors the default_prompt: map shape.

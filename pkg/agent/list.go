@@ -23,17 +23,22 @@ type AgentSummary struct {
 // sorted alphabetically by name. Returns an empty slice (not an error) when
 // the agents directory is absent or empty. PresetValid is false for any agent
 // whose named preset: reference is not defined in cfg.
-func List(cfg *workspace.Config) ([]AgentSummary, error) {
+//
+// The second return value collects per-agent load errors as warning strings.
+// A failed agent is omitted from the summary; others are still listed.
+// A non-nil error means the directory itself could not be read.
+func List(cfg *workspace.Config) ([]AgentSummary, []string, error) {
 	dir := AgentsDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []AgentSummary{}, nil
+			return []AgentSummary{}, nil, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", dir, err)
+		return nil, nil, fmt.Errorf("read %s: %w", dir, err)
 	}
 
 	summaries := []AgentSummary{}
+	var warnings []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
@@ -41,7 +46,8 @@ func List(cfg *workspace.Config) ([]AgentSummary, error) {
 		name := strings.TrimSuffix(e.Name(), ".yaml")
 		a, err := LoadByName(name)
 		if err != nil {
-			return nil, fmt.Errorf("load agent %q: %w", name, err)
+			warnings = append(warnings, fmt.Sprintf("load agent %q: %v", name, err))
+			continue
 		}
 
 		presetLabel := a.PresetName
@@ -74,5 +80,5 @@ func List(cfg *workspace.Config) ([]AgentSummary, error) {
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Name < summaries[j].Name
 	})
-	return summaries, nil
+	return summaries, warnings, nil
 }

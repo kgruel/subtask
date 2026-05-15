@@ -13,7 +13,7 @@ import (
 func TestList_OnlyCanonicalsWhenNoProjectDir(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Len(t, summaries, 3, "expected the 3 built-in canonical routines")
 
@@ -45,7 +45,7 @@ steps:
     kind: terminal
 `), 0o644))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 
 	byName := make(map[string]RoutineSummary, len(summaries))
@@ -78,7 +78,7 @@ steps:
     kind: terminal
 `), 0o644))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 
 	byName := make(map[string]RoutineSummary, len(summaries))
@@ -95,6 +95,54 @@ steps:
 	require.Equal(t, SourceCanonical, byName["default"].Source)
 }
 
+func TestList_BadProjectRoutineIsWarnedNotFatal(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+
+	// Valid project routine.
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "good-routine.yaml"), []byte(`
+name: good-routine
+description: A valid routine
+steps:
+  - id: start
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	// Bad routine: uses legacy 'to:' in a gate option (parse error).
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "bad-gate.yaml"), []byte(`
+name: bad-gate
+description: Legacy gate
+steps:
+  - id: review
+    kind: gate
+    options:
+      - { name: approve, to: done }
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	summaries, warnings, err := List()
+	require.NoError(t, err, "directory-level errors should not occur")
+
+	// Bad routine must not appear in summaries.
+	byName := make(map[string]RoutineSummary, len(summaries))
+	for _, s := range summaries {
+		byName[s.Name] = s
+	}
+	require.NotContains(t, byName, "bad-gate", "failed routine must be omitted")
+
+	// Canonical routines and good project routine must still be listed.
+	for _, name := range []string{"default", "they-plan", "you-plan", "good-routine"} {
+		require.Contains(t, byName, name, "routine %q must still be listed", name)
+	}
+
+	// Bad routine's error must appear in warnings.
+	require.Len(t, warnings, 1, "expected one warning for the bad routine")
+	require.Contains(t, warnings[0], "bad-gate")
+}
+
 func TestList_ResultsSortedAlphabetically(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
@@ -109,7 +157,7 @@ steps:
     kind: terminal
 `), 0o644))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Greater(t, len(summaries), 1)
 	require.Equal(t, "aaa-first", summaries[0].Name)

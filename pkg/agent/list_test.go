@@ -19,7 +19,7 @@ func emptyCfg() *workspace.Config {
 func TestList_EmptyWhenNoAgentsDir(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Empty(t, summaries)
 }
@@ -29,7 +29,7 @@ func TestList_EmptyWhenAgentsDirEmpty(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Empty(t, summaries)
 }
@@ -44,7 +44,7 @@ prompt:
   text: You are the planner.
 `), 0o644))
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	require.Equal(t, "planner", summaries[0].Name)
@@ -65,7 +65,7 @@ prompt:
   text: You are the implementer.
 `), 0o644))
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	require.Equal(t, "impl", summaries[0].Name)
@@ -86,7 +86,7 @@ prompt:
   file: prompts/role.md
 `), 0o644))
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	require.Equal(t, "reviewer", summaries[0].Name)
@@ -107,7 +107,7 @@ prompt:
 `), 0o644))
 	}
 
-	summaries, err := List(emptyCfg())
+	summaries, _, err := List(emptyCfg())
 	require.NoError(t, err)
 	require.Len(t, summaries, 3)
 	require.Equal(t, "alpha", summaries[0].Name)
@@ -146,7 +146,7 @@ prompt:
 			"known-preset": {Adapter: "claude", Model: "sonnet"},
 		},
 	}
-	summaries, err := List(cfg)
+	summaries, _, err := List(cfg)
 	require.NoError(t, err)
 	require.Len(t, summaries, 3)
 

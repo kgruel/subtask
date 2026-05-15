@@ -20,11 +20,17 @@ type RoutineSummary struct {
 // overrides in .subtask/routines/*.yaml. When a project file shadows a
 // canonical by name, it appears once with Source = SourceShadow. Results
 // are sorted alphabetically by name.
-func List() ([]RoutineSummary, error) {
+//
+// The second return value collects per-routine load errors as warning
+// strings. A failed routine is omitted from the summary slice; canonical
+// routines and other valid project routines are still listed. The caller
+// should print each warning to stderr before displaying the table.
+// A non-nil error means the directory itself could not be read.
+func List() ([]RoutineSummary, []string, error) {
 	// Enumerate embedded canonical names.
 	entries, err := embeddedTemplates.ReadDir("templates")
 	if err != nil {
-		return nil, fmt.Errorf("read embedded routine templates: %w", err)
+		return nil, nil, fmt.Errorf("read embedded routine templates: %w", err)
 	}
 	canonicalNames := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
@@ -38,7 +44,7 @@ func List() ([]RoutineSummary, error) {
 	dir := RoutinesDir()
 	projectEntries, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read %s: %w", dir, err)
+		return nil, nil, fmt.Errorf("read %s: %w", dir, err)
 	}
 	projectNames := make(map[string]struct{})
 	for _, e := range projectEntries {
@@ -61,12 +67,15 @@ func List() ([]RoutineSummary, error) {
 	}
 	sort.Strings(names)
 
-	// Load each routine and build summary.
+	// Load each routine and build summary. Collect per-routine errors as
+	// warnings rather than aborting — callers see whatever did load.
 	summaries := make([]RoutineSummary, 0, len(names))
+	var warnings []string
 	for _, name := range names {
 		r, err := LoadByName(name)
 		if err != nil {
-			return nil, fmt.Errorf("load routine %q: %w", name, err)
+			warnings = append(warnings, fmt.Sprintf("load routine %q: %v", name, err))
+			continue
 		}
 		_, isCanonical := canonicalNames[name]
 		_, isProject := projectNames[name]
@@ -99,5 +108,5 @@ func List() ([]RoutineSummary, error) {
 			TerminalSteps: terminals,
 		})
 	}
-	return summaries, nil
+	return summaries, warnings, nil
 }

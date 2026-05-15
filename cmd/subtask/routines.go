@@ -20,9 +20,12 @@ func (c *RoutinesCmd) Run() error {
 		return err
 	}
 
-	summaries, err := routine.List()
+	summaries, warnings, err := routine.List()
 	if err != nil {
 		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 
 	if c.JSON {
@@ -31,13 +34,13 @@ func (c *RoutinesCmd) Run() error {
 		return enc.Encode(summaries)
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSOURCE\tENTRY\tTERMINALS\tDESCRIPTION")
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tSOURCE\tENTRY\tTERMINALS\tDESCRIPTION")
 	for _, s := range summaries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 			s.Name, s.Source, s.EntryStep,
 			strings.Join(s.TerminalSteps, ","),
 			s.Description)
 	}
-	return w.Flush()
+	return tw.Flush()
 }

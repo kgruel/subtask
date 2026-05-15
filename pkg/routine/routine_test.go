@@ -245,6 +245,56 @@ steps:
 	require.Contains(t, err.Error(), "does not match")
 }
 
+func TestParseRoutine_UnknownStepKey(t *testing.T) {
+	// "next:" is not a recognised step key — authors sometimes write it
+	// believing it controls sequencing, but ordering is implicit.
+	data := []byte(`name: bad
+steps:
+  - id: work
+    next: done
+  - id: done
+    kind: terminal
+`)
+	_, err := parseRoutine(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"next"`, "error must name the offending key")
+	require.Contains(t, err.Error(), "line", "error must include a line reference")
+}
+
+func TestLoadByName_UnknownStepKeyIncludesFilePath(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "bad-step.yaml"), []byte(`name: bad-step
+steps:
+  - id: work
+    next: done
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	_, err := LoadByName("bad-step")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bad-step", "error must reference the routine name or file")
+	require.Contains(t, err.Error(), `"next"`, "error must name the offending key")
+	require.Contains(t, err.Error(), "line", "error must include a line reference")
+}
+
+func TestParseRoutine_UnknownRoutineKey(t *testing.T) {
+	// "flow:" is not a recognised top-level routine key.
+	data := []byte(`name: bad
+flow: sequential
+steps:
+  - id: work
+  - id: done
+    kind: terminal
+`)
+	_, err := parseRoutine(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"flow"`, "error must name the offending key")
+	require.Contains(t, err.Error(), "line", "error must include a line reference")
+}
+
 func TestParseRoutine_BranchUnsupportedWhen(t *testing.T) {
 	data := []byte(`name: bad
 steps:

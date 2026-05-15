@@ -20,9 +20,12 @@ func (c *AgentsCmd) Run() error {
 		return err
 	}
 
-	summaries, err := agent.List(res.Config)
+	summaries, warnings, err := agent.List(res.Config)
 	if err != nil {
 		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 
 	if c.JSON {
