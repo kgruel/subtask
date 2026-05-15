@@ -31,8 +31,8 @@ type DraftCmd struct {
 	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
 	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
-	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles preset + role prompt. Mutually exclusive with --preset"`
-	Routine     string `help:"Routine file from .subtask/routines/<name>.yaml; runs a multi-step recipe"`
+	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles preset + role prompt. Mutually exclusive with --preset and --routine"`
+	Routine     string `help:"Routine file from .subtask/routines/<name>.yaml; runs a multi-step recipe. Mutually exclusive with --agent"`
 }
 
 // Run executes the draft command.

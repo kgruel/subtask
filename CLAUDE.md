@@ -123,12 +123,14 @@ Routine steps can optionally name a preset (`preset: opus-high`); the harness au
 
 ### Status & Transitions
 
-**Task Status** (organizational, durable):
+**Task Status** (organizational, durable — stored in `history.jsonl`):
 | Status | Meaning |
 |--------|---------|
 | `open` | Task is active |
 | `merged` | Work merged into base branch |
 | `closed` | Closed without merging |
+
+`subtask show` renders a derived **User Status** — see below.
 
 Transitions:
 - `open` → `merged` (via `merge`)
@@ -140,15 +142,25 @@ Transitions:
 | Status | Meaning |
 |--------|---------|
 | `idle` | No worker activity yet |
-| `running` | Worker currently executing |
+| `working` | Worker currently executing (`running` accepted as legacy alias on read) |
 | `replied` | Worker finished, awaiting follow-up |
 | `error` | Last run failed |
 
 Transitions:
-- `idle` → `running` (via `send`)
-- `running` → `replied` (worker finishes) or `error` (failure)
-- `replied` → `running` (via `send`)
-- `error` → `running` (via `send`)
+- `idle` → `working` (via `send`)
+- `working` → `replied` (worker finishes) or `error` (failure)
+- `replied` → `working` (via `send`)
+- `error` → `working` (via `send`)
+
+**User Status** (derived, what `subtask show` and `subtask list` render):
+| Status | Meaning |
+|--------|---------|
+| `draft` | Task created but not yet dispatched (open + worker never started) |
+| `working` | Worker currently executing |
+| `replied` | Worker finished, awaiting lead follow-up |
+| `error` | Last worker run failed |
+| `merged` | Work merged into base branch |
+| `closed` | Closed without merging |
 
 Task status is what users care about. Worker status is operational detail. Workspace stays with task until closed/merged.
 

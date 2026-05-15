@@ -9,7 +9,7 @@ default_prompt:
         {"step": "Second step", "done": false}
     ]
     ```
-    Update `done: true` as you complete each step, or revise as needed. Commit when done.
+    Update `done: true` as you complete each step, or revise as needed. Commit your code changes when done. Do NOT commit anything under `.subtask/tasks/...` (PROGRESS.json, etc.) — those files live in the task folder, not the worktree.
 steps:
   - id: doing
     instructions: |

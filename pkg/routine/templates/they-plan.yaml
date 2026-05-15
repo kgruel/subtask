@@ -9,7 +9,7 @@ default_prompt:
         {"step": "Second step", "done": false}
     ]
     ```
-    Update `done: true` as you complete each step, or revise steps as needed. Commit when done.
+    Update `done: true` as you complete each step, or revise steps as needed. Commit your code changes when done. Do NOT commit anything under `.subtask/tasks/...` (PROGRESS.json, etc.) — those files live in the task folder, not the worktree.
 steps:
   - id: plan
     instructions: |
@@ -22,11 +22,11 @@ steps:
 
       When approved:
         `subtask stage <task> implement`
-        `subtask send <task> "Plan approved. Implement it. Update PROGRESS.json as you go, commit when done."`
+        `subtask send <task> "Plan approved. Implement it. Update PROGRESS.json as you go, commit your code changes when done. Do NOT commit anything under .subtask/tasks/... (PROGRESS.json, etc.)."`
 
   - id: implement
     worker_context: |
-      Commit your work when done.
+      Commit your code changes when done. Do NOT commit anything under `.subtask/tasks/...` (PROGRESS.json, etc.) — those files live in the task folder, not the worktree.
     instructions: |
       Worker is implementing and updating PROGRESS.json.
 

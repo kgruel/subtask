@@ -193,6 +193,18 @@ func ForTask(taskName string) (string, error) {
 		return "", err
 	}
 	if state == nil {
+		// No state.json means the workspace was never assigned on this machine.
+		// This can happen legitimately for a task that was synced/copied from
+		// another machine (portability contract) — not just newly-drafted tasks.
+		// Only emit the "drafted" message when history confirms the task is open
+		// AND has never had any worker activity; otherwise fall back to the
+		// generic error.
+		if tail, tailErr := history.Tail(taskName); tailErr == nil &&
+			tail.TaskStatus == task.TaskStatusOpen &&
+			tail.LastRunOutcome == "" &&
+			tail.RunningSince.IsZero() {
+			return "", fmt.Errorf("task %q is drafted but has no workspace yet — run `subtask send %s \"...\"` to dispatch (workspace is created on first send)", taskName, taskName)
+		}
 		return "", fmt.Errorf("task %q has no workspace", taskName)
 	}
 	return state.Workspace, nil
