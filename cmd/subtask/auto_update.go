@@ -15,14 +15,20 @@ func runAutoUpdate() {
 		return
 	}
 
-	homeDir, err := homedir.Dir()
-	if err == nil && homeDir != "" {
-		res, err := install.AutoUpdateIfInstalled(homeDir)
-		if err == nil && res.UpdatedSkill {
-			// Stderr, not stdout: this is meta-status that fires before the
-			// user's command runs. It must never contaminate stdout consumed
-			// by pipes, hooks, or `subtask reply` / `subtask unread`.
-			fmt.Fprintln(os.Stderr, "✓ Updated skill to latest version")
+	// When the install command is running it manages the skill itself —
+	// skip the auto-update write to avoid emitting a success line before
+	// install's own message. Assumes no global flags precede the subcommand
+	// name (true for this CLI today; revisit if a global flag is added).
+	if !(len(os.Args) > 1 && os.Args[1] == "install") {
+		homeDir, err := homedir.Dir()
+		if err == nil && homeDir != "" {
+			res, err := install.AutoUpdateIfInstalled(homeDir)
+			if err == nil && res.UpdatedSkill {
+				// Stderr, not stdout: this is meta-status that fires before the
+				// user's command runs. It must never contaminate stdout consumed
+				// by pipes, hooks, or `subtask reply` / `subtask unread`.
+				fmt.Fprintln(os.Stderr, "✓ Updated skill to latest version")
+			}
 		}
 	}
 

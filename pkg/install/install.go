@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	_ "embed"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kgruel/subtask/internal/homedir"
 )
@@ -46,15 +48,33 @@ func Install() (string, bool, error) {
 	return InstallTo(homeDir)
 }
 
-// InstallTo writes the embedded skill to the Claude Code skill location under baseDir (user scope).
-func InstallTo(baseDir string) (string, bool, error) {
-	return syncSkillTo(baseDir)
+// InstallTo writes the skill to the Claude Code skill location under baseDir (user scope).
+// Pass content to override the embedded skill (e.g. from a local repo checkout).
+func InstallTo(baseDir string, content ...[]byte) (string, bool, error) {
+	path := SkillPath(baseDir)
+	if path == "" {
+		return "", false, errors.New("invalid base directory")
+	}
+	data := embeddedSkill
+	if len(content) > 0 {
+		data = content[0]
+	}
+	return syncToPath(path, data)
 }
 
-// InstallToProject writes the embedded skill to the project-scoped Claude Code skill location.
+// InstallToProject writes the skill to the project-scoped Claude Code skill location.
 // projectRoot should be the git root of the project.
-func InstallToProject(projectRoot string) (string, bool, error) {
-	return syncSkillToProject(projectRoot)
+// Pass content to override the embedded skill (e.g. from a local repo checkout).
+func InstallToProject(projectRoot string, content ...[]byte) (string, bool, error) {
+	path := ProjectSkillPath(projectRoot)
+	if path == "" {
+		return "", false, errors.New("invalid project root")
+	}
+	data := embeddedSkill
+	if len(content) > 0 {
+		data = content[0]
+	}
+	return syncToPath(path, data)
 }
 
 // ProjectSkillPath returns the Claude Code skill path for project scope.
@@ -124,29 +144,82 @@ func GetSkillStatusFor(baseDir string) (SkillStatus, error) {
 	return st, nil
 }
 
+// DetectLocalSKILL walks from cwd toward the filesystem root, looking for a
+// subtask checkout: a directory containing both a go.mod whose first module
+// declaration is "module github.com/kgruel/subtask" and a pkg/install/SKILL.md
+// file.
+//
+// Return values:
+//   - found=false, err=nil  — not in a subtask checkout; use the embed
+//   - found=true,  err=nil  — repo SKILL loaded successfully
+//   - found=true,  err!=nil — checkout detected but SKILL unreadable; caller must surface error
+//
+// Note: forks with a different module path will not trigger repo-aware mode
+// (v1 limitation — accepted because the module path is the canonical identity).
+func DetectLocalSKILL(cwd string) (content []byte, path string, found bool, err error) {
+	// Resolve symlinks so that a cwd like /tmp/link -> <repo>/cmd/subtask
+	// walks through the real path and finds the repo root.
+	if resolved, resolveErr := filepath.EvalSymlinks(cwd); resolveErr == nil {
+		cwd = resolved
+	}
+	dir := cwd
+	for {
+		gomod := filepath.Join(dir, "go.mod")
+		if _, statErr := os.Stat(gomod); statErr == nil {
+			if isSubtaskModule(gomod) {
+				skillPath := filepath.Join(dir, "pkg", "install", "SKILL.md")
+				data, readErr := os.ReadFile(skillPath)
+				if readErr != nil {
+					return nil, skillPath, true, readErr
+				}
+				return data, skillPath, true, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil, "", false, nil
+}
+
+// isSubtaskModule returns true if the go.mod at path declares
+// "module github.com/kgruel/subtask" as its module path.
+func isSubtaskModule(gomodPath string) bool {
+	f, err := os.Open(gomodPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if mod, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(mod) == "github.com/kgruel/subtask"
+		}
+	}
+	return false
+}
+
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
-func syncSkillTo(baseDir string) (string, bool, error) {
-	path := SkillPath(baseDir)
-	if path == "" {
-		return "", false, errors.New("invalid base directory")
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+// syncToPath writes data to destPath if it differs from the current contents.
+// Returns (path, updated, err).
+func syncToPath(destPath string, data []byte) (string, bool, error) {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return "", false, err
 	}
-
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, embeddedSkill) {
-		return path, false, nil
+	if existing, err := os.ReadFile(destPath); err == nil && bytes.Equal(existing, data) {
+		return destPath, false, nil
 	}
-
-	if err := os.WriteFile(path, embeddedSkill, 0o644); err != nil {
+	if err := os.WriteFile(destPath, data, 0o644); err != nil {
 		return "", false, err
 	}
-	return path, true, nil
+	return destPath, true, nil
 }
 
 func isSkillInstalled(baseDir string) bool {
@@ -156,24 +229,4 @@ func isSkillInstalled(baseDir string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func syncSkillToProject(projectRoot string) (string, bool, error) {
-	path := ProjectSkillPath(projectRoot)
-	if path == "" {
-		return "", false, errors.New("invalid project root")
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", false, err
-	}
-
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, embeddedSkill) {
-		return path, false, nil
-	}
-
-	if err := os.WriteFile(path, embeddedSkill, 0o644); err != nil {
-		return "", false, err
-	}
-	return path, true, nil
 }

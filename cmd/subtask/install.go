@@ -79,22 +79,48 @@ func (c *InstallCmd) Run() error {
 		}
 	}
 
+	// Detect if we're inside a subtask checkout. When found, use the repo
+	// SKILL file as the install source instead of the binary's embed, so a
+	// developer editing pkg/install/SKILL.md gets the live version without
+	// needing to rebuild the binary first.
+	cwd, _ := os.Getwd()
+	localContent, localPath, repoFound, detectErr := install.DetectLocalSKILL(cwd)
+	if detectErr != nil {
+		return fmt.Errorf("subtask checkout detected but cannot read repo SKILL at %s: %w", localPath, detectErr)
+	}
+
 	// Install skill to appropriate location.
 	var skillPath string
 	var updated bool
 	if scope == "project" {
 		repoRoot := task.ProjectRoot()
-		skillPath, updated, err = install.InstallToProject(repoRoot)
+		if repoFound {
+			skillPath, updated, err = install.InstallToProject(repoRoot, localContent)
+		} else {
+			skillPath, updated, err = install.InstallToProject(repoRoot)
+		}
 	} else {
-		skillPath, updated, err = install.InstallTo(homeDir)
+		if repoFound {
+			skillPath, updated, err = install.InstallTo(homeDir, localContent)
+		} else {
+			skillPath, updated, err = install.InstallTo(homeDir)
+		}
 	}
 	if err != nil {
 		return err
 	}
 	if updated {
-		printSuccess(fmt.Sprintf("Installed skill to %s", abbreviatePath(skillPath)))
+		if repoFound {
+			printSuccess(fmt.Sprintf("Installed skill from %s to %s", abbreviatePath(localPath), abbreviatePath(skillPath)))
+		} else {
+			printSuccess(fmt.Sprintf("Installed skill to %s", abbreviatePath(skillPath)))
+		}
 	} else {
-		printSuccess(fmt.Sprintf("Skill already up to date at %s", abbreviatePath(skillPath)))
+		if repoFound {
+			printSuccess(fmt.Sprintf("Skill already up to date at %s (from %s)", abbreviatePath(skillPath), abbreviatePath(localPath)))
+		} else {
+			printSuccess(fmt.Sprintf("Skill already up to date at %s", abbreviatePath(skillPath)))
+		}
 	}
 
 	// If not configured yet, run the config wizard and write ~/.subtask/config.json.

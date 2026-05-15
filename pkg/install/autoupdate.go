@@ -9,7 +9,7 @@ func AutoUpdateIfInstalled(baseDir string) (AutoUpdateResult, error) {
 	var res AutoUpdateResult
 
 	if isSkillInstalled(baseDir) {
-		_, updated, err := syncSkillTo(baseDir)
+		_, updated, err := InstallTo(baseDir)
 		if err != nil {
 			return AutoUpdateResult{}, err
 		}
