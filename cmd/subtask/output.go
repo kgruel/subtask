@@ -248,12 +248,18 @@ func ChangedTaskFiles(before, after TaskFileSnapshot) []string {
 
 // PrintWorkerResult prints the worker reply with footer (no stage info).
 func PrintWorkerResult(taskName string, reply string, toolCalls int, changedFiles []string) {
-	PrintWorkerResultWithStage(taskName, reply, toolCalls, changedFiles, "")
+	PrintWorkerResultWithStage(taskName, reply, toolCalls, changedFiles, "", "")
 }
 
 // PrintWorkerResultWithStage prints the worker reply with stage info.
-func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, changedFiles []string, stage string) {
-	fmt.Printf("Worker replied (%d tool calls)", toolCalls)
+// When workerLabel is non-empty it is used directly; otherwise the label is
+// resolved from the task snapshot (fallback for callers without a live cfg).
+func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, changedFiles []string, stage, workerLabel string) {
+	label := workerLabel
+	if label == "" {
+		label = resolveWorkerLabelForTask(taskName, stage)
+	}
+	fmt.Printf("%s replied (%d tool calls)", label, toolCalls)
 
 	// Print reply
 	if reply != "" {
@@ -344,4 +350,23 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	// Print history path (syncable source of truth).
 	render.Section("History")
 	render.SectionContent(filepath.ToSlash(task.HistoryPath(taskName)) + "\n\nView:\n  subtask log " + taskName)
+}
+
+// resolveWorkerLabelForTask returns a WorkerLabel for the given task and stage.
+// Falls back to "Worker" if the task cannot be loaded.
+func resolveWorkerLabelForTask(taskName, stage string) string {
+	t, err := task.Load(taskName)
+	if err != nil {
+		return "Worker"
+	}
+	cfg, _ := workspace.LoadConfig()
+	var stepAgent string
+	if stage != "" && t.Routine != "" {
+		if r, err := routine.LoadByName(t.Routine); err == nil {
+			if step := r.GetStep(stage); step != nil {
+				stepAgent = step.Agent
+			}
+		}
+	}
+	return task.WorkerLabel(stepAgent, t.Agent, workspace.ResolveAdapter(cfg, t, ""), workspace.ResolveModel(cfg, t, ""))
 }

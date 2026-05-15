@@ -17,9 +17,10 @@ import (
 
 // ShowCmd implements 'subtask show'.
 type ShowCmd struct {
-	Task  string `arg:"" help:"Task name to show"`
-	Watch bool   `short:"w" help:"Refresh every 2s (TTY only)"`
-	JSON  bool   `short:"j" help:"Output as JSON"`
+	Task    string `arg:"" help:"Task name to show"`
+	Watch   bool   `short:"w" help:"Refresh every 2s (TTY only)"`
+	JSON    bool   `short:"j" help:"Output as JSON"`
+	Verbose bool   `short:"v" help:"Show all fields (workspace, directory, base commit)"`
 }
 
 // Run executes the show command.
@@ -67,10 +68,8 @@ func (c *ShowCmd) render() (string, error) {
 		Title:      t.Title,
 		Branch:     t.Name,
 		BaseBranch: t.BaseBranch,
-		BaseCommit: detail.BaseCommit,
+		Verbose:    c.Verbose,
 	}
-	card.Model = detail.Model
-	card.Reasoning = detail.Reasoning
 
 	lastError := ""
 	if state != nil {
@@ -81,10 +80,16 @@ func (c *ShowCmd) render() (string, error) {
 		card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, state.StartedAt, detail.LastRunMS, lastError)
 	}
 
-	if state != nil {
-		card.Workspace = state.Workspace
-		if detail.WorkerStatus == task.WorkerStatusError && strings.TrimSpace(state.LastError) != "" {
-			card.Error = state.LastError
+	if state != nil && detail.WorkerStatus == task.WorkerStatusError && strings.TrimSpace(state.LastError) != "" {
+		card.Error = state.LastError
+	}
+
+	if c.Verbose {
+		card.BaseCommit = detail.BaseCommit
+		card.Model = detail.Model
+		card.Reasoning = detail.Reasoning
+		if state != nil {
+			card.Workspace = state.Workspace
 		}
 	}
 
@@ -108,18 +113,22 @@ func (c *ShowCmd) render() (string, error) {
 		card.LastReviewer = rs.LastAdapter
 	}
 
+	var stepAgent string
 	if detail.Routine != nil {
 		card.Routine = detail.Routine.Name
 		card.RoutineSource = detail.Routine.Source
 		if strings.TrimSpace(detail.Stage) != "" {
 			card.Stage = render.FormatRoutineDiagram(routineDiagramSteps(detail.Routine), detail.Stage)
-			if step := detail.Routine.GetStep(detail.Stage); step != nil && step.Agent != "" {
-				card.Agent = step.Agent
+			if step := detail.Routine.GetStep(detail.Stage); step != nil {
+				stepAgent = step.Agent
 			}
 		}
 	}
-	if card.Agent == "" && detail.Task.Agent != "" {
-		card.Agent = detail.Task.Agent
+	card.Agent = task.WorkerLabel(stepAgent, detail.Task.Agent, detail.Adapter, detail.Model)
+
+	// Load artifacts.
+	if arts, err := task.Artifacts(c.Task); err == nil {
+		card.Artifacts = arts
 	}
 
 	// Load progress steps.
@@ -131,8 +140,10 @@ func (c *ShowCmd) render() (string, error) {
 		card.Progress = "" // Don't show summary when we have steps.
 	}
 
-	card.TaskDir = task.Dir(c.Task)
-	card.Files = detail.TaskFiles
+	if c.Verbose {
+		card.TaskDir = task.Dir(c.Task)
+		card.Files = detail.TaskFiles
+	}
 
 	if render.Pretty {
 		return card.RenderPretty(), nil

@@ -93,6 +93,7 @@ type TaskView struct {
 	LastRunMS     int
 
 	Model     string
+	Adapter   string
 	Reasoning string
 
 	ProgressSteps []task.ProgressStep

@@ -251,11 +251,23 @@ func (c *SendCmd) Run() error {
 
 	var result *harness.Result
 	var runErr error
+	// resolvedWorkerLabel is set in the else branch so spinner and result footer share
+	// the same label (including any --model/--adapter/--preset override applied to cfg).
+	var resolvedWorkerLabel string
 	if buildErr != nil {
 		runErr = buildErr
 	} else {
 		c.info(fmt.Sprintf("Sending to task: %s", c.Task))
-		c.info("[Waiting for worker...]")
+		var spinnerStepAgent string
+		if tail.Stage != "" && t.Routine != "" {
+			if spinnerRoutine, err := routine.LoadByName(t.Routine); err == nil {
+				if spinnerStep := spinnerRoutine.GetStep(tail.Stage); spinnerStep != nil {
+					spinnerStepAgent = spinnerStep.Agent
+				}
+			}
+		}
+		resolvedWorkerLabel = task.WorkerLabel(spinnerStepAgent, t.Agent, r.Adapter, r.Model)
+		c.info(fmt.Sprintf("[Waiting for %s...]", resolvedWorkerLabel))
 
 		// runToolCalls is tracked atomically for accurate interruption accounting.
 		callbacks := harness.Callbacks{
@@ -491,7 +503,7 @@ func (c *SendCmd) Run() error {
 		return nil
 	}
 
-	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, displayStage)
+	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, displayStage, resolvedWorkerLabel)
 	return nil
 }
 

@@ -281,6 +281,7 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		ProgressMeta:  meta,
 		ProgressSteps: task.LoadProgressSteps(name),
 		Model:         workspace.ResolveModel(cfg, t, ""),
+		Adapter:       workspace.ResolveAdapter(cfg, t, ""),
 		TaskStatus:    rec.TaskStatus,
 		WorkerStatus:  rec.WorkerStatus,
 		Stage:         rec.Stage,

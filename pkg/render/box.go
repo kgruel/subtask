@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 // routineSourceSuffix returns the display suffix for a routine source string.
@@ -102,6 +104,9 @@ type TaskCard struct {
 	LastReviewTS   time.Time
 	LastReviewKind string
 	LastReviewer   string
+
+	Verbose   bool
+	Artifacts []task.ArtifactInfo
 }
 
 // RenderPlain renders the task card as plain key-value text.
@@ -121,14 +126,18 @@ func (c *TaskCard) RenderPlain() string {
 			fmt.Fprintf(&buf, "Model: %s\n", c.Model)
 		}
 	}
-	if c.Agent != "" {
+	if c.Agent != "" && c.Agent != "Worker" {
 		fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
 	}
 	if c.Workspace != "" {
 		fmt.Fprintf(&buf, "Workspace: %s\n", c.Workspace)
 	}
 
-	fmt.Fprintf(&buf, "Status: %s\n", c.TaskStatus)
+	statusStr := c.TaskStatus
+	if !c.Verbose {
+		statusStr = stripStatusAge(statusStr)
+	}
+	fmt.Fprintf(&buf, "Status: %s\n", statusStr)
 	if c.Error != "" {
 		fmt.Fprintf(&buf, "Error: %s\n", c.Error)
 	}
@@ -168,6 +177,17 @@ func (c *TaskCard) RenderPlain() string {
 
 	if len(c.ConflictFiles) > 0 {
 		fmt.Fprintf(&buf, "Conflicts: %s\n", strings.Join(c.ConflictFiles, ", "))
+	}
+
+	if len(c.Artifacts) > 0 {
+		fmt.Fprintf(&buf, "Artifacts:\n")
+		for _, a := range c.Artifacts {
+			if a.Missing {
+				fmt.Fprintf(&buf, "  %s (missing, %s)\n", a.Name, a.Kind)
+			} else {
+				fmt.Fprintf(&buf, "  %s (%s, %s)\n", a.Name, formatArtifactSize(a.Size), a.Kind)
+			}
+		}
 	}
 
 	if c.Progress != "" {
@@ -229,7 +249,11 @@ func (c *TaskCard) RenderPretty() string {
 	lines = append(lines, styleDim.Render("└ "+c.Title))
 	lines = append(lines, "")
 
-	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Status"), Status(c.TaskStatus)))
+	prettyStatusStr := c.TaskStatus
+	if !c.Verbose {
+		prettyStatusStr = stripStatusAge(prettyStatusStr)
+	}
+	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Status"), Status(prettyStatusStr)))
 	if c.Error != "" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Error"), styleError.Render(c.Error)))
 	}
@@ -249,7 +273,7 @@ func (c *TaskCard) RenderPretty() string {
 		}
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Model"), modelInfo))
 	}
-	if c.Agent != "" {
+	if c.Agent != "" && c.Agent != "Worker" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Agent"), c.Agent))
 	}
 
@@ -292,6 +316,18 @@ func (c *TaskCard) RenderPretty() string {
 
 	if len(c.ConflictFiles) > 0 {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Conflicts"), styleDim.Render(strings.Join(c.ConflictFiles, ", "))))
+	}
+
+	if len(c.Artifacts) > 0 {
+		var parts []string
+		for _, a := range c.Artifacts {
+			if a.Missing {
+				parts = append(parts, fmt.Sprintf("%s (missing, %s)", a.Name, a.Kind))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s (%s, %s)", a.Name, formatArtifactSize(a.Size), a.Kind))
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Artifacts"), strings.Join(parts, "\n           ")))
 	}
 
 	// Routine (name + shadow marker) and Stage progression
@@ -348,4 +384,26 @@ func (c *TaskCard) Print() {
 	} else {
 		fmt.Print(c.RenderPlain())
 	}
+}
+
+// stripStatusAge removes the parenthetical timing annotation from a status
+// string, e.g. "replied (1s)" → "replied".
+func stripStatusAge(s string) string {
+	if i := strings.Index(s, " ("); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// formatArtifactSize returns a human-readable byte count.
+func formatArtifactSize(n int64) string {
+	const kb = 1024
+	const mb = 1024 * kb
+	if n < kb {
+		return fmt.Sprintf("%dB", n)
+	}
+	if n < mb {
+		return fmt.Sprintf("%.1fKB", float64(n)/kb)
+	}
+	return fmt.Sprintf("%.1fMB", float64(n)/mb)
 }

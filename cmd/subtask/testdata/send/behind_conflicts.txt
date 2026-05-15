@@ -1,7 +1,7 @@
 Using existing workspace: ws1
 Sending to task: send/behind-conflicts
-[Waiting for worker...]
-Worker replied (3 tool calls)
+[Waiting for builtin-mock/gpt-5.2 (no named agent)...]
+builtin-mock/gpt-5.2 (no named agent) replied (3 tool calls)
 
 ─── Reply ───
 Done

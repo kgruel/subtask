@@ -1,9 +1,7 @@
 Task: show/replied
 Title: Replied task
 Branch: show/replied (based on main)
-Base commit: a6de1c645da0682a92254a0a454e642f5500a7b9
-Model: gpt-5.2
-Workspace: ws1
+Agent: builtin-mock/gpt-5.2 (no named agent)
 Status: replied
 Changes: +4 -0
 Commits: 1
@@ -12,5 +10,3 @@ Steps:
   [x] First step
   [ ] Second step
   [ ] Third step
-
-Directory: .subtask/tasks/show--replied (contains PLAN.md, PROGRESS.json, TASK.md, history.jsonl)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
@@ -108,7 +109,7 @@ func TestShow_ModelUsesTaskOverride(t *testing.T) {
 
 	stdout, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Model: task-model")
+	require.Contains(t, stdout, "Agent: mock/task-model (no named agent)")
 }
 
 func TestShow_ModelIncludesReasoningWhenCodex(t *testing.T) {
@@ -126,7 +127,39 @@ func TestShow_ModelIncludesReasoningWhenCodex(t *testing.T) {
 	env.CreateTask(taskName, "Test task", "main", "Description")
 	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
 
+	// Default (slim) view shows Agent line; verbose restores the Model: line with reasoning.
 	stdout, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Model: gpt-5.2 (high)")
+	require.Contains(t, stdout, "Agent: codex/gpt-5.2 (no named agent)")
+
+	stdoutVerbose, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName, Verbose: true}).Run)
+	require.NoError(t, err)
+	require.Contains(t, stdoutVerbose, "Model: gpt-5.2 (high)")
+}
+
+func TestSend_ModelOverrideAppearsInBothSpinnerAndFooter(t *testing.T) {
+	// Regression: --model override was used for the spinner but the footer
+	// reloaded the config from disk, producing a label mismatch.
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	setProjectAdapter(t, "builtin-mock", "snap-model")
+
+	taskName := "send/label-override"
+	env.CreateTask(taskName, "Label override", "main", "desc")
+	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
+
+	mock := harness.NewMockHarness().WithResult("done", "sess-1")
+
+	stdout, _, err := captureStdoutStderr(t, (&SendCmd{
+		Task:        taskName,
+		Prompt:      "Go",
+		Model:       "over-model",
+		testHarness: mock,
+	}).Run)
+	require.NoError(t, err)
+
+	// Both spinner and footer must reflect the override model, not the snapshot.
+	require.Contains(t, stdout, "[Waiting for builtin-mock/over-model (no named agent)...]")
+	require.Contains(t, stdout, "builtin-mock/over-model (no named agent) replied")
 }
