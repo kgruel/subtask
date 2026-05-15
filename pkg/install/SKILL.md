@@ -5,230 +5,170 @@ description: "Parallel task orchestration CLI that dispatches work to AI workers
 
 # Subtask
 
-Subtask is a CLI for orchestrating parallel AI workers. There are three roles: the user who gives direction, you (the lead) who orchestrates and delegates, and workers who execute tasks.
+Subtask dispatches AI workers to isolated git worktrees so they can work in parallel without conflicting. There are three roles: the **user** who gives direction, **you** (the lead) who orchestrates, and **workers** who execute. The user tells you what they need; you draft tasks, dispatch, review, and decide when to merge.
 
-Each worker runs in an isolated git worktree. They can't conflict with each other.
+Three primitives drive the system. **Routines** shape the workflow (a named sequence of steps). **Agents** identify the worker (a preset bundled with a role prompt). **Presets** name the adapter + model + reasoning. Read sections [Routines](#routines), [Agents](#agents), and [Presets](#presets) before drafting; then the [Flow](#flow) section is just shell commands.
 
-The user tells you what they need. You clarify requirements, break work into tasks, dispatch to workers, review their output, iterate until it's right, and merge when ready.
+## Mindset and narration
 
-Prefer to delegate exploration, research and planning to workers as parts of their tasks. Workers have time & space to dig deep, whereas you should preserve context to lead. Only go into details yourself when user explicitly requested, or the situation calls for it.
+- **Understand before delegating.** Don't rush to draft until the user's intent is clear.
+- **Own the complexity.** Track every task in flight; surface progress and blockers; don't make the user chase you.
+- **Work autonomously between user inputs.** Review worker output, request changes, iterate. Escalate only decisions the user must make (merge/close, scope changes, design tradeoffs).
+- **Pace parallelism to your review bandwidth.** Worker time runs in parallel; your review is serial. ~2–3 tasks in flight is the practical cap.
+- **Narrate sparingly.** The user reads your tool calls. Surface decisions, blockers, batch milestones. Stay silent on stage transitions, routine progress, and routine findings you can address yourself.
 
-## Mindset
+## Routines
 
-1. **Understand before delegating** — ask questions, clarify requirements. Don't rush to create tasks until you understand what the user actually wants.
-2. **Own the complexity** — stay on top of all tasks. Surface progress and blockers. Don't make the user chase status.
-3. **Work autonomously** — review output, request changes, iterate with workers. Only involve the user for decisions they need to make.
-4. **Ask before merging** — get user sign-off before merging. Don't merge without user approval.
-5. **Pace parallelism to your bandwidth** — worker time runs in parallel; your review is serial. If you have N tasks already awaiting your review, drafting an (N+1)th costs more than it gains. A practical rule: at most 2–3 tasks in flight, and architect-typed tasks (long-running, low-touch) count less than mechanical ones.
+A routine is a named sequence of steps. Each step's `instructions:` field prints when you run `subtask stage`, telling you what to do next — so **this SKILL does not duplicate per-step instructions**; the routine YAML does.
 
-## Narration discipline
+**Canonical routines** (built-in, no config needed):
 
-The user can read your tool calls; they can't read every worker reply, every stage transition, every commit landing. Adapt your output to what actually warrants their attention.
+- `default` — `doing → review → ready`. Direct execution; you review the diff at the end.
+- `they-plan` — `plan → implement → review → ready`. Worker drafts PLAN.md; you review and approve before they implement.
+- `you-plan` — `plan → implement → review → ready`. You draft PLAN.md; worker pokes holes before they implement.
 
-**Surface to the user:**
-- Decisions only they can make (merge/close, design tradeoffs, scope changes)
-- Errors that need their judgment to resolve
-- Batch milestones (all tasks reviewed; queue empty; merged set ready)
+**How to pick.** Use `default` for direct execution. Use `they-plan` when the work is non-trivial and the worker should drive the plan. Use `you-plan` when you have strong opinions about scope and want the worker to challenge them.
 
-**Stay silent on:**
-- Stage transitions, commit confirmations, snapshot regenerations, "your branch is uncommitted" round-trips
-- Worker progress between dispatch and reply
-- Routine review findings you can address yourself
+Pick at draft time:
 
-When in doubt: would the user redirect this back to you? If yes, handle it silently.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `subtask ask "..."` | Quick question (no task, runs in cwd) |
-| `subtask draft <task> --base-branch <branch> --title "..." <<'EOF'` | Create a task |
-| `subtask send <task> <prompt>` | Prompt worker on task (blocks until reply) |
-| `subtask reply <task>` | Print the most recent worker reply |
-| `subtask stage <task> <step>` | Advance routine step |
-| `subtask list` | View all tasks |
-| `subtask show <task>` | View task details |
-| `subtask diff [--stat] <task>` | Show changes (from merge base) |
-| `subtask merge <task> -m "msg"` | Squash-merge task into base branch |
-| `subtask close <task>` | Close without merging, free workspace |
-| `subtask workspace <task>` | Get workspace path (a git worktree) |
-| `subtask review --task <task>` | AI code review of a task's changes |
-| `subtask interrupt <task>` | Gracefully stop a running worker |
-| `subtask log <task>` | Show task conversation and history |
-| `subtask trace <task>` | Debug what a worker is doing and thinking internally |
-| `subtask presets` | List available presets from project config |
-
-**Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
-
-## Overrides
-
-Override the adapter, provider, model, or reasoning effort per-task or per-prompt.
-
-**On `draft`** — persists to the task (every `send` inherits):
 ```bash
-subtask draft fix/bug --base-branch main --title "Fix panic" \
-  --adapter claude --model claude-sonnet-4-20250514 --reasoning high <<'EOF'
+subtask draft fix/bug --routine they-plan --base-branch main --title "Fix worker pool panic" <<'EOF'
+There's an intermittent panic in pool.go under high concurrency.
+EOF
+```
+
+`subtask draft` also accepts `--follow-up <task>` to carry conversation context forward from a prior task (useful for chained work; rarely needed).
+
+**Project routines** live at `.subtask/routines/<name>.yaml` and override or extend the canonical set. List what's available with `subtask routines` (`--json` for tooling). Minimal shape:
+
+```yaml
+name: ship-it
+description: Build, test, commit, push.
+default_prompt:
+  text: |
+    Run `make check` before committing. Use conventional-commit messages.
+steps:
+  - id: build
+    instructions: |
+      Tell the worker to build and test. When green:
+        `subtask stage <task> commit`
+    worker_instructions: |
+      Run `make build && make test`. Report failures verbatim.
+  - id: commit
+    notify: false
+    worker_instructions: Commit your work with a conventional-commit message.
+  - id: done
+    kind: terminal
+    instructions: Notify the user.
+```
+
+A few fields worth knowing:
+
+- **`default_prompt.text`** — project-wide brief that rides on every worker prompt for this routine. Use for regen recipes, commit conventions, "fix the cause not the test." The canonical routines ship a PROGRESS.json brief; your project's override replaces it.
+- **`notify: false`** on a step suppresses the unread-reply nudge for replies in that step. Use for mechanical bookkeeping transitions (committing, snapshot regeneration) where worker replies aren't worth your attention.
+- **`worker_instructions:`** on a step (or `agent:` on the step, or a positional prompt to `subtask stage`) makes `subtask stage <task> <step>` auto-dispatch to the worker. Without any of those triggers, `stage` is passive — `send` next.
+
+Unknown step or routine YAML keys fail loud at load — trust the error rather than guessing the schema.
+
+## Agents
+
+An agent bundles a preset with a role-defining prompt. Use `--agent <name>` on `draft` instead of `--preset <name>` when the worker plays a specific role (planner, reviewer, fixer) and a role prompt makes the work materially better. `--agent` and `--preset` are mutually exclusive on `draft`. `--agent` is also mutually exclusive with `--routine` — routine tasks set per-step agents via `agent:` in the routine YAML, not via `--agent` on `draft`.
+
+```bash
+subtask draft refactor/auth --agent planner --base-branch main --title "..." <<'EOF'
 ...
 EOF
 ```
 
-**On `send` / `ask`** — ephemeral, applies to this prompt only:
-```bash
-subtask send fix/bug --model claude-sonnet-4-20250514 "Review the edge cases"
-subtask ask --model claude-sonnet-4-20250514 "Explain the pool logic"
+Agent files live at `.subtask/agents/<name>.yaml`. List with `subtask agents` (`--json` available). Minimal shape:
+
+```yaml
+description: Drafts surgical PLANs; pushes back on over-engineering.
+preset:
+  adapter: claude
+  model: claude-opus-4-7
+  reasoning: high
+prompt:
+  text: |
+    You write minimal, reversible PLAN.md files. Prefer composition over invention.
 ```
 
-| Flag | `draft` | `send` | `review` | `ask` |
-|------|---------|--------|----------|-------|
-| `--adapter` | persists | per-prompt | per-review | per-prompt |
-| `--provider` | persists | per-prompt | — | per-prompt |
-| `--model` | persists | per-prompt | per-review | per-prompt |
-| `--reasoning` | persists | per-prompt | per-review | per-prompt |
-| `--preset` | persists | per-prompt | per-review | per-prompt |
+`preset:` accepts either a string reference (the name of a project preset, resolved against `subtask presets`) or an inline `{adapter, model, reasoning}` map, as shown above. `prompt:` must have exactly one of `text:` or `file:` (the latter relative to `.subtask/`). An agent's preset overlays project config the same way `--preset` does. Bad agent YAML errors at load.
 
-Resolution order: explicit flag → `--preset` overlay → task snapshot (when `--task`/`--follow-up` resolves to a task) → project config → global config.
+## Presets
 
-**Snapshot semantics:** When you `draft` a task, the resolved adapter, model, and reasoning are written into TASK.md ("snapshot"). Editing `.subtask/config.json` later does **not** update existing tasks. To run an existing task with a different preset without editing TASK.md: pass `--preset <name>` to `send`, `review`, or `ask --follow-up <task>`. To swap the preset automatically on a step transition, bind `preset:` in the routine YAML.
+A preset is a named `adapter + model + reasoning` bundle in `.subtask/config.json`. List with `subtask presets` (`--json` available).
+
+**Per-task vs per-prompt.** `--preset` on `draft` persists into the TASK.md snapshot — every subsequent `send`/`stage`/`review --task` inherits it. `--preset` on `send`/`review`/`ask` is ephemeral and applies only to that invocation.
+
+```bash
+subtask draft fix/bug --preset <named-preset> --base-branch main --title "..." <<'EOF'
+...
+EOF
+```
+
+**Resolution order:** explicit flag (`--adapter`/`--model`/`--reasoning`) → `--preset` overlay → task snapshot (when a task is in scope) → project config → global config.
+
+**Snapshot semantics.** Editing `.subtask/config.json` after `draft` does *not* retroactively update existing tasks. To run a one-off with a different preset, pass `--preset` to `send`/`review`/`ask`. To swap automatically on a step transition, bind `preset:` on that step in the routine YAML — the harness applies it persistently into the snapshot.
+
+**Cross-adapter swap clears the session.** When a routine-bound preset swap crosses adapter families (e.g. claude → codex), the harness clears the worker session. Cross-step context comes from the workspace + PLAN.md + PROGRESS.json — file-based collaboration, not session carry-over. That's why the swap is safe.
+
+**Reviewer preset (principle, not recipe).** For `subtask review --task`, pick a preset whose adapter family **differs from the worker's** for blind-spot coverage. Use `subtask presets` to see what your project ships; the SKILL deliberately doesn't name presets — projects diverge.
 
 ## Flow
 
+Shell commands only. Don't expect this section to re-explain primitives — that's [Routines](#routines), [Agents](#agents), and [Presets](#presets).
+
 ```bash
-# 1. Draft (task name is branch name, task description is shared with worker)
+# 1. Draft (task name is branch name; description goes via heredoc/stdin)
 subtask draft fix/bug --routine default --base-branch main --title "Fix worker pool panic" <<'EOF'
-There's an intermittent panic in the worker pool under high concurrency—likely a race condition in pool.go.
-Reproduce, find root cause, fix, and add tests.
+Intermittent panic in pool.go under high concurrency. Reproduce, fix, add tests.
 EOF
 
-# 2. Start the worker (blocks until worker replies; run in background)
+# 2. Dispatch the worker. `send` is synchronous — run with run_in_background: true.
 subtask send fix/bug "Go ahead."
 
-# 3. When notified, read the reply and advance to review
+# 3. When notified the bash exited, read the reply from durable history.
 subtask reply fix/bug
+
+# 4. Advance to review and inspect the workspace diff.
 subtask stage fix/bug review
 subtask diff --stat fix/bug
+subtask diff fix/bug
 
-# 4. Run a cross-adapter AI review pass
-subtask review --task fix/bug --preset <reviewer-preset> "..."
-# (list reviewer options with `subtask presets`; pick a preset whose adapter
-# differs from the worker's for blind-spot coverage)
+# 5. Cross-adapter review pass (pick a reviewer whose adapter differs from the worker's).
+subtask review --task fix/bug --preset <reviewer>
 
-# 5. Address findings if any; re-run review after substantive fixes
-subtask send fix/bug "Please also handle the edge case when pool is empty."
-subtask review --task fix/bug --preset <reviewer-preset>
+# 6. Address findings; re-review after substantive fixes.
+subtask send fix/bug "Please handle the empty-pool edge case too."
+subtask review --task fix/bug --preset <reviewer>
 
-# 6. When ready, merge or close
+# 7. Hand off to the user for the merge/close decision.
 subtask stage fix/bug ready
 subtask merge fix/bug -m "Fix race condition in worker pool"
-# Or if not merging: subtask close fix/bug
+# or, if not merging:
+subtask close fix/bug
 ```
 
-### Why the review pass, and when not to
+## Meta surfaces
 
-**Cross-adapter review pass** (what step 4 does): a different adapter/model stack reads the diff one-shot, independent of the worker's session. Different adapter → different priors → catches the worker's blind spots. Pick a reviewer that is **cheaper / lighter** than the implementer — it reads the diff, it doesn't generate it. Re-run after substantive fix cycles; the first review only covered the first implementation.
+Commands no routine prints. Use these when the lead loop needs them.
 
-**Same-adapter swap mid-task** (advanced, project-template territory): some routines bind a stronger preset to the review step so the worker continues the same conversation under a heavier model (e.g., sonnet → opus). This is configured at the routine level via step `preset:` bindings; the lead doesn't invoke it directly. Don't conflate the two — cross-adapter means an independent perspective via `subtask review`; same-adapter swap means heavier reasoning continuing the same conversation.
+- `subtask list` — every task and its status (`-a` includes closed; `--json` for tooling).
+- `subtask show <task>` — task detail, progress, worker status.
+- `subtask diff [--stat] <task>` — workspace diff against the base branch. See gotcha 1 below before relying on `send` reply summaries.
+- `subtask log <task>` — full task conversation and lifecycle events.
+- `subtask trace <task>` — worker tool calls and internal state, for debugging stuck or misbehaving runs.
+- `subtask interrupt <task>` — gracefully stop a running worker.
+- `subtask unread` — list open tasks with worker replies you haven't read (exits non-zero if none).
+- `subtask workspace <task>` — print the git worktree path.
+- `subtask ask "..."` — one-off question with no task, runs in cwd. Passthrough to the configured adapter; useful for quick lookups (`--preset` to override). Not a task primitive.
+- `subtask review` standalone forms — `--base BRANCH` (PR-style), `--uncommitted` (staged + unstaged + untracked), `--commit SHA`, `--plan` (with `--task`, reviews PLAN.md against TASK.md instead of the diff).
 
-**Running `subtask send`:**
+## Gotchas
 
-`subtask send` is **synchronous** — the bash process blocks until the worker has replied (or errored), then exits. Run it with `run_in_background: true` so you can keep talking to the user while you wait. Don't poll or check; you'll be notified when the bash exits.
-
-**When notified that send completed, read the reply with `subtask reply <task>`.** This prints the worker's reply from durable history — it works regardless of how the bash output was captured. Exit code 0 alone does not mean "kicked off" — it means the worker has already replied. Don't confuse the two.
-
-Don't pipe `subtask send` through `tail`, `head`, or other filters; you'll truncate the reply marker. If you want quieter output, use `subtask send -q`. Either way, `subtask reply <task>` is the canonical way to retrieve the reply.
-
-## Review
-
-AI code review. The `--task` form is part of the canonical Flow above; the others are for ad-hoc reviews of branches, uncommitted changes, or specific commits.
-
-```bash
-subtask review --task fix/bug --preset <reviewer>  # Cross-adapter review pass (canonical; use `subtask presets` to list options)
-subtask review --task fix/bug                      # Same-adapter review (uses task's stored adapter)
-subtask review --base main                         # Review current branch against main (PR-style)
-subtask review --uncommitted                       # Review staged + unstaged + untracked changes
-subtask review --commit abc123                     # Review a specific commit
-```
-
-Add `--plan` to `--task` to review PLAN.md against the task spec (TASK.md description) instead of the diff. Useful before approving a plan-stage handoff in `they-plan`/`you-plan` workflows — catches drift between what the spec asked for and what the plan proposes.
-
-```bash
-subtask review --task fix/bug --plan             # Review the plan against the spec
-```
-
-Add instructions as a positional arg: `subtask review --task fix/bug "Focus on error handling"`
-
-`review` accepts `--adapter`/`--model`/`--reasoning`/`--preset` overrides (ephemeral, do not persist). When `--task` is used, the task's stored adapter is the default; pass `--preset` to override it for this review only.
-
-## Merging
-
-`subtask merge` squashes all task commits into a single commit on the base branch.
-
-```bash
-subtask merge fix/bug -m "Fix race condition"
-```
-
-**If conflicts occur**, merge will fail with instructions. Follow them.
-
-## Stages and Routines
-
-Routine-based tasks have named steps that structure the work. The canonical `default` routine uses: `doing → review → ready`
-
-| Step | When to advance |
-|------|-----------------|
-| `doing` | Worker is working (default entry step) |
-| `review` | Worker done, you're reviewing code |
-| `ready` | Ready for human to decide (human review, merge, more work, etc.) |
-
-`subtask stage <task> <step>` advances to the named step. It always:
-- Writes the new step to history
-- Applies any preset bound to the step in the routine YAML (and clears the session if the adapter changes — cross-step context comes from the workspace, PLAN.md, and PROGRESS.json)
-
-**Auto-dispatch:** If the target step has `worker_instructions:` defined in the routine YAML, `stage` automatically dispatches the worker with those instructions and blocks until it replies — same as `subtask send`. An optional positional argument is appended to the instructions (or used alone if `worker_instructions:` is absent):
-
-```bash
-subtask stage fix/bug review                        # passive — no worker_instructions, returns immediately
-subtask stage fix/bug review "Focus on error paths" # auto-dispatches, BLOCKS — run with run_in_background: true
-subtask stage fix/bug review --no-send              # always passive, even with worker_instructions
-```
-
-When `stage` auto-dispatches, it blocks like `subtask send`. Run it with `run_in_background: true` so you can keep talking to the user while you wait. You'll be notified when the bash exits; read the worker's reply with `subtask reply <task>`.
-
-Pass `--no-send` to stay passive even when `worker_instructions:` is defined.
-
-## Planning Routines
-
-For complex tasks, add a plan step: `plan → implement → review → ready`
-
-**You plan (`--routine you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
-**They plan (`--routine they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
-
-```bash
-subtask draft fix/bug --routine they-plan --title "..." <<'EOF'
-Task description here.
-EOF
-```
-
-## Project-wide worker brief
-
-Routines carry a `default_prompt:` field in their YAML — the text that becomes the `## Project` section in every worker prompt for that routine. The canonical routines ship with a PROGRESS.json brief; you can override by putting your own routine YAML at `.subtask/routines/<name>.yaml`.
-
-This is the place for project-wide expectations every worker should carry — regen recipes, commit conventions, "the architecture tests are load-bearing, fix the cause not the test."
-
-## Silent steps
-
-A routine step can opt out of the unread-reply nudge by setting `notify: false` in the routine YAML:
-
-```yaml
-steps:
-  - id: commit
-    notify: false
-    worker_instructions: Commit your work.
-```
-
-While a task sits in a step marked `notify: false`, worker replies in that step are treated as plumbing — they don't surface via `subtask unread` and don't trigger the Stop-hook reminder. Use it for transitions where the worker is doing mechanical bookkeeping (committing, regenerating snapshots) that doesn't need your eyes. The silence applies to *any* reply while the task is in that step, not just auto-dispatched ones.
-
-## Notes
-
-- Use `subtask list` to see what's in flight.
-- Use `subtask show <task>` to see progress and details.
-- Use `subtask log <task>` to see task conversation and events.
-- Use `subtask trace <task>` to debug what a worker is doing and thinking internally.
+1. **`send` reply is not the code diff.** The "Changed:" summary in a `send` reply reflects task-folder files (PLAN.md, PROGRESS.json). For workspace code changes use `subtask diff <task>` (or `--stat`). You are blind to code from the reply alone.
+2. **Two-send pattern for plan-approved → implement.** After approving PLAN.md in a `*-plan` routine, run `subtask stage <task> implement` *first*, then `subtask send <task> "..."` separately. Never bundle "approved, now implement" in one message — workers execute against the step they're currently in.
+3. **PROGRESS.json is symlinked, not committable.** The task folder is symlinked into the worktree; `git add .subtask/tasks/<name>/PROGRESS.json` errors with "pathspec ... is beyond a symbolic link." Workers commit code; PROGRESS.json is lead-side bookkeeping and travels with the portable task folder.
+4. **Cross-adapter review is a practice, not optional polish.** Same-family review (Claude reviewing Claude) misses what a different family catches. Make `subtask review --task --preset <different-family>` part of the review step every time — not a bonus pass when you have time.
+5. **`send` blocks; `stage` sometimes blocks.** `subtask send` is synchronous — run it with `run_in_background: true` so you can keep talking to the user. Don't pipe it through `tail`/`head`; use `-q` for quiet output and `subtask reply` to fetch the canonical reply from history. `subtask stage` also blocks when the target step auto-dispatches (see Routines for the triggers); pass `--no-send` to stay passive.
