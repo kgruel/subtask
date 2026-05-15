@@ -111,7 +111,7 @@ func (c *ShowCmd) render() (string, error) {
 	if detail.Routine != nil {
 		card.Routine = detail.Routine.Name
 		if strings.TrimSpace(detail.Stage) != "" {
-			card.Stage = render.FormatStageProgression(detail.Routine.StepIDs(), detail.Stage)
+			card.Stage = render.FormatRoutineDiagram(routineDiagramSteps(detail.Routine), detail.Stage)
 		}
 	}
 

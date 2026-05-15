@@ -161,28 +161,106 @@ func Highlight(s string) string {
 	return s
 }
 
-// FormatStageProgression formats stage names with current highlighted.
-// Plain: "plan → (implement) → review"
-// Pretty: current stage rendered with highlight + bold.
-func FormatStageProgression(stages []string, current string) string {
-	if len(stages) == 0 {
+// DiagramEdge is a single routing edge for a flow note line.
+type DiagramEdge struct {
+	Label    string // option name or branch field
+	Target   string // destination step ID
+	Loopback bool   // true when Target is earlier in the chain
+}
+
+// DiagramStep carries all display data for one step in FormatRoutineDiagram.
+// Callers build this from *routine.Routine using RoutineToDiagramSteps.
+type DiagramStep struct {
+	ID       string
+	Terminal bool
+	Gate     bool
+	// Edges holds conditional edges: branches for regular steps, options for gates.
+	Edges []DiagramEdge
+}
+
+// FormatRoutineDiagram renders a routine's step chain with structural markers.
+//
+// Plain:  "(doing) → review → ready!"
+// Pretty: current step highlighted; gate/branch sigils colored.
+//
+// Sigils appended to step names:
+//
+//	! terminal   * gate   ? branch step (has conditional branches:)
+//
+// When any step has branches or gate options, a compact flow note is appended
+// below the chain listing each non-trivial step's edges. Loopback edges
+// (target earlier in the chain) are prefixed with ↩ instead of →.
+//
+// Use RoutineToDiagramSteps to convert a *routine.Routine to []DiagramStep.
+func FormatRoutineDiagram(steps []DiagramStep, current string) string {
+	if len(steps) == 0 {
 		return ""
 	}
 
-	parts := make([]string, len(stages))
-	for i, name := range stages {
-		if name == current && current != "" {
+	// Build main chain with type sigils.
+	parts := make([]string, len(steps))
+	for i, s := range steps {
+		sigil := diagramSigil(s)
+		if s.ID == current && current != "" {
 			if Pretty {
-				parts[i] = styleHighlight.Bold(true).Render(name)
+				parts[i] = styleHighlight.Bold(true).Render(s.ID) + sigil
 			} else {
-				parts[i] = "(" + name + ")"
+				parts[i] = "(" + s.ID + ")" + sigil
 			}
 		} else {
-			parts[i] = name
+			parts[i] = s.ID + sigil
 		}
 	}
+	chain := strings.Join(parts, " → ")
 
-	return strings.Join(parts, " → ")
+	// Build flow notes for steps with edges.
+	var notes []string
+	for _, s := range steps {
+		if len(s.Edges) == 0 {
+			continue
+		}
+		edgeParts := make([]string, len(s.Edges))
+		for j, e := range s.Edges {
+			if e.Loopback {
+				edgeParts[j] = e.Label + " ↩ " + e.Target
+			} else {
+				edgeParts[j] = e.Label + " → " + e.Target
+			}
+		}
+		var prefix string
+		if s.Gate {
+			prefix = "  * "
+			if Pretty {
+				prefix = "  " + styleWarning.Render("*") + " "
+			}
+		} else {
+			prefix = "  ? "
+			if Pretty {
+				prefix = "  " + styleHighlight.Render("?") + " "
+			}
+		}
+		notes = append(notes, prefix+s.ID+": "+strings.Join(edgeParts, " | "))
+	}
+
+	if len(notes) == 0 {
+		return chain
+	}
+	return chain + "\n" + strings.Join(notes, "\n")
+}
+
+// diagramSigil returns the type marker for a step: "!" terminal, "*" gate,
+// "?" branch step, "" regular.
+func diagramSigil(s DiagramStep) string {
+	switch {
+	case s.Terminal:
+		return "!"
+	case s.Gate:
+		return "*"
+	case len(s.Edges) > 0:
+		return "?"
+	default:
+		return ""
+	}
 }
 
 // Status returns a styled status string.

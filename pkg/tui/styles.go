@@ -69,4 +69,8 @@ var (
 	styleChangesTreeSelected = lipgloss.NewStyle().
 					Bold(true).
 					Background(lipgloss.AdaptiveColor{Light: "252", Dark: "237"})
+
+	// Routine diagram flow note sigil colors.
+	styleDiagramGate   = lipgloss.NewStyle().Foreground(colorYellow)
+	styleDiagramBranch = lipgloss.NewStyle().Foreground(colorBlue)
 )

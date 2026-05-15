@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
 )
@@ -185,7 +186,7 @@ func (m *model) updateOverviewContent() {
 		var routineLines []string
 		routineLines = append(routineLines, styleBold.Render("Routine"))
 		routineLines = append(routineLines, "")
-		stepLines := formatStageProgression(m.detail.Routine.StepIDs(), m.detail.Stage, innerW)
+		stepLines := formatRoutineDiagram(m.detail.Routine, m.detail.Stage, innerW)
 		routineLines = append(routineLines, strings.Split(stepLines, "\n")...)
 		sections = append(sections, routineLines)
 	}
@@ -471,29 +472,34 @@ var styleCurrentStage = lipgloss.NewStyle().
 
 var styleOtherStage = styleDim
 
-func formatStageProgression(stages []string, current string, width int) string {
-	if len(stages) == 0 {
+func formatRoutineDiagram(r *routine.Routine, current string, width int) string {
+	if r == nil || len(r.Steps) == 0 {
 		return ""
+	}
+
+	idxOf := make(map[string]int, len(r.Steps))
+	for i, s := range r.Steps {
+		idxOf[s.ID] = i
 	}
 
 	arrow := styleDim.Render(" → ")
 	arrowW := ansi.StringWidth(arrow)
 
-	// Build styled stages with arrows
+	// Build main chain with width-based wrapping.
 	var lines []string
 	var line string
 	lineWidth := 0
 
-	for i, s := range stages {
-		var styled string
-		if s == current && current != "" {
-			styled = styleCurrentStage.Render(s)
+	for i, s := range r.Steps {
+		sigil := tuiSigilFor(&s)
+		var styledLabel string
+		if s.ID == current && current != "" {
+			styledLabel = styleCurrentStage.Render(s.ID) + sigil
 		} else {
-			styled = styleOtherStage.Render(s)
+			styledLabel = styleOtherStage.Render(s.ID) + sigil
 		}
-		w := ansi.StringWidth(styled)
+		w := ansi.StringWidth(styledLabel)
 
-		// Add arrow before this stage (except first)
 		needsArrow := i > 0
 		extraW := 0
 		if needsArrow {
@@ -501,23 +507,75 @@ func formatStageProgression(stages []string, current string, width int) string {
 		}
 
 		if lineWidth > 0 && lineWidth+extraW+w > width {
-			// Wrap to new line
 			lines = append(lines, line)
-			line = styled
+			line = styledLabel
 			lineWidth = w
 		} else {
 			if needsArrow {
 				line += arrow
 				lineWidth += arrowW
 			}
-			line += styled
+			line += styledLabel
 			lineWidth += w
 		}
 	}
 	if line != "" {
 		lines = append(lines, line)
 	}
+
+	// Append flow notes for steps with non-linear edges, wrapped to pane width.
+	for i, s := range r.Steps {
+		switch s.Kind {
+		case routine.KindGate:
+			edges := make([]string, 0, len(s.Options))
+			for _, o := range s.Options {
+				if idxOf[o.To] <= i {
+					edges = append(edges, o.Name+" ↩ "+o.To)
+				} else {
+					edges = append(edges, o.Name+" → "+o.To)
+				}
+			}
+			if len(edges) > 0 {
+				prefix := "  " + styleDiagramGate.Render("*") + " "
+				noteLines := wrapWithIndent(s.ID+": "+strings.Join(edges, " | "), width, ansi.StringWidth(prefix))
+				lines = append(lines, prefix+noteLines[0])
+				lines = append(lines, noteLines[1:]...)
+			}
+		default:
+			if len(s.Branches) == 0 {
+				continue
+			}
+			edges := make([]string, 0, len(s.Branches))
+			for _, b := range s.Branches {
+				if idxOf[b.To] <= i {
+					edges = append(edges, b.Field+" ↩ "+b.To)
+				} else {
+					edges = append(edges, b.Field+" → "+b.To)
+				}
+			}
+			prefix := "  " + styleDiagramBranch.Render("?") + " "
+			noteLines := wrapWithIndent(s.ID+": "+strings.Join(edges, " | "), width, ansi.StringWidth(prefix))
+			lines = append(lines, prefix+noteLines[0])
+			lines = append(lines, noteLines[1:]...)
+		}
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+// tuiSigilFor returns the type marker character for a step.
+func tuiSigilFor(s *routine.Step) string {
+	switch s.Kind {
+	case routine.KindTerminal:
+		return "!"
+	case routine.KindGate:
+		return "*"
+	default:
+		if len(s.Branches) > 0 {
+			return "?"
+		}
+		return ""
+	}
 }
 
 // wrapWithIndent wraps text to width, indenting continuation lines by indentWidth spaces.

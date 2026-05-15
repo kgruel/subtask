@@ -181,7 +181,7 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 	// Passive path: print lead-facing step guidance.
 	if targetStep.Instructions != "" {
 		fmt.Println()
-		fmt.Printf("Step: %s\n", render.FormatStageProgression(r.StepIDs(), target))
+		fmt.Printf("Step: %s\n", render.FormatRoutineDiagram(routineDiagramSteps(r), target))
 		fmt.Println()
 		displayName := target
 		if len(displayName) > 0 {

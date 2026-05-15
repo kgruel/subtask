@@ -358,7 +358,7 @@ func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) er
 	}
 
 	printSection("Routine: " + r.Name)
-	fmt.Println(render.FormatStageProgression(r.StepIDs(), entry.ID))
+	fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), entry.ID))
 	fmt.Println()
 
 	if entry.Instructions != "" {

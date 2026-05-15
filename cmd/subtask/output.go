@@ -300,7 +300,7 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	if t, err := task.Load(taskName); err == nil && t.Routine != "" {
 		if r, err := routine.LoadByName(t.Routine); err == nil {
 			render.Section("Routine: " + r.Name)
-			fmt.Println(render.FormatStageProgression(r.StepIDs(), stage))
+			fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), stage))
 			fmt.Println()
 
 			if stage != "" {
