@@ -38,6 +38,9 @@ type Routine struct {
 	// Name is the routine name (file basename without .yaml).
 	Name string
 
+	// Description is the human-readable summary from the YAML description: field.
+	Description string
+
 	// DefaultPrompt is the routine's project-wide brief, used as the
 	// `## Project` block in BuildPrompt for routine-driven tasks
 	// (replaces .subtask/WORKER.md for those tasks). Nil when omitted.
@@ -261,6 +264,7 @@ func LoadByName(name string) (*Routine, error) {
 // a yaml.Node so we can decode it polymorphically (string OR map).
 type rawRoutine struct {
 	Name          string    `yaml:"name"`
+	Description   string    `yaml:"description"`
 	DefaultPrompt yaml.Node `yaml:"default_prompt"`
 	Steps         []Step    `yaml:"steps"`
 }
@@ -281,7 +285,8 @@ func parseRoutine(data []byte) (*Routine, error) {
 	}
 
 	r := &Routine{
-		Steps: raw.Steps,
+		Description: raw.Description,
+		Steps:       raw.Steps,
 	}
 
 	// default_prompt: optional, polymorphic (scalar string OR map).
