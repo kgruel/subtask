@@ -428,6 +428,11 @@ func (c *SendCmd) Run() error {
 	// swap, session clear) on top of the just-committed run's
 	// session/adapter — not the other way around.
 	//
+	// displayStage tracks the step to show in the footer. When auto-advance
+	// lands on a gate or terminal (Dispatch=false, NextStep!=""), HandleAutoAdvance
+	// has already persisted that transition, so tail.Stage is stale.
+	displayStage := tail.Stage
+
 	// Routine auto-advance: re-enter SendCmd when the step's advance policy
 	// triggers immediately after the worker finishes.
 	if t.Routine != "" {
@@ -442,6 +447,9 @@ func (c *SendCmd) Run() error {
 		adv, advErr := routine.HandleAutoAdvance(c.Task, r, currentStep, cfg, finished)
 		if advErr != nil {
 			return advErr
+		}
+		if adv.NextStep != "" && !adv.Dispatch {
+			displayStage = adv.NextStep
 		}
 		if adv.Dispatch {
 			// Re-enter SendCmd for the new step. Each dispatch is a full
@@ -483,7 +491,7 @@ func (c *SendCmd) Run() error {
 		return nil
 	}
 
-	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, "")
+	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, displayStage)
 	return nil
 }
 

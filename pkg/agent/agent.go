@@ -25,6 +25,9 @@ type Agent struct {
 	// Name is the agent name (file basename without .yaml).
 	Name string
 
+	// Description is an optional human-readable summary from the YAML.
+	Description string
+
 	// PresetName is the named preset to overlay (resolved against
 	// cfg.Presets by the caller). Empty when the agent declares an
 	// inline preset block.
@@ -158,8 +161,9 @@ func LoadByName(name string) (*Agent, error) {
 // captured as a raw node so we can decode it as either a string or a
 // preset map.
 type rawAgent struct {
-	Preset yaml.Node `yaml:"preset"`
-	Prompt rawPrompt `yaml:"prompt"`
+	Description string    `yaml:"description,omitempty"`
+	Preset      yaml.Node `yaml:"preset"`
+	Prompt      rawPrompt `yaml:"prompt"`
 }
 
 // rawPrompt mirrors the prompt: block. Skill is captured explicitly so
@@ -180,7 +184,7 @@ func parseAgent(data []byte) (*Agent, error) {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 
-	a := &Agent{}
+	a := &Agent{Description: raw.Description}
 
 	// Preset: required, polymorphic (string ref OR inline block).
 	if raw.Preset.IsZero() {

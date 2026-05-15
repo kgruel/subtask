@@ -31,7 +31,7 @@ func (c *AgentsCmd) Run() error {
 	}
 
 	if len(summaries) == 0 {
-		fmt.Println("No agents defined in .subtask/agents/.")
+		fmt.Println("No agents defined. Create one at .subtask/agents/<name>.yaml.")
 		return nil
 	}
 

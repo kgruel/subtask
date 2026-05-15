@@ -10,6 +10,8 @@ import (
 // AgentSummary is a lightweight description of an agent for listing purposes.
 type AgentSummary struct {
 	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	Source       string `json:"source"`
 	PresetLabel  string `json:"preset"`
 	PromptSource string `json:"prompt"`
 }
@@ -55,6 +57,8 @@ func List() ([]AgentSummary, error) {
 
 		summaries = append(summaries, AgentSummary{
 			Name:         name,
+			Description:  a.Description,
+			Source:       "project",
 			PresetLabel:  presetLabel,
 			PromptSource: promptSrc,
 		})

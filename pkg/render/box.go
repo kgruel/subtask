@@ -303,7 +303,7 @@ func (c *TaskCard) RenderPretty() string {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Routine"), routineLabel))
 	}
 	if c.Stage != "" {
-		lines = append(lines, fmt.Sprintf("%s   %s", styleBold.Render("Stage"), c.Stage))
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Flow"), c.Stage))
 	}
 
 	// Progress steps with checkboxes

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/kgruel/subtask/pkg/subtaskerr"
 	"github.com/kgruel/subtask/pkg/task"
@@ -26,6 +27,10 @@ var knownConfigKeys = map[string]struct{}{
 	"harness":       {}, // legacy
 	"options":       {}, // legacy
 }
+
+// warnUnknownKeysOnce ensures the unknown-key warning fires at most once per
+// process, even when LoadConfig is called multiple times in the same run.
+var warnUnknownKeysOnce sync.Once
 
 // unknownConfigKeys returns a sorted list of unrecognised top-level keys in
 // the JSON blob. Returns nil when data is not a JSON object or all keys are known.
@@ -99,8 +104,10 @@ func LoadConfig() (*Config, error) {
 		if projectExists {
 			if raw, readErr := os.ReadFile(projectPath); readErr == nil {
 				if unknown := unknownConfigKeys(raw); len(unknown) > 0 {
-					fmt.Fprintf(os.Stderr, "warning: %s contains unknown config keys: %s (ignored)\n",
-						projectPath, strings.Join(unknown, ", "))
+					warnUnknownKeysOnce.Do(func() {
+						fmt.Fprintf(os.Stderr, "warning: %s contains unknown config keys: %s (ignored)\n",
+							projectPath, strings.Join(unknown, ", "))
+					})
 				}
 			}
 		}
