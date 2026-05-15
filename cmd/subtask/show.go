@@ -110,9 +110,16 @@ func (c *ShowCmd) render() (string, error) {
 
 	if detail.Routine != nil {
 		card.Routine = detail.Routine.Name
+		card.RoutineSource = detail.Routine.Source
 		if strings.TrimSpace(detail.Stage) != "" {
 			card.Stage = render.FormatRoutineDiagram(routineDiagramSteps(detail.Routine), detail.Stage)
+			if step := detail.Routine.GetStep(detail.Stage); step != nil && step.Agent != "" {
+				card.Agent = step.Agent
+			}
 		}
+	}
+	if card.Agent == "" && detail.Task.Agent != "" {
+		card.Agent = detail.Task.Agent
 	}
 
 	// Load progress steps.
@@ -151,6 +158,8 @@ type showJSON struct {
 	Error           string                 `json:"error,omitempty"`
 	Workspace       string                 `json:"workspace,omitempty"`
 	Routine         string                 `json:"routine,omitempty"`
+	RoutineSource   string                 `json:"routine_source,omitempty"`
+	Agent           string                 `json:"agent,omitempty"`
 	Stage           string                 `json:"stage,omitempty"`
 	TaskDir         string                 `json:"task_dir,omitempty"`
 	Files           []string               `json:"files,omitempty"`
@@ -212,6 +221,15 @@ func (c *ShowCmd) renderJSON() (string, error) {
 
 	if detail.Routine != nil {
 		out.Routine = detail.Routine.Name
+		out.RoutineSource = detail.Routine.Source
+		if strings.TrimSpace(detail.Stage) != "" {
+			if step := detail.Routine.GetStep(detail.Stage); step != nil && step.Agent != "" {
+				out.Agent = step.Agent
+			}
+		}
+	}
+	if out.Agent == "" && detail.Task.Agent != "" {
+		out.Agent = detail.Task.Agent
 	}
 
 	if steps := detail.ProgressSteps; len(steps) > 0 {

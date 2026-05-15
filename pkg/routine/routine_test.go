@@ -814,6 +814,46 @@ steps:
 	require.Equal(t, "Custom step.", custom.Instructions)
 }
 
+func TestLoadByName_CanonicalSource(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	r, err := LoadByName("default")
+	require.NoError(t, err)
+	require.Equal(t, SourceCanonical, r.Source, "embedded canonical must report SourceCanonical")
+}
+
+func TestLoadByName_ShadowSource(t *testing.T) {
+	// A project file named "default" shadows the embedded canonical of the same name.
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "default.yaml"), []byte(`steps:
+  - id: custom-doing
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	r, err := LoadByName("default")
+	require.NoError(t, err)
+	require.Equal(t, SourceShadow, r.Source, "project file with same name as embedded canonical must report SourceShadow")
+	require.Equal(t, "custom-doing", r.EntryStep(), "project shadow must override the embedded steps")
+}
+
+func TestLoadByName_ProjectSource(t *testing.T) {
+	// A project file with a name that has no embedded canonical is SourceProject.
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "release.yaml"), []byte(`steps:
+  - id: cut
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	r, err := LoadByName("release")
+	require.NoError(t, err)
+	require.Equal(t, SourceProject, r.Source, "project-only routine (no embedded canonical) must report SourceProject")
+}
+
 // ---- name: field validation ------------------------------------------------
 
 func TestLoadByName_NameFieldMatchingFilenameOK(t *testing.T) {

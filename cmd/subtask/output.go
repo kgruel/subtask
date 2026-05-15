@@ -299,8 +299,13 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	// Print routine and step info (routine-driven tasks only).
 	if t, err := task.Load(taskName); err == nil && t.Routine != "" {
 		if r, err := routine.LoadByName(t.Routine); err == nil {
-			render.Section("Routine: " + r.Name)
+			render.Section("Routine: " + r.Name + routine.SourceSuffix(r.Source))
 			fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), stage))
+			if stage != "" {
+				if step := r.GetStep(stage); step != nil && step.Agent != "" {
+					fmt.Printf("Agent: %s\n", step.Agent)
+				}
+			}
 			fmt.Println()
 
 			if stage != "" {

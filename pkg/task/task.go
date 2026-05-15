@@ -149,3 +149,25 @@ func List() ([]string, error) {
 func (t *Task) Path() string {
 	return Path(t.Name)
 }
+
+// FillDiskOnlyFields copies fields that the SQLite index projection doesn't
+// carry (Routine, Agent) from TASK.md on disk into t when they are empty.
+// Call this after loading t from the index so callers see the full task state
+// without having to duplicate the fallback logic. A single disk read is done
+// only when at least one field is missing; if both are already populated it
+// returns immediately.
+func (t *Task) FillDiskOnlyFields(name string) {
+	if t.Routine != "" && t.Agent != "" {
+		return
+	}
+	diskT, err := Load(name)
+	if err != nil {
+		return
+	}
+	if t.Routine == "" && diskT.Routine != "" {
+		t.Routine = diskT.Routine
+	}
+	if t.Agent == "" && diskT.Agent != "" {
+		t.Agent = diskT.Agent
+	}
+}

@@ -12,7 +12,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
+	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
 	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/testutil"
 )
@@ -156,4 +158,34 @@ func gitCmd(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// TestStoreGet_AgentFieldSurvivesIndexProjection verifies that store.Get
+// populates Task.Agent from TASK.md on disk even though the SQLite index
+// projection doesn't carry that field. This is the path show.go uses.
+func TestStoreGet_AgentFieldSurvivesIndexProjection(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	taskName := "fix/agent-store"
+	baseCommit := gitCmd(t, repoDir, "rev-parse", "HEAD")
+
+	// Save a task with Agent set (simulates `subtask draft --agent my-agent`).
+	tsk := &task.Task{
+		Name:        taskName,
+		Title:       "Agent store test",
+		BaseBranch:  "main",
+		Description: "desc",
+		Agent:       "my-agent",
+		Schema:      gitredesign.TaskSchemaVersion,
+	}
+	require.NoError(t, tsk.Save())
+	env.CreateTaskHistory(taskName, repliedHistory("main", baseCommit))
+
+	s := store.New()
+	view, err := s.Get(context.Background(), taskName, store.GetOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, view.Task)
+	require.Equal(t, "my-agent", view.Task.Agent,
+		"store.Get must expose Agent from TASK.md even when the SQLite index doesn't carry it")
 }

@@ -93,17 +93,11 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		}
 	}
 
-	// The SQLite index projection doesn't carry t.Routine (only the
-	// disk-resident TASK.md does), so look it up via task.Load first.
-	routineName := t.Routine
-	if routineName == "" {
-		if diskT, err := task.Load(taskName); err == nil && diskT.Routine != "" {
-			routineName = diskT.Routine
-			t.Routine = diskT.Routine
-		}
-	}
-	if routineName != "" {
-		if r, err := routine.LoadByName(routineName); err == nil {
+	// The SQLite index projection doesn't carry t.Routine or t.Agent.
+	// FillDiskOnlyFields reads TASK.md once to recover both when missing.
+	t.FillDiskOnlyFields(taskName)
+	if t.Routine != "" {
+		if r, err := routine.LoadByName(t.Routine); err == nil {
 			d.Routine = r
 		}
 	}

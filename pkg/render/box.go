@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+// routineSourceSuffix returns the display suffix for a routine source string.
+// Mirrors routine.SourceSuffix without importing pkg/routine (no cycle).
+func routineSourceSuffix(source string) string {
+	switch source {
+	case "shadow":
+		return " (project shadow)"
+	case "project":
+		return " (project)"
+	default:
+		return ""
+	}
+}
+
 // Box wraps content in a box (pretty mode) or returns as-is (plain mode).
 type Box struct {
 	Title   string
@@ -67,21 +80,23 @@ type TaskCard struct {
 	BaseCommit    string
 	Model         string
 	Reasoning     string
+	Agent         string // Agent name, if bound (task-level or current routine step)
 	Workspace     string
 	Progress      string // "3/5" or empty
 	ProgressSteps []ProgressStep
 	Routine       string
+	RoutineSource string // "canonical", "shadow", or "project" — drives suffix display
 	Stage         string // Formatted progression string
-	TaskDir       string // Task directory path (e.g., .subtask/tasks/fix--foo)
-	Files         []string
-	LinesAdded    int // Git diff stats
-	LinesRemoved  int
-	ChangesStatus string // "", "applied", "missing"
-	ChangesError  string
-	CommitCount   int
-	CommitError   string
-	ShowCommits   bool
-	ConflictFiles []string
+	TaskDir         string // Task directory path (e.g., .subtask/tasks/fix--foo)
+	Files           []string
+	LinesAdded      int // Git diff stats
+	LinesRemoved    int
+	ChangesStatus   string // "", "applied", "missing"
+	ChangesError    string
+	CommitCount     int
+	CommitError     string
+	ShowCommits     bool
+	ConflictFiles   []string
 
 	ReviewCount    int
 	LastReviewTS   time.Time
@@ -105,6 +120,9 @@ func (c *TaskCard) RenderPlain() string {
 		} else {
 			fmt.Fprintf(&buf, "Model: %s\n", c.Model)
 		}
+	}
+	if c.Agent != "" {
+		fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
 	}
 	if c.Workspace != "" {
 		fmt.Fprintf(&buf, "Workspace: %s\n", c.Workspace)
@@ -156,7 +174,7 @@ func (c *TaskCard) RenderPlain() string {
 		fmt.Fprintf(&buf, "Progress: %s\n", c.Progress)
 	}
 	if c.Routine != "" {
-		fmt.Fprintf(&buf, "Routine: %s\n", c.Routine)
+		fmt.Fprintf(&buf, "Routine: %s%s\n", c.Routine, routineSourceSuffix(c.RoutineSource))
 	}
 	if c.Stage != "" {
 		fmt.Fprintf(&buf, "Stage: %s\n", c.Stage)
@@ -231,6 +249,9 @@ func (c *TaskCard) RenderPretty() string {
 		}
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Model"), modelInfo))
 	}
+	if c.Agent != "" {
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Agent"), c.Agent))
+	}
 
 	// Workspace
 	if c.Workspace != "" {
@@ -273,7 +294,14 @@ func (c *TaskCard) RenderPretty() string {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Conflicts"), styleDim.Render(strings.Join(c.ConflictFiles, ", "))))
 	}
 
-	// Stage
+	// Routine (name + shadow marker) and Stage progression
+	if c.Routine != "" {
+		routineLabel := c.Routine
+		if suffix := routineSourceSuffix(c.RoutineSource); suffix != "" {
+			routineLabel = fmt.Sprintf("%s %s", c.Routine, styleDim.Render(strings.TrimSpace(suffix)))
+		}
+		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Routine"), routineLabel))
+	}
 	if c.Stage != "" {
 		lines = append(lines, fmt.Sprintf("%s   %s", styleBold.Render("Stage"), c.Stage))
 	}

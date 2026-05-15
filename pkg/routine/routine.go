@@ -33,10 +33,42 @@ const (
 	KindTerminal = "terminal"
 )
 
+// Source constants describe where a Routine was loaded from.
+const (
+	// SourceCanonical means the routine was loaded from the embedded canonical
+	// templates (default, they-plan, you-plan). No display suffix.
+	SourceCanonical = "canonical"
+	// SourceShadow means the routine was loaded from .subtask/routines/<name>.yaml
+	// AND an embedded canonical with the same name also exists — the project file
+	// overrides the built-in. Display suffix: "(project shadow)".
+	SourceShadow = "shadow"
+	// SourceProject means the routine was loaded from .subtask/routines/<name>.yaml
+	// AND no embedded canonical with that name exists — it is purely project-defined.
+	// Display suffix: "(project)".
+	SourceProject = "project"
+)
+
+// SourceSuffix returns the parenthetical display suffix for a routine's source,
+// or "" for canonical routines. Used by CLI surfaces (draft, stage, show, output).
+func SourceSuffix(source string) string {
+	switch source {
+	case SourceShadow:
+		return " (project shadow)"
+	case SourceProject:
+		return " (project)"
+	default:
+		return ""
+	}
+}
+
 // Routine is a parsed .subtask/routines/<name>.yaml file.
 type Routine struct {
 	// Name is the routine name (file basename without .yaml).
 	Name string
+
+	// Source is where the routine was loaded from: SourceCanonical, SourceShadow,
+	// or SourceProject. Populated by LoadByName.
+	Source string
 
 	// Description is the human-readable summary from the YAML description: field.
 	Description string
@@ -252,6 +284,7 @@ func LoadByName(name string) (*Routine, error) {
 				return nil, fmt.Errorf("embedded routine %q: %w", name, parseErr)
 			}
 			r.Name = name
+			r.Source = SourceCanonical
 			return r, nil
 		}
 		return nil, fmt.Errorf("read routine %q: %w", name, err)
@@ -264,6 +297,13 @@ func LoadByName(name string) (*Routine, error) {
 		return nil, fmt.Errorf("routine %q: %w", name, err)
 	}
 	r.Name = name
+	// Distinguish shadow (project file overrides an embedded canonical) from
+	// project-only (no embedded canonical with this name exists).
+	if _, embErr := embeddedTemplates.ReadFile("templates/" + name + ".yaml"); embErr == nil {
+		r.Source = SourceShadow
+	} else {
+		r.Source = SourceProject
+	}
 
 	// If default_prompt.file is set, validate the path stays under .subtask/
 	// AND the file exists at load time. (Lazy content read happens at

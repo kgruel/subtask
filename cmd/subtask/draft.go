@@ -199,6 +199,16 @@ func (c *DraftCmd) Run() error {
 		fmt.Fprintln(os.Stderr)
 	}
 
+	if c.Agent != "" {
+		summary := resolvedAdapter + "/" + resolvedModel
+		if resolvedReasoning != "" {
+			summary += " (" + resolvedReasoning + " reasoning)"
+		}
+		printSection("Agent: " + c.Agent)
+		fmt.Println(summary)
+		fmt.Println()
+	}
+
 	printSection("Usage")
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)
 
@@ -357,8 +367,11 @@ func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) er
 		fmt.Fprintln(os.Stderr)
 	}
 
-	printSection("Routine: " + r.Name)
+	printSection("Routine: " + r.Name + routine.SourceSuffix(r.Source))
 	fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), entry.ID))
+	if entry.Agent != "" {
+		fmt.Printf("Agent: %s\n", entry.Agent)
+	}
 	fmt.Println()
 
 	if entry.Instructions != "" {

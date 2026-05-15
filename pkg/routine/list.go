@@ -7,13 +7,6 @@ import (
 	"strings"
 )
 
-// Source values for RoutineSummary.
-const (
-	SourceCanonical = "canonical"
-	SourceShadow    = "shadow"
-	SourceProject   = "project"
-)
-
 // RoutineSummary is a lightweight description of a routine for listing purposes.
 type RoutineSummary struct {
 	Name          string   `json:"name"`

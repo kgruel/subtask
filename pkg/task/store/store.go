@@ -291,18 +291,11 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		view.Reasoning = workspace.ResolveReasoning(cfg, t, "")
 	}
 
-	// Workflow OR routine — never both. The SQLite index projection
-	// doesn't carry t.Routine; read TASK.md from disk to recover it
-	// before deciding which path to render. Mirrors gather.Detail.
-	routineName := t.Routine
-	if routineName == "" {
-		if diskT, err := task.Load(name); err == nil && diskT.Routine != "" {
-			routineName = diskT.Routine
-			t.Routine = diskT.Routine
-		}
-	}
-	if routineName != "" {
-		if r, err := routine.LoadByName(routineName); err == nil {
+	// The SQLite index projection doesn't carry t.Routine or t.Agent.
+	// FillDiskOnlyFields reads TASK.md once to recover both when missing.
+	t.FillDiskOnlyFields(name)
+	if t.Routine != "" {
+		if r, err := routine.LoadByName(t.Routine); err == nil {
 			view.Routine = r
 		}
 	}

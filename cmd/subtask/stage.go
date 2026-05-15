@@ -147,7 +147,12 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 	if currentID != "" && currentID != target {
 		header = fmt.Sprintf("%s: %s → %s", c.Task, currentID, target)
 	}
-	if toPresetName != "" {
+	if suffix := routine.SourceSuffix(r.Source); suffix != "" {
+		header += suffix
+	}
+	if targetStep.Agent != "" {
+		header += fmt.Sprintf(" | agent: %s", targetStep.Agent)
+	} else if toPresetName != "" {
 		header += fmt.Sprintf(" | preset: %s", toPresetName)
 	}
 	printSuccess(header)
