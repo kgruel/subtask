@@ -286,8 +286,8 @@ steps:
   - id: review
     kind: gate
     options:
-      - { name: approve, to: done }
-      - { name: cancel,  to: cancelled }
+      - { name: approve, next: done }
+      - { name: cancel,  next: cancelled }
   - id: done
     kind: terminal
   - id: cancelled
@@ -332,7 +332,7 @@ steps:
     kind: gate
     surface: false
     options:
-      - { name: approve, to: done }
+      - { name: approve, next: done }
   - id: done
     kind: terminal
 `), 0o644))
@@ -491,8 +491,8 @@ steps:
     kind: gate
     surface: false
     options:
-      - { name: approve, to: done }
-      - { name: revise,  to: implement }
+      - { name: approve, next: done }
+      - { name: revise,  next: implement }
   - id: done
     kind: terminal
 `), 0o644))

@@ -32,8 +32,8 @@ func routineDiagramSteps(r *routine.Routine) []render.DiagramStep {
 			for j, o := range s.Options {
 				ds.Edges[j] = render.DiagramEdge{
 					Label:    o.Name,
-					Target:   o.To,
-					Loopback: idxOf[o.To] <= i,
+					Target:   o.Next,
+					Loopback: idxOf[o.Next] <= i,
 				}
 			}
 		default:

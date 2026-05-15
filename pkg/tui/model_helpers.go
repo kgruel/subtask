@@ -529,10 +529,10 @@ func formatRoutineDiagram(r *routine.Routine, current string, width int) string 
 		case routine.KindGate:
 			edges := make([]string, 0, len(s.Options))
 			for _, o := range s.Options {
-				if idxOf[o.To] <= i {
-					edges = append(edges, o.Name+" ↩ "+o.To)
+				if idxOf[o.Next] <= i {
+					edges = append(edges, o.Name+" ↩ "+o.Next)
 				} else {
-					edges = append(edges, o.Name+" → "+o.To)
+					edges = append(edges, o.Name+" → "+o.Next)
 				}
 			}
 			if len(edges) > 0 {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // AgentSummary is a lightweight description of an agent for listing purposes.
@@ -13,13 +15,15 @@ type AgentSummary struct {
 	Description  string `json:"description,omitempty"`
 	Source       string `json:"source"`
 	PresetLabel  string `json:"preset"`
+	PresetValid  bool   `json:"preset_valid"` // true when preset is inline or its named reference resolves in project config
 	PromptSource string `json:"prompt"`
 }
 
 // List reads .subtask/agents/*.yaml and returns a summary of each agent,
 // sorted alphabetically by name. Returns an empty slice (not an error) when
-// the agents directory is absent or empty.
-func List() ([]AgentSummary, error) {
+// the agents directory is absent or empty. PresetValid is false for any agent
+// whose named preset: reference is not defined in cfg.
+func List(cfg *workspace.Config) ([]AgentSummary, error) {
 	dir := AgentsDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -41,6 +45,7 @@ func List() ([]AgentSummary, error) {
 		}
 
 		presetLabel := a.PresetName
+		presetValid := true
 		if a.PresetInline != nil {
 			p := a.PresetInline
 			parts := []string{p.Adapter, p.Model}
@@ -48,6 +53,8 @@ func List() ([]AgentSummary, error) {
 				parts = append(parts, p.Reasoning)
 			}
 			presetLabel = "inline: " + strings.Join(parts, "/")
+		} else if a.PresetName != "" {
+			_, presetValid = cfg.Presets[a.PresetName]
 		}
 
 		promptSrc := "text"
@@ -60,6 +67,7 @@ func List() ([]AgentSummary, error) {
 			Description:  a.Description,
 			Source:       "project",
 			PresetLabel:  presetLabel,
+			PresetValid:  presetValid,
 			PromptSource: promptSrc,
 		})
 	}

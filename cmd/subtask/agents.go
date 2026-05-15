@@ -15,11 +15,12 @@ type AgentsCmd struct {
 }
 
 func (c *AgentsCmd) Run() error {
-	if _, err := preflightProjectOnly(); err != nil {
+	res, err := preflightProject()
+	if err != nil {
 		return err
 	}
 
-	summaries, err := agent.List()
+	summaries, err := agent.List(res.Config)
 	if err != nil {
 		return err
 	}
@@ -38,7 +39,11 @@ func (c *AgentsCmd) Run() error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "NAME\tPRESET\tPROMPT")
 	for _, s := range summaries {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, s.PresetLabel, s.PromptSource)
+		presetCell := s.PresetLabel
+		if !s.PresetValid {
+			presetCell = "<missing>"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, presetCell, s.PromptSource)
 	}
 	return w.Flush()
 }

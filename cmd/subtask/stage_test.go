@@ -11,6 +11,42 @@ import (
 	"github.com/kgruel/subtask/pkg/testutil"
 )
 
+// TestStage_QuietSuppressesInstructions verifies that -q suppresses the routine
+// diagram and step instructions on the passive (no auto-dispatch) path while
+// still printing the transition line.
+func TestStage_QuietSuppressesInstructions(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "guided.yaml"), []byte(
+		`name: guided
+steps:
+  - id: work
+    instructions: |
+      Review the diff carefully and approve.
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	taskName := "fix/quiet-stage"
+	require.NoError(t, (&DraftCmd{
+		Task:        taskName,
+		Title:       "Quiet stage test",
+		Description: "Verify -q suppresses instructions",
+		Base:        "main",
+		Routine:     "guided",
+	}).Run())
+
+	stdout, _, err := captureStdoutStderr(t, func() error {
+		return (&StageCmd{Task: taskName, Stage: "work", NoSend: true, Quiet: true}).Run()
+	})
+	require.NoError(t, err)
+	require.Contains(t, stdout, "work", "transition line must mention step id")
+	require.NotContains(t, stdout, "Review the diff carefully", "instructions must be suppressed by -q")
+}
+
 // TestStage_SameStepNoOp verifies that staging a task to the step it is
 // already on prints "already on step <id>" and does NOT append a
 // stage.changed history event.

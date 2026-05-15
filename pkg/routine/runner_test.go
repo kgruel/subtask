@@ -76,8 +76,8 @@ steps:
   - id: review
     kind: gate
     options:
-      - { name: approve, to: done }
-      - { name: revise,  to: plan }
+      - { name: approve, next: done }
+      - { name: revise,  next: plan }
   - id: done
     kind: terminal
 `
@@ -313,7 +313,7 @@ steps:
   - id: review
     kind: gate
     options:
-      - { name: approve, to: done }
+      - { name: approve, next: done }
   - id: done
     kind: terminal
 `
@@ -358,7 +358,7 @@ steps:
     kind: gate
     surface: false
     options:
-      - { name: approve, to: done }
+      - { name: approve, next: done }
   - id: done
     kind: terminal
 `

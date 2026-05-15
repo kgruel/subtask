@@ -20,6 +20,7 @@ type StageCmd struct {
 	Stage  string `arg:"" help:"Stage to set"`
 	Prompt string `arg:"" optional:"" help:"Extra user message sent alongside the new stage's worker_instructions (or alone if there are none)"`
 	NoSend bool   `name:"no-send" help:"Skip auto-dispatch even if the new stage has worker_instructions"`
+	Quiet  bool   `short:"q" name:"quiet" help:"Suppress non-essential output (diagram and step instructions)"`
 
 	// Internal: injected harness for testing.
 	testHarness harness.Harness
@@ -180,11 +181,11 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 			preview = append(preview[:60], []rune("...")...)
 		}
 		fmt.Printf("\nWorker dispatched (%s): %q\n", dispatchSource, string(preview))
-		return (&SendCmd{Task: c.Task, Prompt: leadPrompt, testHarness: c.testHarness}).Run()
+		return (&SendCmd{Task: c.Task, Prompt: leadPrompt, Quiet: c.Quiet, testHarness: c.testHarness}).Run()
 	}
 
-	// Passive path: print lead-facing step guidance.
-	if targetStep.Instructions != "" {
+	// Passive path: print lead-facing step guidance (suppressed by -q).
+	if !c.Quiet && targetStep.Instructions != "" {
 		fmt.Println()
 		fmt.Printf("Step: %s\n", render.FormatRoutineDiagram(routineDiagramSteps(r), target))
 		fmt.Println()
@@ -209,7 +210,7 @@ func resolveRoutineStageArg(r *routine.Routine, current *routine.Step, arg strin
 	if current != nil && current.Kind == routine.KindGate {
 		for _, opt := range current.Options {
 			if opt.Name == arg {
-				return opt.To, nil
+				return opt.Next, nil
 			}
 		}
 	}
@@ -225,7 +226,7 @@ func resolveRoutineStageArg(r *routine.Routine, current *routine.Step, arg strin
 	if current != nil && current.Kind == routine.KindGate {
 		for _, opt := range current.Options {
 			optNames = append(optNames, opt.Name)
-			optTargets = append(optTargets, opt.To)
+			optTargets = append(optTargets, opt.Next)
 		}
 	}
 	stepIDs := r.StepIDs()

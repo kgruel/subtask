@@ -146,7 +146,19 @@ type Branch struct {
 // Option is a single choice on a gate step.
 type Option struct {
 	Name string `yaml:"name"`
-	To   string `yaml:"to"`
+	Next string `yaml:"next"`
+}
+
+// UnmarshalYAML rejects the legacy 'to:' key (renamed to 'next:' in v1.1)
+// with a migration error. Uses a type alias to decode without recursing.
+func (o *Option) UnmarshalYAML(value *yaml.Node) error {
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		if value.Content[i].Value == "to" {
+			return fmt.Errorf("line %d: gate options use 'next:' as of v1.1 (was 'to:'). Rename 'to:' → 'next:' in the routine file", value.Content[i].Line)
+		}
+	}
+	type optionAlias Option
+	return value.Decode((*optionAlias)(o))
 }
 
 // PromptSource declares where a routine's default_prompt comes from.
@@ -285,6 +297,9 @@ func LoadByName(name string) (*Routine, error) {
 			}
 			r.Name = name
 			r.Source = SourceCanonical
+			if err := requireTerminalStep(r, "(embedded)"); err != nil {
+				return nil, err
+			}
 			return r, nil
 		}
 		return nil, fmt.Errorf("read routine %q: %w", name, err)
@@ -294,7 +309,7 @@ func LoadByName(name string) (*Routine, error) {
 	}
 	r, err := parseRoutine(data)
 	if err != nil {
-		return nil, fmt.Errorf("routine %q: %w", name, err)
+		return nil, fmt.Errorf("routine %q (%s): %w", name, p, err)
 	}
 	r.Name = name
 	// Distinguish shadow (project file overrides an embedded canonical) from
@@ -303,6 +318,9 @@ func LoadByName(name string) (*Routine, error) {
 		r.Source = SourceShadow
 	} else {
 		r.Source = SourceProject
+	}
+	if err := requireTerminalStep(r, p); err != nil {
+		return nil, err
 	}
 
 	// If default_prompt.file is set, validate the path stays under .subtask/
@@ -423,6 +441,18 @@ func decodeDefaultPrompt(node *yaml.Node) (*PromptSource, error) {
 	}
 }
 
+// requireTerminalStep returns an error if the routine has no step with
+// kind: terminal. Called from LoadByName after name and source are set so
+// the error can name both. The source parameter is a file path or "(embedded)".
+func requireTerminalStep(r *Routine, source string) error {
+	for _, s := range r.Steps {
+		if s.Kind == KindTerminal {
+			return nil
+		}
+	}
+	return fmt.Errorf("routine %q: no terminal step found. Add 'kind: terminal' to the step that ends the routine, e.g. in %s", r.Name, source)
+}
+
 // validateSteps enforces all schema rules across steps.
 func validateSteps(steps []Step) error {
 	ids := make(map[string]struct{}, len(steps))
@@ -536,8 +566,8 @@ func validateSteps(steps []Step) error {
 			if strings.TrimSpace(o.Name) == "" {
 				return fmt.Errorf("step %q: options[%d]: missing name:", s.ID, j)
 			}
-			if strings.TrimSpace(o.To) == "" {
-				return fmt.Errorf("step %q: options[%d]: missing to:", s.ID, j)
+			if strings.TrimSpace(o.Next) == "" {
+				return fmt.Errorf("step %q: options[%d]: missing next:", s.ID, j)
 			}
 		}
 	}
@@ -551,8 +581,8 @@ func validateSteps(steps []Step) error {
 			}
 		}
 		for j, o := range s.Options {
-			if _, ok := ids[o.To]; !ok {
-				return fmt.Errorf("step %q: options[%d].to %q does not match any step id", s.ID, j, o.To)
+			if _, ok := ids[o.Next]; !ok {
+				return fmt.Errorf("step %q: options[%d].next %q does not match any step id", s.ID, j, o.Next)
 			}
 		}
 	}

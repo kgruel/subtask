@@ -267,11 +267,32 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 		render.SectionContent(strings.Join(changedFiles, ", "))
 	}
 
-	// Print workspace path
+	// Print workspace: diff stats (when non-empty) + path.
 	state, _ := task.LoadState(taskName)
 	if state != nil && state.Workspace != "" {
+		var statsLine string
+		if t, err := task.Load(taskName); err == nil && t.BaseBranch != "" {
+			if base, err := git.ResolveDiffBase(state.Workspace, "HEAD", t.BaseBranch); err == nil {
+				if stats, err := git.DiffNumstat(state.Workspace, base); err == nil && len(stats) > 0 {
+					var added, removed int
+					for _, s := range stats {
+						added += s.Added
+						removed += s.Removed
+					}
+					fileWord := "files"
+					if len(stats) == 1 {
+						fileWord = "file"
+					}
+					statsLine = fmt.Sprintf("+%d -%d across %d %s (see subtask diff %s)", added, removed, len(stats), fileWord, taskName)
+				}
+			}
+		}
 		render.Section("Workspace")
-		render.SectionContent(state.Workspace)
+		if statsLine != "" {
+			render.SectionContent(statsLine + "\n" + state.Workspace)
+		} else {
+			render.SectionContent(state.Workspace)
+		}
 	}
 
 	// Conflicts (only when merge would fail).

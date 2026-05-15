@@ -64,8 +64,8 @@ steps:
   - id: review
     kind: gate
     options:
-      - { name: approve, to: done }
-      - { name: revise,  to: plan }
+      - { name: approve, next: done }
+      - { name: revise,  next: plan }
   - id: done
     kind: terminal
 `)
@@ -76,7 +76,46 @@ steps:
 	require.Equal(t, KindGate, rev.Kind)
 	require.Len(t, rev.Options, 2)
 	require.Equal(t, "approve", rev.Options[0].Name)
-	require.Equal(t, "done", rev.Options[0].To)
+	require.Equal(t, "done", rev.Options[0].Next)
+}
+
+func TestParseRoutine_RejectsLegacyOptionTo(t *testing.T) {
+	data := []byte(`name: legacy
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: review
+    kind: gate
+    options:
+      - { name: approve, to: done }
+      - { name: revise,  to: plan }
+  - id: done
+    kind: terminal
+`)
+	_, err := parseRoutine(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "next:")
+	require.Contains(t, err.Error(), "to:")
+}
+
+func TestParseRoutine_RejectsNoTerminalStep(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "no-terminal.yaml"), []byte(`name: no-terminal
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: review
+    agent: reviewer
+`), 0o644))
+
+	_, err := LoadByName("no-terminal")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "terminal")
+	require.Contains(t, err.Error(), "no-terminal")
 }
 
 func TestParseRoutine_TerminalSurfaceDefaultsTrue(t *testing.T) {
@@ -196,13 +235,14 @@ steps:
   - id: review
     kind: gate
     options:
-      - { name: approve, to: ghost }
+      - { name: approve, next: ghost }
   - id: done
     kind: terminal
 `)
 	_, err := parseRoutine(data)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ghost")
+	require.Contains(t, err.Error(), "does not match")
 }
 
 func TestParseRoutine_BranchUnsupportedWhen(t *testing.T) {
@@ -368,7 +408,7 @@ steps:
     worker_instructions: |
       do nothing
     options:
-      - { name: ok, to: done }
+      - { name: ok, next: done }
   - id: done
     kind: terminal
 `)
@@ -388,7 +428,7 @@ steps:
     worker_context: |
       ride-along
     options:
-      - { name: ok, to: done }
+      - { name: ok, next: done }
   - id: done
     kind: terminal
 `)
@@ -554,6 +594,8 @@ steps:
   - id: plan
     agent: planner
     advance: auto
+  - id: done
+    kind: terminal
 `), 0o644))
 	_, err := LoadByName("esc")
 	require.Error(t, err)
@@ -572,6 +614,8 @@ steps:
   - id: plan
     agent: planner
     advance: auto
+  - id: done
+    kind: terminal
 `), 0o644))
 	_, err := LoadByName("abs")
 	require.Error(t, err)
@@ -590,6 +634,8 @@ steps:
   - id: plan
     agent: planner
     advance: auto
+  - id: done
+    kind: terminal
 `), 0o644))
 	_, err := LoadByName("miss")
 	require.Error(t, err)
@@ -735,6 +781,8 @@ steps:
   - id: plan
     agent: planner
     advance: auto
+  - id: done
+    kind: terminal
 `), 0o644))
 
 	r, err := LoadByName("ok")
