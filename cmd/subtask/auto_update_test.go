@@ -94,6 +94,41 @@ func TestRunAutoUpdate_NoGitRepo_Silent(t *testing.T) {
 	require.Empty(t, stderr)
 }
 
+func TestRunAutoUpdate_InstallCommand_SuppressesStaleWarning(t *testing.T) {
+	// When `subtask install` is running, runAutoUpdate fires before the install
+	// write. The stale-skill warning must be suppressed so it doesn't appear
+	// before the install success line.
+	withOutputMode(t, false)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(autoUpdateEnvVar, "")
+
+	repo := t.TempDir()
+	gitCmd(t, repo, "init")
+
+	prev, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(repo))
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	projectSkill := filepath.Join(repo, ".claude", "skills", "subtask", "SKILL.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(projectSkill), 0o755))
+	require.NoError(t, os.WriteFile(projectSkill, []byte("outdated"), 0o644))
+
+	origArgs := os.Args
+	os.Args = []string{"subtask", "install"}
+	t.Cleanup(func() { os.Args = origArgs })
+
+	stdout, stderr, err := captureStdoutStderr(t, func() error {
+		runAutoUpdate()
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, stdout)
+	require.Empty(t, stderr, "stale-skill warning must be suppressed during install")
+}
+
 func TestRunAutoUpdate_AutoUpdateDisabled_SkipsChecks(t *testing.T) {
 	withOutputMode(t, false)
 

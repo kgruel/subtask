@@ -813,3 +813,57 @@ steps:
 	require.NotNil(t, custom)
 	require.Equal(t, "Custom step.", custom.Instructions)
 }
+
+// ---- name: field validation ------------------------------------------------
+
+func TestLoadByName_NameFieldMatchingFilenameOK(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "my-routine.yaml"), []byte(
+		`name: my-routine
+steps:
+  - id: work
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	r, err := LoadByName("my-routine")
+	require.NoError(t, err)
+	require.Equal(t, "my-routine", r.Name)
+}
+
+func TestLoadByName_NameFieldAbsentOK(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "no-name.yaml"), []byte(
+		`steps:
+  - id: work
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	r, err := LoadByName("no-name")
+	require.NoError(t, err)
+	require.Equal(t, "no-name", r.Name)
+}
+
+func TestLoadByName_NameFieldMismatchErrors(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	// File is "bar.yaml" but declares name: foo — mismatch.
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "bar.yaml"), []byte(
+		`name: foo
+steps:
+  - id: work
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	_, err := LoadByName("bar")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `name: "foo"`)
+	require.Contains(t, err.Error(), `"bar"`)
+}

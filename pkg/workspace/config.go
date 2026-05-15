@@ -13,6 +13,37 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 )
 
+// knownConfigKeys is the complete set of recognised top-level JSON keys in a
+// config file. Legacy keys (harness, options) are still accepted for migration;
+// anything else is surfaced as a warning so stale keys don't accumulate silently.
+var knownConfigKeys = map[string]struct{}{
+	"adapter":       {},
+	"provider":      {},
+	"model":         {},
+	"reasoning":     {},
+	"max_workspaces": {},
+	"presets":       {},
+	"harness":       {}, // legacy
+	"options":       {}, // legacy
+}
+
+// unknownConfigKeys returns a sorted list of unrecognised top-level keys in
+// the JSON blob. Returns nil when data is not a JSON object or all keys are known.
+func unknownConfigKeys(data []byte) []string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	var unknown []string
+	for k := range raw {
+		if _, ok := knownConfigKeys[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	sort.Strings(unknown)
+	return unknown
+}
+
 const DefaultMaxWorkspaces = 20
 
 // Config is the project configuration (.subtask/config.json).
@@ -60,9 +91,18 @@ func LoadConfig() (*Config, error) {
 	var projectPath string
 	if root, err := task.GitRootAbs(); err == nil && strings.TrimSpace(root) != "" {
 		projectPath = filepath.Join(root, ".subtask", "config.json")
-		project, _, err = loadConfigFile(projectPath)
+		var projectExists bool
+		project, projectExists, err = loadConfigFile(projectPath)
 		if err != nil {
 			return nil, fmt.Errorf("subtask: invalid project config at %s\n\nFix it with:\n  subtask config --project", projectPath)
+		}
+		if projectExists {
+			if raw, readErr := os.ReadFile(projectPath); readErr == nil {
+				if unknown := unknownConfigKeys(raw); len(unknown) > 0 {
+					fmt.Fprintf(os.Stderr, "warning: %s contains unknown config keys: %s (ignored)\n",
+						projectPath, strings.Join(unknown, ", "))
+				}
+			}
 		}
 	}
 

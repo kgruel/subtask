@@ -127,6 +127,12 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 	if err != nil {
 		return err
 	}
+	// No-op: the task was already on this step (checked under lock, so the
+	// observation is the actual current step, not a stale pre-lock read).
+	if from.NoOp {
+		fmt.Printf("already on step %s\n", target)
+		return nil
+	}
 	// Use the lock-observed from for the display header below.
 	currentID = from.Stage
 

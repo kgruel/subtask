@@ -207,6 +207,24 @@ func validateArtifactPath(p, field string) error {
 	return nil
 }
 
+// checkRoutineNameField validates that the name: field in a routine YAML,
+// when present, matches expectedName (the file's basename without .yaml).
+// Absence is fine — name: is optional self-documentation.
+// A mismatch returns a clear error; the field cannot be used to alias
+// routines since resolution is always filename-based.
+func checkRoutineNameField(data []byte, expectedName string) error {
+	var raw struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil // parse errors are caught by parseRoutine; don't duplicate
+	}
+	if raw.Name != "" && raw.Name != expectedName {
+		return fmt.Errorf("name: %q must match the filename (expected %q) — correct the name: field or rename the file", raw.Name, expectedName)
+	}
+	return nil
+}
+
 // LoadByName reads, parses, and validates a routine.
 // First checks .subtask/routines/<name>.yaml; on not-found, falls back to
 // the embedded canonical routines (default, they-plan, you-plan).
@@ -226,6 +244,9 @@ func LoadByName(name string) (*Routine, error) {
 				}
 				return nil, fmt.Errorf("read embedded routine %q: %w", name, embErr)
 			}
+			if err := checkRoutineNameField(embedded, name); err != nil {
+				return nil, fmt.Errorf("embedded routine %q: %w", name, err)
+			}
 			r, parseErr := parseRoutine(embedded)
 			if parseErr != nil {
 				return nil, fmt.Errorf("embedded routine %q: %w", name, parseErr)
@@ -234,6 +255,9 @@ func LoadByName(name string) (*Routine, error) {
 			return r, nil
 		}
 		return nil, fmt.Errorf("read routine %q: %w", name, err)
+	}
+	if err := checkRoutineNameField(data, name); err != nil {
+		return nil, fmt.Errorf("routine file .subtask/routines/%s.yaml: %w", name, err)
 	}
 	r, err := parseRoutine(data)
 	if err != nil {

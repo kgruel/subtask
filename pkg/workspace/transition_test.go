@@ -138,3 +138,102 @@ func TestApplyStageTransition_ReturnsObservedFromState(t *testing.T) {
 	require.Equal(t, "alpha", from.Stage, "FromState.Stage must equal the raw tail.Stage observed under lock")
 	require.Equal(t, "from-preset-alpha", from.PresetName, "FromState.PresetName must equal the resolver's output")
 }
+
+// TestApplyStageTransition_SameStepNoOp verifies that targeting the current
+// step returns FromState.NoOp = true and writes no history event. The check
+// happens under the task lock so callers always observe the actual current
+// step, not a stale pre-lock read.
+func TestApplyStageTransition_SameStepNoOp(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	const taskName = "noop/same"
+	in := &task.Task{Name: taskName, Title: "t", BaseBranch: "main"}
+	require.NoError(t, in.Save())
+
+	initData, _ := json.Marshal(map[string]any{"from": "", "to": "alpha"})
+	require.NoError(t, history.WriteAll(taskName, []history.Event{
+		{TS: time.Now().UTC(), Type: "stage.changed", Data: initData},
+	}))
+
+	resolveFrom := func(raw string) workspace.FromState {
+		return workspace.FromState{Stage: raw}
+	}
+
+	from, err := workspace.ApplyStageTransition(taskName, "alpha", "", nil, time.Now().UTC(), resolveFrom)
+	require.NoError(t, err)
+	require.True(t, from.NoOp, "targeting the current step must return NoOp=true")
+	require.Equal(t, "alpha", from.Stage)
+
+	// History must not have grown.
+	evs, err := history.Read(taskName, history.ReadOptions{})
+	require.NoError(t, err)
+	stageEvents := 0
+	for _, ev := range evs {
+		if ev.Type == "stage.changed" {
+			stageEvents++
+		}
+	}
+	require.Equal(t, 1, stageEvents, "no new stage.changed event on same-step no-op")
+}
+
+// TestApplyStageTransition_ConcurrentSameStepNoOp is the race regression for
+// the unlocked same-step detection bug: the old code read history.Tail outside
+// the lock, so a concurrent advance could cause `subtask stage <task> X` to
+// print "already on step X" after the task had moved off X.
+//
+// Fix: the no-op check lives inside ApplyStageTransition's lock, so it observes
+// the actual current step at lock-acquisition time, not a stale pre-lock read.
+//
+// This test fires many concurrent same-step calls against a task that sits on
+// a known step. All must return NoOp=true and write zero history events.
+func TestApplyStageTransition_ConcurrentSameStepNoOp(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	const taskName = "noop/concurrent"
+	in := &task.Task{Name: taskName, Title: "t", BaseBranch: "main"}
+	require.NoError(t, in.Save())
+
+	initData, _ := json.Marshal(map[string]any{"from": "", "to": "alpha"})
+	require.NoError(t, history.WriteAll(taskName, []history.Event{
+		{TS: time.Now().UTC(), Type: "stage.changed", Data: initData},
+	}))
+
+	resolveFrom := func(raw string) workspace.FromState {
+		return workspace.FromState{Stage: raw}
+	}
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	start := make(chan struct{})
+	results := make([]workspace.FromState, goroutines)
+	errs := make([]error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = workspace.ApplyStageTransition(
+				taskName, "alpha", "", nil, time.Now().UTC(), resolveFrom)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		require.NoError(t, err, "goroutine %d", i)
+		require.True(t, results[i].NoOp, "goroutine %d: targeting current step must be a no-op under lock", i)
+	}
+
+	// No new stage.changed events must have been written.
+	evs, err := history.Read(taskName, history.ReadOptions{})
+	require.NoError(t, err)
+	stageEvents := 0
+	for _, ev := range evs {
+		if ev.Type == "stage.changed" {
+			stageEvents++
+		}
+	}
+	require.Equal(t, 1, stageEvents, "concurrent same-step calls must write zero history events")
+}

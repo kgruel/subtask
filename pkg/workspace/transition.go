@@ -21,6 +21,11 @@ type FromState struct {
 	// PresetName is the from-stage's bound preset, used only for the
 	// event payload's from_preset field. Empty when none.
 	PresetName string
+	// NoOp is true when the resolved from-stage equals toStage (the task
+	// was already on the requested step). No history event is written and
+	// no adapter swap is performed. Callers should print "already on step
+	// X" rather than a transition header.
+	NoOp bool
 }
 
 // ApplyStageTransition swaps the task's harness on a stage/step
@@ -45,12 +50,16 @@ type FromState struct {
 //     reflects the first's `to`. Without the inside-lock read, the
 //     payload would record an obsolete from value and (worse) the
 //     from-preset → to-preset adapter-swap decision could be wrong.
+//   - If the resolved from-stage equals toStage, sets FromState.NoOp =
+//     true and returns without writing any history or swapping adapters.
+//     The check happens under the lock so callers observe the actual
+//     current step, not a stale pre-lock read.
 //   - If toPreset is non-nil and changes the adapter, overlay its
 //     non-empty fields onto TASK.md and clear state.SessionID — a
 //     fresh session on the new adapter reads the workspace, PLAN.md,
 //     and PROGRESS.json for cross-stage context (file-based
 //     collaboration; design principle #5).
-//   - Always append a stage.changed history event.
+//   - Otherwise appends a stage.changed history event.
 //
 // Returns the FromState the helper observed/resolved so callers can
 // render output without re-reading history outside the lock.
@@ -70,6 +79,14 @@ func ApplyStageTransition(
 			from = resolveFrom(raw)
 		} else {
 			from = FromState{Stage: raw}
+		}
+
+		// No-op: task is already on the requested step (observed under lock).
+		// Skip all writes so callers can print "already on step X" without
+		// writing a spurious stage.changed event.
+		if from.Stage == toStage {
+			from.NoOp = true
+			return nil
 		}
 
 		state, _ := task.LoadState(taskName)

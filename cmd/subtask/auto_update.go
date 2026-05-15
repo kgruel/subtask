@@ -31,6 +31,13 @@ func runAutoUpdate() {
 		return
 	}
 
+	// Don't warn about a stale project skill when the user is running install —
+	// the install command writes the updated skill itself, so the warning would
+	// appear before the success line and confuse the user.
+	if len(os.Args) > 1 && os.Args[1] == "install" {
+		return
+	}
+
 	st, err := install.GetSkillStatusFor(repoRoot)
 	if err != nil {
 		return
