@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -9,7 +11,17 @@ import (
 )
 
 // PresetsCmd implements 'subtask presets'.
-type PresetsCmd struct{}
+type PresetsCmd struct {
+	JSON bool `help:"Machine-readable JSON output" short:"j"`
+}
+
+type presetJSONItem struct {
+	Name      string `json:"name"`
+	Adapter   string `json:"adapter,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+}
 
 func (c *PresetsCmd) Run() error {
 	res, err := preflightProject()
@@ -17,6 +29,23 @@ func (c *PresetsCmd) Run() error {
 		return err
 	}
 	cfg := res.Config
+
+	if c.JSON {
+		items := []presetJSONItem{}
+		for _, name := range sortedKeys(cfg.Presets) {
+			p := cfg.Presets[name]
+			items = append(items, presetJSONItem{
+				Name:      name,
+				Adapter:   p.Adapter,
+				Model:     p.Model,
+				Reasoning: p.Reasoning,
+				Provider:  p.Provider,
+			})
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	}
 
 	if len(cfg.Presets) == 0 {
 		fmt.Println("No presets defined.")
