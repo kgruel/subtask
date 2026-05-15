@@ -177,7 +177,7 @@ func (c *TaskCard) RenderPlain() string {
 		fmt.Fprintf(&buf, "Routine: %s%s\n", c.Routine, routineSourceSuffix(c.RoutineSource))
 	}
 	if c.Stage != "" {
-		fmt.Fprintf(&buf, "Stage: %s\n", c.Stage)
+		fmt.Fprintf(&buf, "Flow: %s\n", c.Stage)
 	}
 
 	if len(c.ProgressSteps) > 0 {
