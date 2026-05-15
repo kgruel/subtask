@@ -76,6 +76,7 @@ type TaskCard struct {
 	Name          string
 	Title         string
 	TaskStatus    string
+	IsTerminal    bool // true when TaskStatus is merged or closed (structured; avoids parsing display text)
 	Error         string
 	Branch        string
 	BaseBranch    string
@@ -115,24 +116,8 @@ func (c *TaskCard) RenderPlain() string {
 
 	fmt.Fprintf(&buf, "Task: %s\n", c.Name)
 	fmt.Fprintf(&buf, "Title: %s\n", c.Title)
-	fmt.Fprintf(&buf, "Branch: %s (based on %s)\n", c.Branch, c.BaseBranch)
-	if c.BaseCommit != "" {
-		fmt.Fprintf(&buf, "Base commit: %s\n", c.BaseCommit)
-	}
-	if c.Model != "" {
-		if c.Reasoning != "" {
-			fmt.Fprintf(&buf, "Model: %s (%s)\n", c.Model, c.Reasoning)
-		} else {
-			fmt.Fprintf(&buf, "Model: %s\n", c.Model)
-		}
-	}
-	if c.Agent != "" && c.Agent != "Worker" {
-		fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
-	}
-	if c.Workspace != "" {
-		fmt.Fprintf(&buf, "Workspace: %s\n", c.Workspace)
-	}
 
+	// --- Identity group: Status, Branch, Agent [, Workspace (verbose)] ---
 	statusStr := c.TaskStatus
 	if !c.Verbose {
 		statusStr = stripStatusAge(statusStr)
@@ -141,63 +126,88 @@ func (c *TaskCard) RenderPlain() string {
 	if c.Error != "" {
 		fmt.Fprintf(&buf, "Error: %s\n", c.Error)
 	}
+	fmt.Fprintf(&buf, "Branch: %s (based on %s)\n", c.Branch, c.BaseBranch)
+	if c.Agent != "" && c.Agent != "Worker" {
+		fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
+	}
+	if c.Workspace != "" {
+		fmt.Fprintf(&buf, "Workspace: %s\n", c.Workspace)
+	}
 
-	// Git changes + commit count
+	// --- Work group: Changes, Reviews, Artifacts ---
+	var work strings.Builder
 	if c.TaskStatus != "" {
 		switch strings.TrimSpace(c.ChangesStatus) {
 		case "missing":
-			fmt.Fprintf(&buf, "Changes: missing\n")
+			fmt.Fprintf(&work, "Changes: missing\n")
 			indent := strings.Repeat(" ", len("Changes: "))
-			fmt.Fprintf(&buf, "%sBranch was deleted or commit objects are missing.\n", indent)
-			fmt.Fprintf(&buf, "%sRun `subtask close` to close, or restore the branch and retry.\n", indent)
+			fmt.Fprintf(&work, "%sBranch was deleted or commit objects are missing.\n", indent)
+			fmt.Fprintf(&work, "%sRun `subtask close` to close, or restore the branch and retry.\n", indent)
 		default:
 			if c.ChangesError != "" {
-				fmt.Fprintf(&buf, "Changes: %s\n", c.ChangesError)
+				fmt.Fprintf(&work, "Changes: %s\n", c.ChangesError)
 			} else {
-				fmt.Fprintf(&buf, "Changes: %s\n", formatChanges(c.LinesAdded, c.LinesRemoved))
+				fmt.Fprintf(&work, "Changes: %s\n", formatChanges(c.LinesAdded, c.LinesRemoved))
 				if strings.TrimSpace(c.ChangesStatus) == "applied" {
 					indent := strings.Repeat(" ", len("Changes: "))
-					fmt.Fprintf(&buf, "%sAlready in base branch. Run `subtask merge` to mark as merged.\n", indent)
+					fmt.Fprintf(&work, "%sAlready in base branch. Run `subtask merge` to mark as merged.\n", indent)
 				}
 			}
 		}
 		if c.ShowCommits {
 			if c.CommitError != "" {
-				fmt.Fprintf(&buf, "Commits: %s\n", c.CommitError)
+				fmt.Fprintf(&work, "Commits: %s\n", c.CommitError)
 			} else {
-				fmt.Fprintf(&buf, "Commits: %d\n", c.CommitCount)
+				fmt.Fprintf(&work, "Commits: %d\n", c.CommitCount)
 			}
 		}
 	}
-
 	if c.ReviewCount > 0 {
 		tsStr := c.LastReviewTS.UTC().Format("2006-01-02 15:04 UTC")
-		fmt.Fprintf(&buf, "Reviews: %d (latest: %s, %s by %s)\n", c.ReviewCount, tsStr, c.LastReviewKind, c.LastReviewer)
+		fmt.Fprintf(&work, "Reviews: %d (latest: %s, %s by %s)\n", c.ReviewCount, tsStr, c.LastReviewKind, c.LastReviewer)
 	}
-
 	if len(c.ConflictFiles) > 0 {
-		fmt.Fprintf(&buf, "Conflicts: %s\n", strings.Join(c.ConflictFiles, ", "))
+		fmt.Fprintf(&work, "Conflicts: %s\n", strings.Join(c.ConflictFiles, ", "))
 	}
-
 	if len(c.Artifacts) > 0 {
-		fmt.Fprintf(&buf, "Artifacts:\n")
+		fmt.Fprintf(&work, "Artifacts:\n")
 		for _, a := range c.Artifacts {
 			if a.Missing {
-				fmt.Fprintf(&buf, "  %s (missing, %s)\n", a.Name, a.Kind)
+				fmt.Fprintf(&work, "  %s (missing, %s)\n", a.Name, a.Kind)
 			} else {
-				fmt.Fprintf(&buf, "  %s (%s, %s)\n", a.Name, formatArtifactSize(a.Size), a.Kind)
+				fmt.Fprintf(&work, "  %s (%s, %s)\n", a.Name, formatArtifactSize(a.Size), a.Kind)
 			}
 		}
 	}
+	if workStr := work.String(); workStr != "" {
+		fmt.Fprintf(&buf, "\n")
+		buf.WriteString(workStr)
+	}
 
+	// --- Routine group: [Base commit (verbose)], [Model (verbose)], Routine, Flow ---
+	var rout strings.Builder
+	if c.BaseCommit != "" {
+		fmt.Fprintf(&rout, "Base commit: %s\n", c.BaseCommit)
+	}
+	if c.Model != "" {
+		if c.Reasoning != "" {
+			fmt.Fprintf(&rout, "Model: %s (%s)\n", c.Model, c.Reasoning)
+		} else {
+			fmt.Fprintf(&rout, "Model: %s\n", c.Model)
+		}
+	}
 	if c.Progress != "" {
-		fmt.Fprintf(&buf, "Progress: %s\n", c.Progress)
+		fmt.Fprintf(&rout, "Progress: %s\n", c.Progress)
 	}
 	if c.Routine != "" {
-		fmt.Fprintf(&buf, "Routine: %s%s\n", c.Routine, routineSourceSuffix(c.RoutineSource))
+		fmt.Fprintf(&rout, "Routine: %s%s\n", c.Routine, routineSourceSuffix(c.RoutineSource))
 	}
-	if c.Stage != "" {
-		fmt.Fprintf(&buf, "Flow: %s\n", c.Stage)
+	if c.Stage != "" && !c.IsTerminal {
+		fmt.Fprintf(&rout, "Flow: %s\n", c.Stage)
+	}
+	if routStr := rout.String(); routStr != "" {
+		fmt.Fprintf(&buf, "\n")
+		buf.WriteString(routStr)
 	}
 
 	if len(c.ProgressSteps) > 0 {
@@ -244,11 +254,12 @@ func FormatDuration(d time.Duration) string {
 func (c *TaskCard) RenderPretty() string {
 	var lines []string
 
-	// Task name as header with └ for title
+	// Header: task name and title.
 	lines = append(lines, styleHighlight.Bold(true).Render(c.Name))
 	lines = append(lines, styleDim.Render("└ "+c.Title))
 	lines = append(lines, "")
 
+	// --- Identity group: Status, Branch, Agent [, Workspace (verbose)] ---
 	prettyStatusStr := c.TaskStatus
 	if !c.Verbose {
 		prettyStatusStr = stripStatusAge(prettyStatusStr)
@@ -257,67 +268,49 @@ func (c *TaskCard) RenderPretty() string {
 	if c.Error != "" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Error"), styleError.Render(c.Error)))
 	}
-
-	// Branch
 	branchInfo := fmt.Sprintf("%s %s", c.Branch, styleDim.Render("(based on "+c.BaseBranch+")"))
 	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Branch"), branchInfo))
-	if strings.TrimSpace(c.BaseCommit) != "" {
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Base"), styleDim.Render(strings.TrimSpace(c.BaseCommit))))
-	}
-
-	// Model (and reasoning)
-	if c.Model != "" {
-		modelInfo := c.Model
-		if c.Reasoning != "" {
-			modelInfo = fmt.Sprintf("%s %s", c.Model, styleDim.Render("("+c.Reasoning+")"))
-		}
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Model"), modelInfo))
-	}
 	if c.Agent != "" && c.Agent != "Worker" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Agent"), c.Agent))
 	}
-
-	// Workspace
 	if c.Workspace != "" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Workspace"), c.Workspace))
 	}
 
-	// Changes + commits
+	// --- Work group: Changes, Reviews, Artifacts ---
+	var work []string
 	if c.TaskStatus != "" {
 		switch strings.TrimSpace(c.ChangesStatus) {
 		case "missing":
-			lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleDim.Render("missing")))
-			lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Branch was deleted or commit objects are missing.")))
-			lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Run `subtask close` to close, or restore the branch and retry.")))
+			work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleDim.Render("missing")))
+			work = append(work, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Branch was deleted or commit objects are missing.")))
+			work = append(work, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Run `subtask close` to close, or restore the branch and retry.")))
 		default:
 			if c.ChangesError != "" {
-				lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleError.Render(c.ChangesError)))
+				work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Changes"), styleError.Render(c.ChangesError)))
 			} else {
-				lines = append(lines, fmt.Sprintf("%s %s", styleBold.Render("Changes"), formatChangesColored(c.LinesAdded, c.LinesRemoved)))
+				work = append(work, fmt.Sprintf("%s %s", styleBold.Render("Changes"), formatChangesColored(c.LinesAdded, c.LinesRemoved)))
 				if strings.TrimSpace(c.ChangesStatus) == "applied" {
-					lines = append(lines, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Already in base branch. Run `subtask merge` to mark as merged.")))
+					work = append(work, fmt.Sprintf("%s  %s", styleDim.Render(""), styleDim.Render("Already in base branch. Run `subtask merge` to mark as merged.")))
 				}
 			}
 		}
 		if c.ShowCommits {
 			if c.CommitError != "" {
-				lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Commits"), styleError.Render(c.CommitError)))
+				work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Commits"), styleError.Render(c.CommitError)))
 			} else {
-				lines = append(lines, fmt.Sprintf("%s  %d", styleBold.Render("Commits"), c.CommitCount))
+				work = append(work, fmt.Sprintf("%s  %d", styleBold.Render("Commits"), c.CommitCount))
 			}
 		}
 	}
-
 	if c.ReviewCount > 0 {
 		tsStr := c.LastReviewTS.UTC().Format("2006-01-02 15:04 UTC")
 		reviewInfo := fmt.Sprintf("%d (latest: %s, %s by %s)", c.ReviewCount, tsStr, c.LastReviewKind, c.LastReviewer)
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Reviews"), reviewInfo))
+		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Reviews"), reviewInfo))
 	}
-
 	if len(c.ConflictFiles) > 0 {
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Conflicts"), styleDim.Render(strings.Join(c.ConflictFiles, ", "))))
+		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Conflicts"), styleDim.Render(strings.Join(c.ConflictFiles, ", "))))
 	}
-
 	if len(c.Artifacts) > 0 {
 		var parts []string
 		for _, a := range c.Artifacts {
@@ -327,22 +320,41 @@ func (c *TaskCard) RenderPretty() string {
 				parts = append(parts, fmt.Sprintf("%s (%s, %s)", a.Name, formatArtifactSize(a.Size), a.Kind))
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Artifacts"), strings.Join(parts, "\n           ")))
+		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Artifacts"), strings.Join(parts, "\n           ")))
+	}
+	if len(work) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, work...)
 	}
 
-	// Routine (name + shadow marker) and Stage progression
+	// --- Routine group: [Base (verbose)], [Model (verbose)], Routine, Flow ---
+	var rout []string
+	if strings.TrimSpace(c.BaseCommit) != "" {
+		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Base"), styleDim.Render(strings.TrimSpace(c.BaseCommit))))
+	}
+	if c.Model != "" {
+		modelInfo := c.Model
+		if c.Reasoning != "" {
+			modelInfo = fmt.Sprintf("%s %s", c.Model, styleDim.Render("("+c.Reasoning+")"))
+		}
+		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Model"), modelInfo))
+	}
 	if c.Routine != "" {
 		routineLabel := c.Routine
 		if suffix := routineSourceSuffix(c.RoutineSource); suffix != "" {
 			routineLabel = fmt.Sprintf("%s %s", c.Routine, styleDim.Render(strings.TrimSpace(suffix)))
 		}
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Routine"), routineLabel))
+		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Routine"), routineLabel))
 	}
-	if c.Stage != "" {
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Flow"), c.Stage))
+	if c.Stage != "" && !c.IsTerminal {
+		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Flow"), c.Stage))
+	}
+	if len(rout) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, rout...)
 	}
 
-	// Progress steps with checkboxes
+	// Progress steps with checkboxes.
 	if len(c.ProgressSteps) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, styleBold.Render("Progress"))
@@ -361,7 +373,7 @@ func (c *TaskCard) RenderPretty() string {
 		}
 	}
 
-	// Directory section
+	// Directory section (verbose).
 	if c.TaskDir != "" {
 		taskDir := filepath.ToSlash(c.TaskDir)
 		lines = append(lines, "")
@@ -373,7 +385,6 @@ func (c *TaskCard) RenderPretty() string {
 	}
 
 	content := strings.Join(lines, "\n")
-
 	return styleBox.Render(content) + "\n"
 }
 

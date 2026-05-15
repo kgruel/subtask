@@ -1,7 +1,8 @@
 Task: show/draft
 Title: Draft task
+Status: draft
 Branch: show/draft (based on main)
 Agent: builtin-mock/gpt-5.2 (no named agent)
-Status: draft
+
 Changes: -
 Commits: 0

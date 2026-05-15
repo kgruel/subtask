@@ -79,6 +79,7 @@ func (c *ShowCmd) render() (string, error) {
 	if state != nil && detail.WorkerStatus == task.WorkerStatusRunning && !state.StartedAt.IsZero() {
 		card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, state.StartedAt, detail.LastRunMS, lastError)
 	}
+	card.IsTerminal = detail.TaskStatus == task.TaskStatusMerged || detail.TaskStatus == task.TaskStatusClosed
 
 	if state != nil && detail.WorkerStatus == task.WorkerStatusError && strings.TrimSpace(state.LastError) != "" {
 		card.Error = state.LastError

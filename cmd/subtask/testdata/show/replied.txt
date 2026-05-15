@@ -1,8 +1,9 @@
 Task: show/replied
 Title: Replied task
+Status: replied
 Branch: show/replied (based on main)
 Agent: builtin-mock/gpt-5.2 (no named agent)
-Status: replied
+
 Changes: +4 -0
 Commits: 1
 

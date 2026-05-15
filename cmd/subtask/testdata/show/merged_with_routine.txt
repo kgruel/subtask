@@ -1,0 +1,9 @@
+Task: show/merged-routine
+Title: Merged routine task
+Status: ✓ merged
+Branch: show/merged-routine (based on main)
+Agent: builtin-mock/gpt-5.2 (no named agent)
+
+Changes: +3 -1
+
+Routine: default

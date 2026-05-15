@@ -274,6 +274,12 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 	meta := rec.ProgressMeta
 	cfg, _ := workspace.LoadConfig() // best-effort (allows working in partial setups)
 
+	// The SQLite index projection doesn't carry t.Routine, t.Agent, t.Adapter,
+	// or t.Provider. Recover them from TASK.md before resolving adapter/model so
+	// that ResolveAdapter sees the task snapshot rather than falling through to
+	// the global config default.
+	t.FillDiskOnlyFields(name)
+
 	view := TaskView{
 		Task:          t,
 		BaseCommit:    rec.BaseCommit,
@@ -282,19 +288,14 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 		ProgressSteps: task.LoadProgressSteps(name),
 		Model:         workspace.ResolveModel(cfg, t, ""),
 		Adapter:       workspace.ResolveAdapter(cfg, t, ""),
+		Reasoning:     workspace.ResolveReasoning(cfg, t, ""),
 		TaskStatus:    rec.TaskStatus,
 		WorkerStatus:  rec.WorkerStatus,
 		Stage:         rec.Stage,
 		LastHistoryNS: rec.LastHistory.UnixNano(),
 		LastRunMS:     rec.LastRunDurationMS,
 	}
-	if cfg != nil && cfg.Adapter == "codex" {
-		view.Reasoning = workspace.ResolveReasoning(cfg, t, "")
-	}
 
-	// The SQLite index projection doesn't carry t.Routine or t.Agent.
-	// FillDiskOnlyFields reads TASK.md once to recover both when missing.
-	t.FillDiskOnlyFields(name)
 	if t.Routine != "" {
 		if r, err := routine.LoadByName(t.Routine); err == nil {
 			view.Routine = r

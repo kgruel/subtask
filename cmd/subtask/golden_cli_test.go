@@ -453,6 +453,41 @@ func TestGolden_Show_RepliedWithProgressAndDiff(t *testing.T) {
 	}
 }
 
+// TestGolden_Show_MergedHidesFlow verifies that Flow is not rendered for merged
+// tasks even when a routine and stage are present in the task's history.
+func TestGolden_Show_MergedHidesFlow(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+
+	taskName := "show/merged-routine"
+	baseCommit := gitCmdOutput(t, ".", "rev-parse", "HEAD")
+
+	require.NoError(t, (&task.Task{
+		Name:        taskName,
+		Title:       "Merged routine task",
+		BaseBranch:  "main",
+		Description: "Merged with a routine",
+		Routine:     "default",
+		Schema:      gitredesign.TaskSchemaVersion,
+	}).Save())
+	require.NoError(t, history.WriteAll(taskName, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": baseCommit})},
+		{Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "doing"})},
+		{Type: "task.merged", Data: mustJSON(map[string]any{"via": "subtask", "method": "squash", "into": "main", "branch": taskName, "commit": "deadbeef", "changes_added": 3, "changes_removed": 1})},
+	}))
+
+	for _, pretty := range []bool{false, true} {
+		t.Run(modeName(pretty), func(t *testing.T) {
+			withOutputMode(t, pretty)
+
+			stdout, stderr, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
+			require.NoError(t, err)
+			require.Empty(t, stderr)
+			testutil.AssertGoldenOutput(t, "testdata/show/merged_with_routine", stdout)
+		})
+	}
+}
+
 func TestGolden_Show_ModelReasoning(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))

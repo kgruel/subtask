@@ -189,3 +189,69 @@ func TestStoreGet_AgentFieldSurvivesIndexProjection(t *testing.T) {
 	require.Equal(t, "my-agent", view.Task.Agent,
 		"store.Get must expose Agent from TASK.md even when the SQLite index doesn't carry it")
 }
+
+// TestStoreGet_AdapterFromTaskSnapshotNotGlobalConfig verifies that
+// view.Adapter reflects the adapter in the task's TASK.md snapshot rather than
+// the global config default. The global config (set by testutil) uses
+// "builtin-mock"; the task was drafted with "claude". Before the fix, the
+// SQLite index didn't carry t.Adapter and FillDiskOnlyFields was called after
+// ResolveAdapter, so the global fallback won.
+func TestStoreGet_AdapterFromTaskSnapshotNotGlobalConfig(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	// testutil sets the global adapter to "builtin-mock".
+	// Draft a task whose snapshot records adapter "claude".
+	taskName := "fix/adapter-snapshot"
+	baseCommit := gitCmd(t, repoDir, "rev-parse", "HEAD")
+
+	tsk := &task.Task{
+		Name:        taskName,
+		Title:       "Adapter snapshot test",
+		BaseBranch:  "main",
+		Description: "desc",
+		Adapter:     "claude",
+		Schema:      gitredesign.TaskSchemaVersion,
+	}
+	require.NoError(t, tsk.Save())
+	env.CreateTaskHistory(taskName, repliedHistory("main", baseCommit))
+
+	s := store.New()
+	view, err := s.Get(context.Background(), taskName, store.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "claude", view.Adapter,
+		"view.Adapter must come from the task snapshot (TASK.md), not the global config default")
+}
+
+// TestStoreGet_ReasoningFromTaskSnapshotNotGlobalAdapter verifies that
+// view.Reasoning is populated from the task snapshot even when the global
+// config uses a different adapter. Before the fix, store.Get gated reasoning
+// resolution on cfg.Adapter == "codex", so a task drafted with codex+reasoning
+// would show empty Reasoning when the global config had a non-codex adapter.
+func TestStoreGet_ReasoningFromTaskSnapshotNotGlobalAdapter(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	// testutil sets the global adapter to "builtin-mock" (not codex).
+	// Draft a task whose snapshot records adapter "codex" with reasoning "medium".
+	taskName := "fix/reasoning-snapshot"
+	baseCommit := gitCmd(t, repoDir, "rev-parse", "HEAD")
+
+	tsk := &task.Task{
+		Name:        taskName,
+		Title:       "Reasoning snapshot test",
+		BaseBranch:  "main",
+		Description: "desc",
+		Adapter:     "codex",
+		Reasoning:   "medium",
+		Schema:      gitredesign.TaskSchemaVersion,
+	}
+	require.NoError(t, tsk.Save())
+	env.CreateTaskHistory(taskName, repliedHistory("main", baseCommit))
+
+	s := store.New()
+	view, err := s.Get(context.Background(), taskName, store.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "medium", view.Reasoning,
+		"view.Reasoning must come from the task snapshot even when global config adapter is not codex")
+}

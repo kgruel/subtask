@@ -68,6 +68,11 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 	meta := rec.ProgressMeta
 	cfg, _ := workspace.LoadConfig() // best-effort (allows working in partial setups)
 
+	// The SQLite index projection doesn't carry t.Routine, t.Agent, t.Adapter,
+	// or t.Provider. Recover them from TASK.md before resolving provider/model so
+	// that resolution sees the task snapshot rather than the global config default.
+	t.FillDiskOnlyFields(taskName)
+
 	d := TaskDetail{
 		Task:          t,
 		State:         state,
@@ -93,9 +98,6 @@ func Detail(ctx context.Context, taskName string) (TaskDetail, error) {
 		}
 	}
 
-	// The SQLite index projection doesn't carry t.Routine or t.Agent.
-	// FillDiskOnlyFields reads TASK.md once to recover both when missing.
-	t.FillDiskOnlyFields(taskName)
 	if t.Routine != "" {
 		if r, err := routine.LoadByName(t.Routine); err == nil {
 			d.Routine = r

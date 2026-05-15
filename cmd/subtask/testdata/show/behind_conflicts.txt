@@ -1,8 +1,9 @@
 Task: show/behind-conflicts
 Title: Conflict task
+Status: replied
 Branch: show/behind-conflicts (based on main)
 Agent: builtin-mock/gpt-5.2 (no named agent)
-Status: replied
+
 Changes: +2 -2
 Commits: 1
 Conflicts: a.txt, b.txt
