@@ -73,10 +73,10 @@ fi
 COUNT=$(printf '%s\n' "${UNREAD}" | grep -c .)
 if [ "${COUNT}" -eq 1 ]; then
   TASK=$(printf '%s' "${UNREAD}" | head -n1)
-  MESSAGE="Unread worker reply on task '${TASK}'. Read it with: subtask reply ${TASK}"
+  MESSAGE="Unread worker reply on task '${TASK}'. Read it with: subtask reply ${TASK}. For the next command cue: subtask next ${TASK}"
 else
   TASKS=$(printf '%s' "${UNREAD}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
-  MESSAGE="Unread worker replies on tasks: ${TASKS}. Read each with: subtask reply <task>"
+  MESSAGE="Unread worker replies on tasks: ${TASKS}. Read each with: subtask reply <task>. For state-aware cues: subtask next <task>"
 fi
 
 if command -v jq >/dev/null 2>&1; then

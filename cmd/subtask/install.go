@@ -160,6 +160,9 @@ func (c *InstallCmd) Run() error {
 		printPluginGuidanceSkillOnly(homeDir)
 	}
 
+	fmt.Println()
+	fmt.Println("Then run: subtask quickstart")
+
 	return nil
 }
 
@@ -331,7 +334,7 @@ subtask install --no-prompt
 ## Ready
 {{if not .InGitRepo}}
 **Before creating tasks:** You're not in a git repository. If this looks like a project directory, offer to run ` + "`git init`" + `. Otherwise, ask the user where their project is.
-{{end}}After install, load the Subtask skill with ` + "`/subtask`" + ` to get the full workflow instructions.
+{{end}}After install, load the Subtask skill with ` + "`/subtask`" + ` to get the full workflow instructions. Then run ` + "`subtask quickstart`" + ` for the first-task flow.
 
 Then suggest example tasks adapted to the project, like:
 - "Fix the login bug with Subtask"

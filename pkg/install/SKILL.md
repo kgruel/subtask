@@ -108,6 +108,8 @@ prompt:
 
 Shell commands only. Don't expect this section to re-explain primitives — that's [Routines](#routines) and [Agents](#agents).
 
+When unsure where a task stands, run `subtask next <task>`.
+
 ```bash
 # 1. Draft (task name is branch name; description goes via heredoc/stdin)
 subtask draft fix/bug --routine default --base-branch main --title "Fix worker pool panic" <<'EOF'
@@ -144,6 +146,8 @@ subtask close fix/bug
 Commands no routine prints. Use these when the lead loop needs them.
 
 - `subtask list` — every task and its status (`-a` includes closed; `--json` for tooling).
+- `subtask quickstart` — state-aware onboarding: first-task flow when empty, task entry points when work exists.
+- `subtask next <task>` — state-aware next-command cue for a specific task.
 - `subtask show <task>` — task detail, progress, worker status.
 - `subtask diff [--stat] <task>` — workspace diff against the base branch. See gotcha 1 below before relying on `send` reply summaries.
 - `subtask log <task>` — full task conversation and lifecycle events.

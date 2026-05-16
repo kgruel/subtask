@@ -47,6 +47,43 @@ steps:
 	require.NotContains(t, stdout, "Review the diff carefully", "instructions must be suppressed by -q")
 }
 
+func TestStage_PassivePrintsRoutineGuidance(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "guided.yaml"), []byte(
+		`name: guided
+steps:
+  - id: plan
+  - id: work
+    instructions: |
+      Review <task> carefully.
+      Then approve.
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	taskName := "fix/passive-stage"
+	require.NoError(t, (&DraftCmd{
+		Task:        taskName,
+		Title:       "Passive stage test",
+		Description: "Verify guidance output",
+		Base:        "main",
+		Routine:     "guided",
+	}).Run())
+
+	stdout, _, err := captureStdoutStderr(t, func() error {
+		return (&StageCmd{Task: taskName, Stage: "work", NoSend: true}).Run()
+	})
+	require.NoError(t, err)
+	require.Contains(t, stdout, "Step:")
+	require.Contains(t, stdout, "Work:")
+	require.Contains(t, stdout, "  Review fix/passive-stage carefully.")
+	require.Contains(t, stdout, "  Then approve.")
+}
+
 // TestStage_SameStepNoOp verifies that staging a task to the step it is
 // already on prints "already on step <id>" and does NOT append a
 // stage.changed history event.

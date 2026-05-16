@@ -188,6 +188,7 @@ func (c *DraftCmd) Run() error {
 
 	printSection("Usage")
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)
+	fmt.Printf("subtask next %s\n", c.Task)
 
 	return nil
 }
@@ -346,6 +347,7 @@ func (c *DraftCmd) runRoutineDraft(description string) error {
 
 	printSection("Usage")
 	fmt.Printf("subtask send %s \"<prompt>\"\n", c.Task)
+	fmt.Printf("subtask next %s\n", c.Task)
 
 	return nil
 }

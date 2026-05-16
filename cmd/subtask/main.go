@@ -17,30 +17,32 @@ var (
 type CLI struct {
 	Version kong.VersionFlag `help:"Print version information and quit"`
 
-	Install   InstallCmd   `cmd:"" help:"Install Subtask skill (Claude Code) and configure defaults"`
-	Config    ConfigCmd    `cmd:"" help:"Edit configuration (user defaults or project overrides)"`
-	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill (Claude Code)"`
-	Status    StatusCmd    `cmd:"" help:"Show installation status (skill)"`
-	Ask       AskCmd       `cmd:"" help:"Ask a question (no task, runs in cwd)"`
-	Draft     DraftCmd     `cmd:"" help:"Create a task without running"`
-	Send      SendCmd      `cmd:"" help:"Send a message to a task"`
-	Stage     StageCmd     `cmd:"" help:"Set task workflow stage"`
-	Routines  RoutinesCmd  `cmd:"" help:"List available routines (canonical and project)"`
-	Agents    AgentsCmd    `cmd:"" help:"List project agents"`
-	List      ListCmd      `cmd:"" help:"List all tasks"`
-	Show      ShowCmd      `cmd:"" help:"Show task details"`
-	Log       LogCmd       `cmd:"" help:"Show task history (messages + events)"`
-	Reply     ReplyCmd     `cmd:"" help:"Print the most recent worker reply for a task"`
-	Unread    UnreadCmd    `cmd:"" help:"List open tasks with unread worker replies (exit 1 if none)"`
-	Diff      DiffCmd      `cmd:"" help:"Show task diff"`
-	Close     CloseCmd     `cmd:"" help:"Close a task and free workspace"`
-	Merge     MergeCmd     `cmd:"" help:"Merge task into base branch (marks as merged)"`
-	Workspace WorkspaceCmd `cmd:"" help:"Print workspace path for a task"`
-	Review    ReviewCmd    `cmd:"" help:"Get an AI code review"`
-	Trace     LogsCmd      `cmd:"" help:"Debug worker runs (tool calls, errors)"`
-	Logs      LogsCmd      `cmd:"" help:"Alias for trace" hidden:""`
-	Interrupt InterruptCmd `cmd:"" aliases:"stop" help:"Gracefully stop a working worker for a task"`
-	Update    UpdateCmd    `cmd:"" help:"Update subtask to the latest release"`
+	Install    InstallCmd    `cmd:"" help:"Install Subtask skill (Claude Code) and configure defaults"`
+	Config     ConfigCmd     `cmd:"" help:"Edit configuration (user defaults or project overrides)"`
+	Quickstart QuickstartCmd `cmd:"" help:"Show a state-aware onboarding cue (first-task flow or next-step pointers)"`
+	Uninstall  UninstallCmd  `cmd:"" help:"Uninstall Subtask skill (Claude Code)"`
+	Status     StatusCmd     `cmd:"" help:"Show installation status (skill)"`
+	Ask        AskCmd        `cmd:"" help:"Ask a question (no task, runs in cwd)"`
+	Draft      DraftCmd      `cmd:"" help:"Create a task without running"`
+	Send       SendCmd       `cmd:"" help:"Send a message to a task"`
+	Stage      StageCmd      `cmd:"" help:"Set task workflow stage"`
+	Routines   RoutinesCmd   `cmd:"" help:"List available routines (canonical and project)"`
+	Agents     AgentsCmd     `cmd:"" help:"List project agents"`
+	List       ListCmd       `cmd:"" help:"List all tasks"`
+	Show       ShowCmd       `cmd:"" help:"Show task details"`
+	Log        LogCmd        `cmd:"" help:"Show task history (messages + events)"`
+	Reply      ReplyCmd      `cmd:"" help:"Print the most recent worker reply for a task"`
+	Next       NextCmd       `cmd:"" help:"Show the state-aware next command for a task"`
+	Unread     UnreadCmd     `cmd:"" help:"List open tasks with unread worker replies (exit 1 if none)"`
+	Diff       DiffCmd       `cmd:"" help:"Show task diff"`
+	Close      CloseCmd      `cmd:"" help:"Close a task and free workspace"`
+	Merge      MergeCmd      `cmd:"" help:"Merge task into base branch (marks as merged)"`
+	Workspace  WorkspaceCmd  `cmd:"" help:"Print workspace path for a task"`
+	Review     ReviewCmd     `cmd:"" help:"Get an AI code review"`
+	Trace      LogsCmd       `cmd:"" help:"Debug worker runs (tool calls, errors)"`
+	Logs       LogsCmd       `cmd:"" help:"Alias for trace" hidden:""`
+	Interrupt  InterruptCmd  `cmd:"" aliases:"stop" help:"Gracefully stop a working worker for a task"`
+	Update     UpdateCmd     `cmd:"" help:"Update subtask to the latest release"`
 }
 
 func main() {

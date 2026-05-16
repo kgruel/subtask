@@ -182,20 +182,13 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 
 	// Passive path: print lead-facing step guidance (suppressed by -q).
 	if !c.Quiet {
-		if v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{Stage: target}); v != nil && v.Routine != nil && v.Routine.Instructions != "" {
-			fmt.Println()
-			fmt.Printf("Step: %s\n", v.Routine.Diagram)
-			fmt.Println()
-			displayName := target
-			if len(displayName) > 0 {
-				displayName = strings.ToUpper(displayName[:1]) + displayName[1:]
+		if v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{Stage: target}); v != nil {
+			guidance := formatRoutineStepGuidance(v, c.Task)
+			if guidance == "" {
+				return nil
 			}
-			fmt.Printf("%s:\n", displayName)
-			lines := strings.Split(strings.TrimSpace(v.Routine.Instructions), "\n")
-			for _, line := range lines {
-				line = strings.ReplaceAll(line, "<task>", c.Task)
-				fmt.Printf("  %s\n", line)
-			}
+			fmt.Println()
+			fmt.Print(guidance)
 		}
 	}
 
@@ -235,4 +228,3 @@ func resolveRoutineStageArg(r *routine.Routine, current *routine.Step, arg strin
 	}
 	return "", fmt.Errorf("unknown step %q\n\nValid step ids: %s", arg, strings.Join(stepIDs, ", "))
 }
-
