@@ -86,12 +86,12 @@ func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, ts tim
 		return AdvanceResult{}, fmt.Errorf("routine %q: next step %q not found", r.Name, nextID)
 	}
 
-	toPreset, toPresetName, err := ResolveStepAgent(next)
+	toAgentSpec, toAgentName, err := ResolveStepAgent(next)
 	if err != nil {
 		return AdvanceResult{}, err
 	}
 
-	// Resolve the from-step name + preset INSIDE the lock so concurrent
+	// Resolve the from-step name + agent INSIDE the lock so concurrent
 	// transitions (e.g. a `subtask stage` racing with this auto-advance)
 	// can't both observe the same stale fromStage. The branch decision
 	// above (which uses `current` from outside the lock) is a separate
@@ -109,7 +109,7 @@ func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, ts tim
 		return workspace.FromState{Stage: raw, AgentName: agentName}
 	}
 
-	if _, err := workspace.ApplyStageTransition(taskName, next.ID, toPresetName, toPreset, ts, resolveFrom); err != nil {
+	if _, err := workspace.ApplyStageTransition(taskName, next.ID, toAgentName, toAgentSpec, ts, resolveFrom); err != nil {
 		return AdvanceResult{}, err
 	}
 

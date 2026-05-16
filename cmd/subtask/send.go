@@ -262,7 +262,7 @@ func (c *SendCmd) Run() error {
 	var result *harness.Result
 	var runErr error
 	// resolvedWorkerLabel is set in the else branch so spinner and result footer share
-	// the same label (including any --model/--adapter/--preset override applied to cfg).
+	// the same label (including any --model/--adapter/--agent override applied to cfg).
 	var resolvedWorkerLabel string
 	if buildErr != nil {
 		runErr = buildErr
@@ -486,7 +486,7 @@ func (c *SendCmd) Run() error {
 			// Propagate user-set output mode across the recursion. Quiet
 			// is the only field of c that carries past a single round
 			// — Adapter/Model/etc are deliberately not propagated so a
-			// later routine step's preset binding (or the task's
+			// later routine step's agent binding (or the task's
 			// adapter snapshot) wins over a one-shot CLI override.
 			// PinnedBase only affects first send, so it's irrelevant
 			// for the auto-advance path (branch already exists).

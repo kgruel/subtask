@@ -104,22 +104,14 @@ subtask draft fix/bug --routine they-plan --title "..."
 ```
 
 Routines are project-extensible. Drop a YAML at `.subtask/routines/<name>.yaml` to override a built-in or add a custom one. Each step can optionally:
-- Bind a `preset:` to swap the harness on transition
+- Bind an `agent:` to swap the harness on transition (also triggers auto-dispatch on `subtask stage`)
 - Set `worker_instructions:` to inject a brief into the worker prompt (triggers auto-dispatch on `subtask stage`)
 - Set `worker_context:` for passive per-step context that rides along without triggering dispatch
 - Set `notify: false` to suppress unread-reply nudges while the task is in that step
 
-**`subtask stage` auto-dispatches when the target step has `worker_instructions:`** — it writes the new step, applies any preset (clearing the session on cross-adapter swaps), appends a history event, and then sends those instructions to the worker and blocks until reply. When `worker_instructions:` is absent or empty, `stage` is passive and the lead must `subtask send` next. Pass `--no-send` to stay passive even when `worker_instructions:` is defined. An optional positional prompt extends the worker_instructions (or dispatches on its own if no `worker_instructions:` is set).
+**`subtask stage` auto-dispatches when the target step has `agent:`, `worker_instructions:`, or when a positional prompt is passed to `stage`** — it writes the new step, applies any agent (clearing the session on cross-adapter swaps), appends a history event, and then sends to the worker and blocks until reply. When none of those triggers are present, `stage` is passive and the lead must `subtask send` next. Pass `--no-send` to stay passive even when a trigger is defined. An optional positional prompt extends the worker_instructions (or dispatches on its own when `worker_instructions:` is absent).
 
-### Presets (optional)
-
-Optional concept in `.subtask/config.json` for projects that want per-project dispatch policy in versioned config:
-
-- **Preset** — named `adapter+model+reasoning` bundle. `subtask draft <task> --preset opus-high` instead of three flags. List with `subtask presets`.
-
-Routine steps can optionally name a preset (`preset: opus-high`); the harness automatically swaps when the task advances into that step. Cross-adapter swaps clear the session — cross-step context comes from the workspace, `PLAN.md`, and `PROGRESS.json` (file-based collaboration; design principle #5). See [docs/presets.md](docs/presets.md).
-
-**Adapter/model snapshot in TASK.md.** When a task is drafted, the resolved adapter, model, and reasoning are written into TASK.md frontmatter (the "snapshot"). This is intentional — design principle #5, portability. `send`, `review --task`, and `stage` all resolve adapter/model from the snapshot first, falling back to project config. Editing `.subtask/config.json` after a task is drafted does **not** retroactively update the snapshot. To run with a different preset for a one-off `send` or `review` without editing TASK.md, pass `--preset <name>`. `stage` has its own preset mechanism: bind `preset:` to the target step in the routine YAML, and the harness swaps automatically (and persistently, into the snapshot) on transition.
+**Adapter/model snapshot in TASK.md.** When a task is drafted, the resolved adapter, model, and reasoning are written into TASK.md frontmatter (the "snapshot"). This is intentional — design principle #5, portability. `send`, `review --task`, and `stage` all resolve adapter/model from the snapshot first, falling back to project config. Editing `.subtask/config.json` after a task is drafted does **not** retroactively update the snapshot. To run with a different agent for a one-off `send` or `review` without editing TASK.md, pass `--agent <name>`. `stage` has its own agent mechanism: bind `agent:` to the target step in the routine YAML, and the harness swaps automatically (and persistently, into the snapshot) on transition.
 
 ### Status & Transitions
 

@@ -98,13 +98,13 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 		return fmt.Errorf("routine %q: target step %q not found", r.Name, target)
 	}
 
-	// Resolve preset for the target step (preset-swap + session-clear
+	// Resolve agent for the target step (agent-swap + session-clear
 	// semantics are identical to workflow stage transitions; share the
 	// same helper). The from-step is resolved by closure inside
 	// ApplyStageTransition's lock so a concurrent routine auto-advance
 	// (from a worker reply that just landed) can't observe the same
 	// stale fromStage.
-	toPreset, toPresetName, err := routine.ResolveStepAgent(targetStep)
+	toAgentSpec, toAgentName, err := routine.ResolveStepAgent(targetStep)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 	_ = current // resolveFrom re-derives from history.Tail; outside-lock `current` is used only for the gate-arg resolution above.
 
 	ts := time.Now().UTC()
-	from, err := workspace.ApplyStageTransition(c.Task, target, toPresetName, toPreset, ts, resolveFrom)
+	from, err := workspace.ApplyStageTransition(c.Task, target, toAgentName, toAgentSpec, ts, resolveFrom)
 	if err != nil {
 		return err
 	}

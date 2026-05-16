@@ -7,7 +7,7 @@ description: "Parallel task orchestration CLI that dispatches work to AI workers
 
 Subtask dispatches AI workers to isolated git worktrees so they can work in parallel without conflicting. There are three roles: the **user** who gives direction, **you** (the lead) who orchestrates, and **workers** who execute. The user tells you what they need; you draft tasks, dispatch, review, and decide when to merge.
 
-Three primitives drive the system. **Routines** shape the workflow (a named sequence of steps). **Agents** identify the worker (a preset bundled with a role prompt). **Presets** name the adapter + model + reasoning. Read sections [Routines](#routines), [Agents](#agents), and [Presets](#presets) before drafting; then the [Flow](#flow) section is just shell commands.
+Two primitives drive the system. **Routines** shape the workflow (a named sequence of steps). **Agents** identify the worker and its dispatch config (adapter + model + reasoning, plus an optional role prompt). Read sections [Routines](#routines) and [Agents](#agents) before drafting; then the [Flow](#flow) section is just shell commands.
 
 ## Mindset and narration
 
@@ -72,7 +72,7 @@ Unknown step or routine YAML keys fail loud at load — trust the error rather t
 
 ## Agents
 
-An agent bundles a preset with a role-defining prompt. Use `--agent <name>` on `draft` instead of `--preset <name>` when the worker plays a specific role (planner, reviewer, fixer) and a role prompt makes the work materially better. `--agent` and `--preset` are mutually exclusive on `draft`. `--agent` is also mutually exclusive with `--routine` — routine tasks set per-step agents via `agent:` in the routine YAML, not via `--agent` on `draft`.
+An agent is a named dispatch config: adapter + model + reasoning, plus an optional role-defining prompt. Use `--agent <name>` on `draft` to select one. `--agent` is mutually exclusive with `--routine` — routine tasks set per-step agents via `agent:` in the routine YAML, not via `--agent` on `draft`.
 
 ```bash
 subtask draft refactor/auth --agent planner --base-branch main --title "..." <<'EOF'
@@ -84,40 +84,29 @@ Agent files live at `.subtask/agents/<name>.yaml`. List with `subtask agents` (`
 
 ```yaml
 description: Drafts surgical PLANs; pushes back on over-engineering.
-preset:
-  adapter: claude
-  model: claude-opus-4-7
-  reasoning: high
+adapter: claude
+model: claude-opus-4-7
+reasoning: high
 prompt:
   text: |
     You write minimal, reversible PLAN.md files. Prefer composition over invention.
 ```
 
-`preset:` accepts either a string reference (the name of a project preset, resolved against `subtask presets`) or an inline `{adapter, model, reasoning}` map, as shown above. `prompt:` must have exactly one of `text:` or `file:` (the latter relative to `.subtask/`). An agent's preset overlays project config the same way `--preset` does. Bad agent YAML errors at load.
+`prompt:` is optional (use when the worker plays a specific role: planner, reviewer, fixer). It must have exactly one of `text:` or `file:` (the latter relative to `.subtask/`). An agent's adapter/model/reasoning overlays project config. Bad agent YAML errors at load.
 
-## Presets
+**Per-task vs per-prompt.** `--agent` on `draft` persists into the TASK.md snapshot — every subsequent `send`/`stage`/`review --task` inherits it. `--agent` on `send`/`review`/`ask` is ephemeral and applies only to that invocation.
 
-A preset is a named `adapter + model + reasoning` bundle in `.subtask/config.json`. List with `subtask presets` (`--json` available).
+**Resolution order:** explicit flag (`--adapter`/`--model`/`--reasoning`) → `--agent` overlay → task snapshot (when a task is in scope) → project config → global config.
 
-**Per-task vs per-prompt.** `--preset` on `draft` persists into the TASK.md snapshot — every subsequent `send`/`stage`/`review --task` inherits it. `--preset` on `send`/`review`/`ask` is ephemeral and applies only to that invocation.
+**Snapshot semantics.** Editing `.subtask/config.json` after `draft` does *not* retroactively update existing tasks. To run a one-off with a different agent, pass `--agent` to `send`/`review`/`ask`. To swap automatically on a step transition, bind `agent:` on that step in the routine YAML — the harness applies it persistently into the snapshot.
 
-```bash
-subtask draft fix/bug --preset <named-preset> --base-branch main --title "..." <<'EOF'
-...
-EOF
-```
+**Cross-adapter swap clears the session.** When a routine-bound agent swap crosses adapter families (e.g. claude → codex), the harness clears the worker session. Cross-step context comes from the workspace + PLAN.md + PROGRESS.json — file-based collaboration, not session carry-over. That's why the swap is safe.
 
-**Resolution order:** explicit flag (`--adapter`/`--model`/`--reasoning`) → `--preset` overlay → task snapshot (when a task is in scope) → project config → global config.
-
-**Snapshot semantics.** Editing `.subtask/config.json` after `draft` does *not* retroactively update existing tasks. To run a one-off with a different preset, pass `--preset` to `send`/`review`/`ask`. To swap automatically on a step transition, bind `preset:` on that step in the routine YAML — the harness applies it persistently into the snapshot.
-
-**Cross-adapter swap clears the session.** When a routine-bound preset swap crosses adapter families (e.g. claude → codex), the harness clears the worker session. Cross-step context comes from the workspace + PLAN.md + PROGRESS.json — file-based collaboration, not session carry-over. That's why the swap is safe.
-
-**Reviewer preset (principle, not recipe).** For `subtask review --task`, pick a preset whose adapter family **differs from the worker's** for blind-spot coverage. Use `subtask presets` to see what your project ships; the SKILL deliberately doesn't name presets — projects diverge.
+**Reviewer agent (principle, not recipe).** For `subtask review --task`, pick an agent whose adapter family **differs from the worker's** for blind-spot coverage. Use `subtask agents` to see what your project ships; the SKILL deliberately doesn't name agents — projects diverge.
 
 ## Flow
 
-Shell commands only. Don't expect this section to re-explain primitives — that's [Routines](#routines), [Agents](#agents), and [Presets](#presets).
+Shell commands only. Don't expect this section to re-explain primitives — that's [Routines](#routines) and [Agents](#agents).
 
 ```bash
 # 1. Draft (task name is branch name; description goes via heredoc/stdin)
@@ -137,11 +126,11 @@ subtask diff --stat fix/bug
 subtask diff fix/bug
 
 # 5. Cross-adapter review pass (pick a reviewer whose adapter differs from the worker's).
-subtask review --task fix/bug --preset <reviewer>
+subtask review --task fix/bug --agent <reviewer>
 
 # 6. Address findings; re-review after substantive fixes.
 subtask send fix/bug "Please handle the empty-pool edge case too."
-subtask review --task fix/bug --preset <reviewer>
+subtask review --task fix/bug --agent <reviewer>
 
 # 7. Hand off to the user for the merge/close decision.
 subtask stage fix/bug ready
@@ -162,7 +151,7 @@ Commands no routine prints. Use these when the lead loop needs them.
 - `subtask interrupt <task>` — gracefully stop a running worker.
 - `subtask unread` — list open tasks with worker replies you haven't read (exits non-zero if none).
 - `subtask workspace <task>` — print the git worktree path.
-- `subtask ask "..."` — one-off question with no task, runs in cwd. Passthrough to the configured adapter; useful for quick lookups (`--preset` to override). Not a task primitive.
+- `subtask ask "..."` — one-off question with no task, runs in cwd. Passthrough to the configured adapter; useful for quick lookups (`--agent` to override). Not a task primitive.
 - `subtask review` standalone forms — `--base BRANCH` (PR-style), `--uncommitted` (staged + unstaged + untracked), `--commit SHA`, `--plan` (with `--task`, reviews PLAN.md against TASK.md instead of the diff).
 
 ## Gotchas
@@ -170,5 +159,5 @@ Commands no routine prints. Use these when the lead loop needs them.
 1. **`send` reply is not the code diff.** The "Changed:" summary in a `send` reply reflects task-folder files (PLAN.md, PROGRESS.json). For workspace code changes use `subtask diff <task>` (or `--stat`). You are blind to code from the reply alone.
 2. **Two-send pattern for plan-approved → implement.** After approving PLAN.md in a `*-plan` routine, run `subtask stage <task> implement` *first*, then `subtask send <task> "..."` separately. Never bundle "approved, now implement" in one message — workers execute against the step they're currently in.
 3. **PROGRESS.json is symlinked, not committable.** The task folder is symlinked into the worktree; `git add .subtask/tasks/<name>/PROGRESS.json` errors with "pathspec ... is beyond a symbolic link." Workers commit code; PROGRESS.json is lead-side bookkeeping and travels with the portable task folder.
-4. **Cross-adapter review is a practice, not optional polish.** Same-family review (Claude reviewing Claude) misses what a different family catches. Make `subtask review --task --preset <different-family>` part of the review step every time — not a bonus pass when you have time.
+4. **Cross-adapter review is a practice, not optional polish.** Same-family review (Claude reviewing Claude) misses what a different family catches. Make `subtask review --task --agent <different-family>` part of the review step every time — not a bonus pass when you have time.
 5. **`send` blocks; `stage` sometimes blocks.** `subtask send` is synchronous — run it with `run_in_background: true` so you can keep talking to the user. Don't pipe it through `tail`/`head`; use `-q` for quiet output and `subtask reply` to fetch the canonical reply from history. `subtask stage` also blocks when the target step auto-dispatches (see Routines for the triggers); pass `--no-send` to stay passive.
