@@ -360,7 +360,7 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	}
 
 	// Print routine and step info (routine-driven tasks only).
-	if v != nil && v.Routine != nil {
+	if v != nil && v.Routine != nil && v.Routine.CurrentStep != "" {
 		render.Section("Routine: " + v.Routine.Name + routine.SourceSuffix(v.Routine.Source))
 		fmt.Println(v.Routine.Diagram)
 		if v.Routine.StepAgent != "" {

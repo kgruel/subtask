@@ -135,7 +135,12 @@ func (c *ShowCmd) renderJSON() (string, error) {
 
 	out.Status = string(detail.TaskStatus)
 	out.WorkerStatus = string(detail.WorkerStatus)
+
+	// The 'stage' field remains informational for terminal tasks in the
+	// JSON wire format. Clients consuming JSON often expect to see the
+	// final stage reached by the task.
 	out.Stage = detail.Stage
+
 	if state != nil {
 		out.Workspace = state.Workspace
 		if detail.WorkerStatus == task.WorkerStatusError && state.LastError != "" {

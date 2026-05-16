@@ -8,6 +8,7 @@ import (
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -31,14 +32,36 @@ func BuildView(ctx context.Context, name string, cfg *workspace.Config, opts Bui
 	return BuildViewFromTaskView(tv)
 }
 
-// ResolveListAgent resolves the agent name for a given task,
-// taking into account any routine step overrides.
+// ResolveListAgent returns the named agent for the task list display.
+//
+// Resolution: routine step's agent binding (if the current step has one)
+// → task snapshot t.Agent → empty string.
+//
+// Intentionally does NOT fall back to adapter/model — the list AGENT column
+// is "named-agent only" by design. Adapter/model identity is carried by
+// `subtask show`, the TUI Overview Details box, and the send/reply footer
+// (all via task.AgentView).
+//
+// A blank AGENT column for a task that has resolved adapter/model identity
+// is the intended display, not a bug. The column is narrow; named agents
+// (e.g., "sonnet-medium") are distinct identifiers worth a column slot,
+// while adapter/model strings ("claude/sonnet") would duplicate information
+// already carried by the per-task details surfaces.
 func ResolveListAgent(name string, stage string) string {
 	t, err := task.Load(name)
 	if err != nil {
 		return ""
 	}
 	t.FillDiskOnlyFields(name)
+
+	// For terminal tasks, the AGENT column always shows the task-level
+	// named agent (if any), ignoring any historical step bindings.
+	if tail, err := history.Tail(name); err == nil {
+		if tail.TaskStatus == task.TaskStatusMerged || tail.TaskStatus == task.TaskStatusClosed {
+			return t.Agent
+		}
+	}
+
 	if t.Routine != "" && stage != "" {
 		if r, err := routine.LoadByName(t.Routine); err == nil {
 			if step := r.GetStep(stage); step != nil && step.Agent != "" {
@@ -101,7 +124,7 @@ func BuildViewFromTaskView(tv TaskView) (*task.View, error) {
 		Model:     tv.Model,
 		Reasoning: tv.Reasoning,
 	}
-	if v.Agent.Name == "" {
+	if v.Agent.Name == "" || v.IsTerminal {
 		v.Agent.Name = t.Agent
 	}
 
@@ -155,6 +178,15 @@ func BuildViewFromTaskView(tv TaskView) (*task.View, error) {
 			v.Routine.Steps[i] = sv
 		}
 		v.Routine.Diagram = render.FormatRoutineDiagram(convertStepsForDiagram(v.Routine.Steps), tv.Stage)
+
+		// Clear active-state fields on terminal tasks.
+		// Name, Source, and Steps are kept as historical information.
+		if v.IsTerminal {
+			v.Routine.CurrentStep = ""
+			v.Routine.Diagram = ""
+			v.Routine.StepAgent = ""
+			v.Routine.Instructions = ""
+		}
 	}
 
 	// Artifacts
