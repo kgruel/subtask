@@ -12,7 +12,6 @@ import (
 
 	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/git"
-	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
@@ -329,7 +328,7 @@ func (c *DraftCmd) runRoutineDraft(description string) error {
 	v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{})
 	if v != nil && v.Routine != nil {
 		printSection("Routine: " + v.Routine.Name + routine.SourceSuffix(v.Routine.Source))
-		fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), v.Routine.CurrentStep))
+		fmt.Println(v.Routine.Diagram)
 		if v.Routine.StepAgent != "" {
 			fmt.Printf("Agent: %s\n", v.Routine.StepAgent)
 		}

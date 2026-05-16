@@ -274,38 +274,7 @@ func TaskCardFromView(v *task.View, verbose bool) *TaskCard {
 	if v.Routine != nil {
 		card.Routine = v.Routine.Name
 		card.RoutineSource = v.Routine.Source
-		if v.Routine.CurrentStep != "" {
-			diagramSteps := make([]DiagramStep, len(v.Routine.Steps))
-			for i, s := range v.Routine.Steps {
-				ds := DiagramStep{
-					ID:       s.ID,
-					Terminal: s.Kind == "terminal",
-					Gate:     s.Kind == "gate",
-				}
-				if len(s.Options) > 0 {
-					ds.Edges = make([]DiagramEdge, len(s.Options))
-					for j, o := range s.Options {
-						ds.Edges[j] = DiagramEdge{
-							Label:    o.Name,
-							Target:   o.Next,
-							Loopback: isLoopback(v.Routine.Steps, i, o.Next),
-						}
-					}
-				}
-				if len(s.Branches) > 0 {
-					ds.Edges = make([]DiagramEdge, len(s.Branches))
-					for j, b := range s.Branches {
-						ds.Edges[j] = DiagramEdge{
-							Label:    b.Field,
-							Target:   b.To,
-							Loopback: isLoopback(v.Routine.Steps, i, b.To),
-						}
-					}
-				}
-				diagramSteps[i] = ds
-			}
-			card.Stage = FormatRoutineDiagram(diagramSteps, v.Routine.CurrentStep)
-		}
+		card.Stage = v.Routine.Diagram
 	}
 
 	// Identity resolution: collapse Agent + Model + Reasoning
@@ -352,14 +321,6 @@ func TaskCardFromView(v *task.View, verbose bool) *TaskCard {
 	return card
 }
 
-func isLoopback(steps []task.StepView, currentIdx int, targetID string) bool {
-	for i, s := range steps {
-		if s.ID == targetID {
-			return i <= currentIdx
-		}
-	}
-	return false
-}
 
 // RenderPretty renders the task card with styling and box.
 func (c *TaskCard) RenderPretty() string {

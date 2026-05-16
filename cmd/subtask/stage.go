@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/kgruel/subtask/pkg/harness"
-	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
@@ -185,7 +184,7 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 	if !c.Quiet {
 		if v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{Stage: target}); v != nil && v.Routine != nil && v.Routine.Instructions != "" {
 			fmt.Println()
-			fmt.Printf("Step: %s\n", render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), target))
+			fmt.Printf("Step: %s\n", v.Routine.Diagram)
 			fmt.Println()
 			displayName := target
 			if len(displayName) > 0 {

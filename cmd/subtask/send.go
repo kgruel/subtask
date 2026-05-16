@@ -277,9 +277,13 @@ func (c *SendCmd) Run() error {
 			if c.Agent != "" {
 				v.Agent.Name = c.Agent
 			}
-			resolvedWorkerLabel = task.WorkerLabel(v.Agent.Name, "", v.Agent.Adapter, v.Agent.Model)
+			resolvedWorkerLabel = v.Agent.Label()
 		} else {
-			resolvedWorkerLabel = task.WorkerLabel("", t.Agent, r.Adapter, r.Model)
+			resolvedWorkerLabel = task.AgentView{
+				Name:    t.Agent,
+				Adapter: r.Adapter,
+				Model:   r.Model,
+			}.Label()
 		}
 		c.info(fmt.Sprintf("[Waiting for %s...]", resolvedWorkerLabel))
 

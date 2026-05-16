@@ -47,6 +47,30 @@ type AgentView struct {
 	Reasoning string
 }
 
+// Label returns a display label for the agent.
+// Resolution: <name> (<adapter>/<model>) if name present, else <adapter>/<model>,
+// else <model>, else "Worker" (sentinel — caller decides whether to suppress).
+func (a AgentView) Label() string {
+	adapterModel := ""
+	if a.Adapter != "" && a.Model != "" {
+		adapterModel = a.Adapter + "/" + a.Model
+	} else if a.Model != "" {
+		adapterModel = a.Model
+	}
+
+	if a.Name != "" {
+		if adapterModel != "" {
+			return a.Name + " (" + adapterModel + ")"
+		}
+		return a.Name
+	}
+
+	if adapterModel != "" {
+		return adapterModel + " (no named agent)"
+	}
+	return "Worker"
+}
+
 // RoutineView represents the routine-driven state of a task.
 type RoutineView struct {
 	Name         string
@@ -55,6 +79,7 @@ type RoutineView struct {
 	Steps        []StepView // for diagram rendering
 	StepAgent    string     // resolved agent for current step (empty when no per-step override)
 	Instructions string     // raw instructions for the current step (contains <task> placeholders)
+	Diagram      string     // pre-formatted via render.FormatRoutineDiagram
 }
 
 // StepView carries diagram data for one routine step.

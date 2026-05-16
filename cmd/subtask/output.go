@@ -269,9 +269,31 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	label := workerLabel
 	if label == "" {
 		if v != nil {
-			label = task.WorkerLabel(v.Agent.Name, "", v.Agent.Adapter, v.Agent.Model)
+			label = v.Agent.Label()
 		} else {
-			label = resolveWorkerLabelForTask(taskName, stage)
+			// Fallback: resolve from task snapshot and routine binding.
+			t, err := task.Load(taskName)
+			if err != nil {
+				label = "Worker"
+			} else {
+				cfg, _ := workspace.LoadConfig()
+				var name string
+				if stage != "" && t.Routine != "" {
+					if r, err := routine.LoadByName(t.Routine); err == nil {
+						if step := r.GetStep(stage); step != nil {
+							name = step.Agent
+						}
+					}
+				}
+				if name == "" {
+					name = t.Agent
+				}
+				label = task.AgentView{
+					Name:    name,
+					Adapter: workspace.ResolveAdapter(cfg, t, ""),
+					Model:   workspace.ResolveModel(cfg, t, ""),
+				}.Label()
+			}
 		}
 	}
 	fmt.Printf("%s replied (%d tool calls)", label, toolCalls)
@@ -340,7 +362,7 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	// Print routine and step info (routine-driven tasks only).
 	if v != nil && v.Routine != nil {
 		render.Section("Routine: " + v.Routine.Name + routine.SourceSuffix(v.Routine.Source))
-		fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), v.Routine.CurrentStep))
+		fmt.Println(v.Routine.Diagram)
 		if v.Routine.StepAgent != "" {
 			fmt.Printf("Agent: %s\n", v.Routine.StepAgent)
 		}
@@ -360,21 +382,3 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	render.SectionContent(filepath.ToSlash(task.HistoryPath(taskName)) + "\n\nView:\n  subtask log " + taskName)
 }
 
-// resolveWorkerLabelForTask returns a WorkerLabel for the given task and stage.
-// Falls back to "Worker" if the task cannot be loaded.
-func resolveWorkerLabelForTask(taskName, stage string) string {
-	t, err := task.Load(taskName)
-	if err != nil {
-		return "Worker"
-	}
-	cfg, _ := workspace.LoadConfig()
-	var stepAgent string
-	if stage != "" && t.Routine != "" {
-		if r, err := routine.LoadByName(t.Routine); err == nil {
-			if step := r.GetStep(stage); step != nil {
-				stepAgent = step.Agent
-			}
-		}
-	}
-	return task.WorkerLabel(stepAgent, t.Agent, workspace.ResolveAdapter(cfg, t, ""), workspace.ResolveModel(cfg, t, ""))
-}

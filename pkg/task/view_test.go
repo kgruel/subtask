@@ -85,3 +85,62 @@ func TestLoadReviewSummary(t *testing.T) {
 	require.Equal(t, "style", summary.LastKind)
 	require.Equal(t, "anthropic", summary.LastAdapter)
 }
+
+func TestAgentView_Label(t *testing.T) {
+	tests := []struct {
+		name    string
+		agent   AgentView
+		want    string
+	}{
+		{
+			name: "named with adapter and model",
+			agent: AgentView{
+				Name:    "opus-planner",
+				Adapter: "claude",
+				Model:   "opus",
+			},
+			want: "opus-planner (claude/opus)",
+		},
+		{
+			name: "named only",
+			agent: AgentView{
+				Name: "opus-planner",
+			},
+			want: "opus-planner",
+		},
+		{
+			name: "named and model only",
+			agent: AgentView{
+				Name:  "opus-planner",
+				Model: "opus",
+			},
+			want: "opus-planner (opus)",
+		},
+		{
+			name: "no-name with adapter and model",
+			agent: AgentView{
+				Adapter: "claude",
+				Model:   "sonnet",
+			},
+			want: "claude/sonnet (no named agent)",
+		},
+		{
+			name: "no-name with model only",
+			agent: AgentView{
+				Model: "sonnet",
+			},
+			want: "sonnet (no named agent)",
+		},
+		{
+			name: "all empty",
+			agent: AgentView{},
+			want:  "Worker",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.agent.Label())
+		})
+	}
+}

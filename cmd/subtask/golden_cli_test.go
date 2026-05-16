@@ -566,6 +566,34 @@ func TestGolden_Show_ActiveRoutine(t *testing.T) {
 	}
 }
 
+func TestRegression_RoutineBlockAgentFallback(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+	withOutputMode(t, false) // plain mode for easier assertion
+
+	taskName := "regression/routine-agent"
+	tk := env.CreateTask(taskName, "Regression task", "main", "Description")
+	tk.Routine = "default"
+	tk.Agent = "sonnet-medium" // task snapshot agent
+	require.NoError(t, tk.Save())
+	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
+
+	stdout, stderr, err := captureStdoutStderr(t, func() error {
+		PrintWorkerResultWithStage(taskName, "The reply", 1, nil, "doing", "")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+
+	// The routine block should NOT contain an "Agent:" line because the
+	// "doing" step in "default" routine has no agent binding.
+	// The worker label at the top SHOULD contain sonnet-medium.
+	require.Contains(t, stdout, "sonnet-medium")
+	require.Contains(t, stdout, "replied (1 tool calls)")
+	require.NotContains(t, stdout, "Agent: sonnet-medium")
+	require.Contains(t, stdout, "Routine: default")
+}
+
 func modeName(pretty bool) string {
 	if pretty {
 		return "pretty"
