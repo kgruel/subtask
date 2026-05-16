@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -122,6 +123,8 @@ type diffFileLoadedMsg struct {
 	err      error
 }
 
+type subtaskSpawner func(taskName string, args []string) tea.Cmd
+
 type model struct {
 	mode viewMode
 	tab  tab
@@ -143,10 +146,12 @@ type model struct {
 
 	listErr error
 
-	showHelp bool
-	confirm  confirmState
-	alert    alertState
-	toast    toastState
+	showHelp    bool
+	confirm     confirmState
+	alert       alertState
+	toast       toastState
+	sendInput   sendInputState
+	stagePicker stageStepPickerState
 
 	busy actionKind
 	// disableTicker disables automatic 2s refresh ticks (tests can manually refresh with 'r').
@@ -224,6 +229,8 @@ type model struct {
 
 	// selection layout metadata for region-aware selection
 	overviewLayout overviewSelectionLayout
+
+	subtaskSpawner subtaskSpawner
 }
 
 func newModel() model {
@@ -232,6 +239,11 @@ func newModel() model {
 	ti.CharLimit = 100
 	ti.Width = 20
 
+	subtaskBinary := "subtask"
+	if path, err := exec.LookPath("subtask"); err == nil {
+		subtaskBinary = path
+	}
+
 	m := model{
 		mode:               viewList,
 		tab:                tabOverview,
@@ -239,6 +251,7 @@ func newModel() model {
 		diffDocCache:       make(map[string]*diffparse.Document),
 		diffSideBySide:     false,
 		searchInput:        ti,
+		subtaskSpawner:     newSubtaskSpawner(subtaskBinary),
 	}
 	di := textinput.New()
 	di.Placeholder = "filter files..."
@@ -498,6 +511,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case spawnStartedMsg:
+		return m, m.refreshSelected()
+
+	case spawnFailedMsg:
+		m.toast = toastState{kind: toastError, text: msg.action + " failed", until: nowFunc().Add(6 * time.Second)}
+		m.alert = alertState{title: titleCase(msg.action) + " failed", body: msg.err.Error()}
+		return m, nil
+
+	case spawnExitedMsg:
+		body := truncateRunes(strings.TrimSpace(msg.err), 8*1024)
+		if body == "" {
+			body = msg.action + " exited before starting"
+		}
+		m.toast = toastState{kind: toastError, text: msg.action + " failed: " + tailRunes(body, 240), until: nowFunc().Add(6 * time.Second)}
+		m.alert = alertState{title: titleCase(msg.action) + " failed", body: body}
+		return m, nil
+
 	case tickMsg:
 		m.expireToast()
 
@@ -558,6 +588,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.busy = actionNone
 					return m, nil
 				}
+			default:
+				return m, nil
+			}
+		}
+
+		if m.sendInput.active() {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.sendInput = sendInputState{}
+				return m, nil
+			case "ctrl+s":
+				prompt := strings.TrimSpace(m.sendInput.input.Value())
+				if prompt == "" {
+					m.toast = toastState{kind: toastInfo, text: "prompt is empty", until: nowFunc().Add(3 * time.Second)}
+					return m, nil
+				}
+				taskName := m.sendInput.taskName
+				m.sendInput = sendInputState{}
+				return m, m.spawnSubtask(taskName, []string{"send", taskName, "--", prompt})
+			default:
+				var cmd tea.Cmd
+				m.sendInput.input, cmd = m.sendInput.input.Update(msg)
+				return m, cmd
+			}
+		}
+
+		if m.stagePicker.active() {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.stagePicker = stageStepPickerState{}
+				return m, nil
+			case "up", "k":
+				if m.stagePicker.selected > 0 {
+					m.stagePicker.selected--
+				}
+				return m, nil
+			case "down", "j":
+				if m.stagePicker.selected < len(m.stagePicker.options)-1 {
+					m.stagePicker.selected++
+				}
+				return m, nil
+			case "enter":
+				taskName, target := m.stagePicker.selection()
+				m.stagePicker = stageStepPickerState{}
+				if taskName == "" || target == "" {
+					return m, nil
+				}
+				return m, m.spawnSubtask(taskName, []string{"stage", taskName, target})
 			default:
 				return m, nil
 			}
@@ -704,13 +786,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clampDiffScroll()
 				return m, nil
 			}
-		case "ctrl+g":
+			if m.mode == viewDetail {
+				return m, m.openSendInput()
+			}
+		case "ctrl+g", "m":
 			// Merge (Ctrl+G for "go merge")
 			if m.busy != actionNone || m.selectedTaskName == "" {
 				return m, nil
 			}
 			m.confirm = confirmState{kind: actionMerge, taskName: m.selectedTaskName}
 			return m, nil
+		case ">":
+			if m.mode == viewDetail {
+				return m, m.advanceStage()
+			}
 		case "ctrl+d":
 			// Close/Delete (Ctrl+D)
 			if m.mode == viewList {
@@ -847,7 +936,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Selection is disabled when overlays are active to avoid confusing interactions.
-		overlaysActive := m.showHelp || m.confirm.active() || m.alert.active()
+		overlaysActive := m.overlayActive()
 		if overlaysActive {
 			m.selectionClear()
 			return m, nil
@@ -885,7 +974,13 @@ func (m model) viewWithoutZoneScan() string {
 	if m.toast.floating {
 		out = overlayFloatingToast(out, m.toast, m.width, m.height)
 	}
-	if m.showHelp && !m.confirm.active() && !m.alert.active() {
+	if m.sendInput.active() && !m.alert.active() && !m.confirm.active() {
+		out = renderSendInputOverlay(m, out)
+	}
+	if m.stagePicker.active() && !m.alert.active() && !m.confirm.active() {
+		out = renderStagePickerOverlay(m, out)
+	}
+	if m.showHelp && !m.confirm.active() && !m.alert.active() && !m.sendInput.active() && !m.stagePicker.active() {
 		out = renderHelpOverlay(m, out)
 	}
 	if m.confirm.active() {
@@ -895,6 +990,10 @@ func (m model) viewWithoutZoneScan() string {
 		out = renderAlertOverlay(m, out)
 	}
 	return out
+}
+
+func (m model) overlayActive() bool {
+	return m.showHelp || m.confirm.active() || m.alert.active() || m.sendInput.active() || m.stagePicker.active()
 }
 
 func (m model) View() string {

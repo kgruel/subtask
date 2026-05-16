@@ -92,6 +92,8 @@ Testability hooks: `disableTicker` prevents background refreshes, `nowFunc` allo
 
 **New action**: Add to `actionKind` enum in `actions.go`, add key binding in Update(), add to help.go.
 
+**Subprocess action**: Keep side effects in `tea.Cmd` and inject at the command-dispatch level for tests. Use a model hook that records command intent rather than wrapping `exec.Command` directly.
+
 ## After UI Changes
 
 **ALWAYS verify visually with tmux after making UI changes:**
