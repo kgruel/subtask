@@ -12,10 +12,35 @@ default_prompt:
     Update `done: true` as you complete each step, or revise steps as needed. Commit your code changes when done. Do NOT commit anything under `.subtask/tasks/...` (PROGRESS.json, etc.) — those files live in the task folder, not the worktree.
 steps:
   - id: plan
+    worker_context: |
+      **REVIEW-ONLY phase.** PLAN.md has already been drafted by the lead.
+      Your job in this step is to read and critique it — NOT to implement.
+
+      Do:
+      - Read PLAN.md in this task's folder. Read any plan-of-record the lead points to.
+      - Push back on anything wrong, under-specified, or that you'd do differently.
+        Specifically scrutinize sections labeled "Open for worker pushback".
+      - Suggest simplifications. Flag over-engineering.
+      - If the change touches a shared type, contract, or interface: enumerate
+        every consumer surface (CLI commands, TUI tabs, JSON output, etc.) and
+        confirm each one honors the proposed contract. Iterative discovery of
+        missed surfaces is the most expensive class of regression.
+      - Reply with your review. Do not edit PLAN.md unless the lead asks you to.
+
+      Do NOT:
+      - Edit, create, or delete files outside `.subtask/tasks/<this-task>/`.
+      - Run build, test, or formatter commands.
+      - Begin implementation work of any kind.
+
+      Wait for the lead to send "approved" (or equivalent) and to stage you to
+      `implement` before any code changes.
     instructions: |
       **You lead, worker executes.** Push for simplicity and elegance. Push back against over-engineering.
 
-      1. Draft PLAN.md in the task directory
+      1. Draft PLAN.md in the task directory. If the change touches a shared
+         type, contract, or interface, enumerate every consumer surface in PLAN.md
+         (e.g., for a CLI/TUI codebase: show, list, send, stage, draft, JSON, TUI
+         Overview, TUI list) and state how the contract applies to each.
       2. Ask worker to review, poke holes, suggest simplifications or superior approaches
       3. Ask them to revise PLAN.md if you agree with their comments
       4. Repeat until you're both satisfied and worker confirms no issues left

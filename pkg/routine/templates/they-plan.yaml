@@ -12,10 +12,33 @@ default_prompt:
     Update `done: true` as you complete each step, or revise steps as needed. Commit your code changes when done. Do NOT commit anything under `.subtask/tasks/...` (PROGRESS.json, etc.) — those files live in the task folder, not the worktree.
 steps:
   - id: plan
+    worker_context: |
+      **PLANNING phase.** Your job is to draft PLAN.md in this task's folder.
+      Do NOT begin implementation until the lead approves and stages you to
+      `implement`.
+
+      The PLAN.md should cover:
+      - Goal, scope, and explicit non-goals.
+      - File-by-file change inventory.
+      - Decisions made (and why).
+      - Open questions you want the lead's input on.
+      - If the change touches a shared type, contract, or interface:
+        enumerate every consumer surface (CLI commands, TUI tabs, JSON output,
+        etc.) and state how the contract applies to each. Missed-surface
+        regressions are the most expensive class to catch late.
+
+      Do NOT:
+      - Edit, create, or delete files outside `.subtask/tasks/<this-task>/`.
+      - Run build, test, or formatter commands during this step.
+      - Begin coding work of any kind.
+
+      When PLAN.md is ready, reply summarizing your plan and any open questions.
     instructions: |
       **You set goals, worker plans and executes.** Push for simplicity, clarity and elegance. Push back against shortcuts and over-engineering.
 
-      1. Ask worker to draft PLAN.md in the task directory (relative path)
+      1. Ask worker to draft PLAN.md in the task directory (relative path).
+         Remind the worker that if the change touches a shared type or contract,
+         PLAN.md must enumerate every consumer surface.
       2. Review PLAN.md and ask yourself: is this the ideal solution?
       3. Suggest improvements or ask to explore other solutions, if needed
       4. Repeat until you're both satisfied
