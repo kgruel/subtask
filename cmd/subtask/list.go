@@ -145,6 +145,7 @@ func (c *ListCmd) render() (string, error) {
 			BaseBranch:    it.BaseBranch,
 			TaskStatus:    it.TaskStatus,
 			WorkerStatus:  it.WorkerStatus,
+			Agent:         it.Agent,
 			Stage:         it.Stage,
 			Workspace:     it.Workspace,
 			StartedAt:     it.StartedAt,

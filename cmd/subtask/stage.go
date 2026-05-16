@@ -177,7 +177,7 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 		if len(preview) > 60 {
 			preview = append(preview[:60], []rune("...")...)
 		}
-		fmt.Printf("\nWorker dispatched (%s): %q\n", dispatchSource, string(preview))
+		fmt.Printf("\nAgent dispatched (%s): %q\n", dispatchSource, string(preview))
 		return (&SendCmd{Task: c.Task, Prompt: leadPrompt, Quiet: c.Quiet, testHarness: c.testHarness}).Run()
 	}
 

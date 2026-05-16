@@ -201,7 +201,7 @@ func (c *TaskCard) RenderPlain() string {
 		fmt.Fprintf(&rout, "Routine: %s%s\n", c.Routine, routineSourceSuffix(c.RoutineSource))
 	}
 	if c.Stage != "" && !c.IsTerminal {
-		fmt.Fprintf(&rout, "Flow: %s\n", c.Stage)
+		fmt.Fprintf(&rout, "Stage: %s\n", c.Stage)
 	}
 	if routStr := rout.String(); routStr != "" {
 		fmt.Fprintf(&buf, "\n")
@@ -455,7 +455,7 @@ func (c *TaskCard) RenderPretty() string {
 		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Routine"), routineLabel))
 	}
 	if c.Stage != "" && !c.IsTerminal {
-		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Flow"), c.Stage))
+		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Stage"), c.Stage))
 	}
 	if len(rout) > 0 {
 		lines = append(lines, "")

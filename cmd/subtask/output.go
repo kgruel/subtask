@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/kgruel/subtask/internal/homedir"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/render"
@@ -49,6 +51,7 @@ type TaskInfo struct {
 	Title         string
 	TaskStatus    task.TaskStatus
 	WorkerStatus  task.WorkerStatus
+	Agent         string
 	Stage         string // Current workflow stage
 	Workspace     string
 	BaseBranch    string // For git diff
@@ -108,6 +111,7 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 			Name:          t.Name,
 			Status:        status,
 			Stage:         stage,
+			Agent:         t.Agent,
 			Progress:      progress,
 			LinesAdded:    t.LinesAdded,
 			LinesRemoved:  t.LinesRemoved,
@@ -131,10 +135,13 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 		footer = fmt.Sprintf("(%d workspace(s) available)", availableCount)
 	}
 
+	width, _, _ := term.GetSize(int(os.Stdout.Fd()))
+
 	// Use render package
 	table := &render.TaskListTable{
-		Tasks:  rows,
-		Footer: footer,
+		Tasks:         rows,
+		Footer:        footer,
+		TerminalWidth: width,
 	}
 	if render.Pretty {
 		return table.RenderPretty()

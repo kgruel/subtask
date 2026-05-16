@@ -283,7 +283,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 			}
 			form = huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
-					Title("Worker").
+					Title("Harness").
 					Description("Which CLI runs your tasks behind the scenes").
 					Options(opts...).
 					Value(&h),

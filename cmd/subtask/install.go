@@ -18,7 +18,7 @@ type InstallCmd struct {
 	Guide         bool   `help:"Print setup guidance and exit"`
 	NoPrompt      bool   `help:"Non-interactive; use defaults"`
 	Scope         string `help:"Skill scope: 'user' or 'project'" placeholder:"SCOPE"`
-	Adapter       string `help:"Worker adapter (built-in: codex, claude, opencode, pi, gemini; or any custom adapter)" placeholder:"ADAPTER"`
+	Adapter       string `help:"Harness adapter (built-in: codex, claude, opencode, pi, gemini; or any custom adapter)" placeholder:"ADAPTER"`
 	Provider      string `help:"Provider for the adapter (adapter-dependent)" placeholder:"PROVIDER"`
 	Model         string `help:"Default model for workers" placeholder:"MODEL"`
 	Reasoning     string `help:"Reasoning level: 'low', 'medium', 'high', 'xhigh' (adapter-dependent)" placeholder:"LEVEL"`

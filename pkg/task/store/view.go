@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
@@ -27,6 +28,24 @@ func BuildView(ctx context.Context, name string, cfg *workspace.Config, opts Bui
 		tv.Stage = opts.Stage
 	}
 	return BuildViewFromTaskView(tv)
+}
+
+// ResolveListAgent resolves the agent name for a given task,
+// taking into account any routine step overrides.
+func ResolveListAgent(name string, stage string) string {
+	t, err := task.Load(name)
+	if err != nil {
+		return ""
+	}
+	t.FillDiskOnlyFields(name)
+	if t.Routine != "" && stage != "" {
+		if r, err := routine.LoadByName(t.Routine); err == nil {
+			if step := r.GetStep(stage); step != nil && step.Agent != "" {
+				return step.Agent
+			}
+		}
+	}
+	return t.Agent
 }
 
 // BuildViewFromTaskView converts a TaskView (internal store model) to a task.View (UI model).

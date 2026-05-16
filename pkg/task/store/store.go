@@ -219,6 +219,7 @@ func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) 
 			ProgressTotal:     it.ProgressTotal,
 			LastRunDurationMS: it.LastRunDurationMS,
 			LastError:         it.LastError,
+			Agent:             ResolveListAgent(it.Name, it.Stage),
 			Changes: Changes{
 				Added:   it.LinesAdded,
 				Removed: it.LinesRemoved,

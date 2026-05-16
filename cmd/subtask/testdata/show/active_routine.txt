@@ -1,0 +1,11 @@
+Task: show/active-routine
+Title: Active routine task
+Status: draft
+Branch: show/active-routine (based on main)
+builtin-mock/gpt-5.2
+
+Changes: -
+Commits: 0
+
+Routine: default
+Stage: doing → review → ready!

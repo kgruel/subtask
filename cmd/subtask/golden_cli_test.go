@@ -544,6 +544,28 @@ func TestGolden_Errors(t *testing.T) {
 	}
 }
 
+func TestGolden_Show_ActiveRoutine(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	withFixedNow(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+
+	taskName := "show/active-routine"
+	tk := env.CreateTask(taskName, "Active routine task", "main", "Description")
+	tk.Routine = "default"
+	require.NoError(t, tk.Save())
+	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
+
+	for _, pretty := range []bool{false, true} {
+		t.Run(modeName(pretty), func(t *testing.T) {
+			withOutputMode(t, pretty)
+
+			stdout, stderr, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
+			require.NoError(t, err)
+			require.Empty(t, stderr)
+			testutil.AssertGoldenOutput(t, "testdata/show/active_routine", stdout)
+		})
+	}
+}
+
 func modeName(pretty bool) string {
 	if pretty {
 		return "pretty"
