@@ -25,7 +25,6 @@ type CLI struct {
 	Draft     DraftCmd     `cmd:"" help:"Create a task without running"`
 	Send      SendCmd      `cmd:"" help:"Send a message to a task"`
 	Stage     StageCmd     `cmd:"" help:"Set task workflow stage"`
-	Presets   PresetsCmd   `cmd:"" help:"List available presets from project config"`
 	Routines  RoutinesCmd  `cmd:"" help:"List available routines (canonical and project)"`
 	Agents    AgentsCmd    `cmd:"" help:"List project agents"`
 	List      ListCmd      `cmd:"" help:"List all tasks"`

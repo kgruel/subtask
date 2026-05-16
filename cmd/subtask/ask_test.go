@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,8 +13,17 @@ import (
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/testutil"
-	"github.com/kgruel/subtask/pkg/workspace"
 )
+
+// writeAgentFile creates a flat-schema agent YAML under .subtask/agents/<name>.yaml.
+// Shared by ask_test.go and review_test.go (same package).
+func writeAgentFile(t *testing.T, env *testutil.TestEnv, name, adapter, model, reasoning string) {
+	t.Helper()
+	dir := filepath.Join(env.RootDir, ".subtask", "agents")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	content := fmt.Sprintf("adapter: %s\nmodel: %s\nreasoning: %s\n", adapter, model, reasoning)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(content), 0o644))
+}
 
 // TestAskCmd_FollowUpTask_UsesTaskAdapter verifies that when --follow-up names a task
 // whose adapter matches its state, no harness-mismatch error fires — even when the
@@ -99,39 +111,32 @@ func TestAskCmd_AdapterFlag(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAskCmd_PresetOverride verifies --preset injects adapter/model before resolution.
-func TestAskCmd_PresetOverride(t *testing.T) {
-	_ = testutil.NewTestEnv(t, 0)
-
-	cfg, err := workspace.LoadConfig()
-	require.NoError(t, err)
-	cfg.Adapter = "claude"
-	cfg.Presets = map[string]workspace.Preset{
-		"codex-high": {Adapter: "codex", Model: "o3", Reasoning: "high"},
-	}
-	require.NoError(t, cfg.Save())
+// TestAskCmd_AgentOverride verifies --agent injects adapter/model before resolution.
+func TestAskCmd_AgentOverride(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	writeAgentFile(t, env, "fast-coder", "codex", "o3", "high")
 
 	mock := harness.NewMockHarness().WithResult("answer", "sess-1")
-	_, _, err = captureStdoutStderr(t, (&AskCmd{
+	_, _, err := captureStdoutStderr(t, (&AskCmd{
 		Prompt: "What is X?",
-		Preset: "codex-high",
+		Agent:  "fast-coder",
 	}).WithHarness(mock).Run)
 
-	// Preset resolves to codex — no mismatch with a fresh session (no state), so should succeed.
+	// Agent resolves to codex — no mismatch with a fresh session (no state), so should succeed.
 	require.NoError(t, err)
 }
 
-// TestAskCmd_UnknownPresetErrors verifies a clear error for an unrecognized preset.
-func TestAskCmd_UnknownPresetErrors(t *testing.T) {
+// TestAskCmd_UnknownAgentErrors verifies a clear error for an unrecognized agent.
+func TestAskCmd_UnknownAgentErrors(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 
 	_, _, err := captureStdoutStderr(t, (&AskCmd{
 		Prompt: "What is X?",
-		Preset: "nonexistent",
+		Agent:  "ghost-agent",
 	}).Run)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown preset")
+	assert.Contains(t, err.Error(), "ghost-agent")
 }
 
 // TestAskCmd_InvalidReasoningErrors verifies that a bad --reasoning value is caught

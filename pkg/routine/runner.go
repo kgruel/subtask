@@ -57,7 +57,7 @@ type AdvanceResult struct {
 //  6. Decide auto-dispatch per the table in
 //     docs/dev/_audit-skill-workflow-primitives.md (agent or
 //     worker_instructions → dispatch; gate/terminal never dispatch).
-func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, cfg *workspace.Config, ts time.Time) (AdvanceResult, error) {
+func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, ts time.Time) (AdvanceResult, error) {
 	if r == nil {
 		return AdvanceResult{}, fmt.Errorf("routine is nil")
 	}
@@ -86,7 +86,7 @@ func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, cfg *w
 		return AdvanceResult{}, fmt.Errorf("routine %q: next step %q not found", r.Name, nextID)
 	}
 
-	toPreset, toPresetName, err := ResolveStepPreset(next, cfg)
+	toPreset, toPresetName, err := ResolveStepAgent(next)
 	if err != nil {
 		return AdvanceResult{}, err
 	}
@@ -102,11 +102,11 @@ func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, cfg *w
 		if raw == "" {
 			raw = r.EntryStep()
 		}
-		preset := ""
+		agentName := ""
 		if s := r.GetStep(raw); s != nil {
-			preset = StepPresetName(s)
+			agentName = StepAgentName(s)
 		}
-		return workspace.FromState{Stage: raw, PresetName: preset}
+		return workspace.FromState{Stage: raw, AgentName: agentName}
 	}
 
 	if _, err := workspace.ApplyStageTransition(taskName, next.ID, toPresetName, toPreset, ts, resolveFrom); err != nil {
@@ -156,66 +156,37 @@ func pickNextStep(taskName string, r *Routine, current *Step) (string, error) {
 	return r.nextInOrder(current.ID), nil
 }
 
-// StepPresetName returns the displayable preset name for a step, used
-// in the stage.changed event payload's from_preset / to_preset fields.
-// Agent-driven steps surface the agent reference rather than the
-// underlying preset name (agents can carry inline presets without a
-// name); preset-driven steps surface the preset name directly.
-//
-// Exported so cmd/subtask/stage.go (the routine `stage` handler) shares
-// the same labeling as the auto-advance runner.
-func StepPresetName(s *Step) string {
+// StepAgentName returns the agent label for a step, used in the
+// stage.changed event payload's from_agent / to_agent fields.
+// Exported so cmd/subtask/stage.go shares the same labeling.
+func StepAgentName(s *Step) string {
 	if s == nil {
 		return ""
 	}
 	if s.Agent != "" {
 		return "agent:" + s.Agent
 	}
-	return s.Preset
+	return ""
 }
 
-// ResolveStepPreset returns the preset to apply on entry to step `s`,
-// along with its displayable name.
+// ResolveStepAgent returns the AgentSpec to apply on entry to step `s`,
+// along with its displayable label.
 //
-//   - Agent-driven step: load the agent, resolve its preset (string ref
-//     against cfg.Presets or inline block).
-//   - Preset-driven step: look up cfg.Presets[s.Preset].
-//   - Neither: nil (caller will skip the swap; task keeps its prior
-//     adapter/model — same semantics as workflow stages without a
-//     preset binding).
+//   - Agent-driven step: load the agent, return its dispatch fields as a spec.
+//   - No agent: nil (caller skips the swap; task keeps its prior adapter/model).
 //
 // Exported so cmd/subtask/stage.go can reuse the same resolution chain
-// the runner uses for auto-advance — avoids duplicating the agent/preset
-// lookup ladder in two places.
-func ResolveStepPreset(s *Step, cfg *workspace.Config) (*workspace.Preset, string, error) {
-	if s == nil {
+// the runner uses for auto-advance.
+func ResolveStepAgent(s *Step) (*workspace.AgentSpec, string, error) {
+	if s == nil || s.Agent == "" {
 		return nil, "", nil
 	}
-	if s.Agent != "" {
-		ag, err := agent.LoadByName(s.Agent)
-		if err != nil {
-			return nil, "", fmt.Errorf("routine step %q: %w", s.ID, err)
-		}
-		if ag.PresetInline != nil {
-			p := *ag.PresetInline
-			return &p, "agent:" + s.Agent, nil
-		}
-		p, ok := cfg.Presets[ag.PresetName]
-		if !ok {
-			return nil, "", fmt.Errorf("routine step %q: agent %q references unknown preset %q\n\nAvailable: %s",
-				s.ID, s.Agent, ag.PresetName, workspace.PresetNames(cfg))
-		}
-		return &p, "agent:" + s.Agent, nil
+	ag, err := agent.LoadByName(s.Agent)
+	if err != nil {
+		return nil, "", fmt.Errorf("routine step %q: %w", s.ID, err)
 	}
-	if s.Preset != "" {
-		p, ok := cfg.Presets[s.Preset]
-		if !ok {
-			return nil, "", fmt.Errorf("routine step %q: unknown preset %q\n\nAvailable: %s",
-				s.ID, s.Preset, workspace.PresetNames(cfg))
-		}
-		return &p, s.Preset, nil
-	}
-	return nil, "", nil
+	spec := ag.AgentSpec()
+	return &spec, "agent:" + s.Agent, nil
 }
 
 // readArtifactBool reads the produced artifact's YAML frontmatter and

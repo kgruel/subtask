@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workspace"
@@ -22,7 +23,7 @@ type AskCmd struct {
 	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
-	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
+	Agent     string `help:"Agent override for adapter/model/reasoning (does not persist)"`
 
 	// Internal: injected harness for testing
 	testHarness harness.Harness
@@ -61,14 +62,23 @@ func (c *AskCmd) Run() error {
 		}
 	}
 
-	// Apply preset then resolve adapter/provider/model/reasoning (task snapshot takes
+	// Resolve adapter/provider/model/reasoning (task snapshot takes
 	// precedence over project default when --follow-up names a task).
+	var agentOverride *workspace.AgentSpec
+	if c.Agent != "" {
+		ag, agErr := agent.LoadByName(c.Agent)
+		if agErr != nil {
+			return agErr
+		}
+		spec := ag.AgentSpec()
+		agentOverride = &spec
+	}
 	r, err := workspace.Resolve(cfg, followUpTask, workspace.ResolveOverrides{
 		Adapter:   c.Adapter,
 		Provider:  c.Provider,
 		Model:     c.Model,
 		Reasoning: c.Reasoning,
-		Preset:    c.Preset,
+		Agent:     agentOverride,
 	})
 	if err != nil {
 		return err

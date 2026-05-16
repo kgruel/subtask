@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/logging"
@@ -33,7 +34,7 @@ type SendCmd struct {
 	Model    string `help:"Override model for this prompt (does not persist)"`
 	// Reasoning is adapter-dependent (e.g. codex, pi); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (adapter-dependent; does not persist)"`
-	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
+	Agent     string `help:"Agent override for adapter/model/reasoning (does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
 	// PinnedBase opts into branching from the draft-time captured base commit
 	// instead of re-resolving the task's base branch to its current local HEAD.
@@ -109,12 +110,21 @@ func (c *SendCmd) Run() error {
 
 	// Create harness (needed for context session migration).
 	// Resolve overrides so cfg reflects the effective adapter/model/reasoning for this run.
+	var agentOverride *workspace.AgentSpec
+	if c.Agent != "" {
+		ag, agErr := agent.LoadByName(c.Agent)
+		if agErr != nil {
+			return agErr
+		}
+		spec := ag.AgentSpec()
+		agentOverride = &spec
+	}
 	r, err := workspace.Resolve(cfg, t, workspace.ResolveOverrides{
 		Adapter:   c.Adapter,
 		Provider:  c.Provider,
 		Model:     c.Model,
 		Reasoning: c.Reasoning,
-		Preset:    c.Preset,
+		Agent:     agentOverride,
 	})
 	if err != nil {
 		return err
@@ -456,7 +466,7 @@ func (c *SendCmd) Run() error {
 		if currentStep == "" {
 			currentStep = r.EntryStep()
 		}
-		adv, advErr := routine.HandleAutoAdvance(c.Task, r, currentStep, cfg, finished)
+		adv, advErr := routine.HandleAutoAdvance(c.Task, r, currentStep, finished)
 		if advErr != nil {
 			return advErr
 		}

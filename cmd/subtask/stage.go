@@ -34,12 +34,9 @@ func (c *StageCmd) WithHarness(h harness.Harness) *StageCmd {
 
 // Run executes the stage command.
 func (c *StageCmd) Run() error {
-	res, err := preflightProject()
-	if err != nil {
+	if _, err := preflightProject(); err != nil {
 		return err
 	}
-	cfg := res.Config
-
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
 	}
@@ -52,7 +49,7 @@ func (c *StageCmd) Run() error {
 		return err
 	}
 	if t.Routine != "" {
-		return c.runRoutineStage(t, cfg)
+		return c.runRoutineStage(t)
 	}
 
 	return fmt.Errorf("task %q has no routine\n\nsubtask stage only works for routine-based tasks (drafted with --routine)", c.Task)
@@ -66,7 +63,7 @@ func (c *StageCmd) Run() error {
 //  2. Otherwise, match arg against step ids in the routine.
 //  3. Else error, listing both option names AND option `to:` targets
 //     when applicable.
-func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
+func (c *StageCmd) runRoutineStage(t *task.Task) error {
 	r, err := routine.LoadByName(t.Routine)
 	if err != nil {
 		return err
@@ -107,7 +104,7 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 	// ApplyStageTransition's lock so a concurrent routine auto-advance
 	// (from a worker reply that just landed) can't observe the same
 	// stale fromStage.
-	toPreset, toPresetName, err := routine.ResolveStepPreset(targetStep, cfg)
+	toPreset, toPresetName, err := routine.ResolveStepAgent(targetStep)
 	if err != nil {
 		return err
 	}
@@ -115,11 +112,11 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 		if raw == "" {
 			raw = r.EntryStep()
 		}
-		preset := ""
+		agentName := ""
 		if s := r.GetStep(raw); s != nil {
-			preset = routine.StepPresetName(s)
+			agentName = routine.StepAgentName(s)
 		}
-		return workspace.FromState{Stage: raw, PresetName: preset}
+		return workspace.FromState{Stage: raw, AgentName: agentName}
 	}
 	_ = current // resolveFrom re-derives from history.Tail; outside-lock `current` is used only for the gate-arg resolution above.
 
@@ -153,8 +150,6 @@ func (c *StageCmd) runRoutineStage(t *task.Task, cfg *workspace.Config) error {
 	}
 	if targetStep.Agent != "" {
 		header += fmt.Sprintf(" | agent: %s", targetStep.Agent)
-	} else if toPresetName != "" {
-		header += fmt.Sprintf(" | preset: %s", toPresetName)
 	}
 	printSuccess(header)
 

@@ -136,9 +136,8 @@ func TestBuildPrompt_InjectsAgent(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		`preset:
-  adapter: codex
-  model: gpt-5.5
+		`adapter: codex
+model: gpt-5.5
 prompt:
   text: |
     You are the planner. Read the spec, write PLAN.md.
@@ -262,17 +261,15 @@ func TestBuildPrompt_RoutineAgentPerStep(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		`preset:
-  adapter: codex
-  model: gpt-5
+		`adapter: codex
+model: gpt-5
 prompt:
   text: |
     You are the planner. Read the spec, write PLAN.md.
 `), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "reviewer.yaml"), []byte(
-		`preset:
-  adapter: codex
-  model: gpt-5
+		`adapter: codex
+model: gpt-5
 prompt:
   text: |
     You are the reviewer. Inspect; do not modify files.
@@ -313,29 +310,28 @@ steps:
 	require.NotContains(t, gotReview, "You are the planner.")
 }
 
-func TestBuildPrompt_RoutinePresetOnlyStepHasNoAgentBlock(t *testing.T) {
-	// A routine step that names only a preset (no agent:) must produce
-	// NO `## Agent` block — t.Agent is not a fallback for routine tasks.
+func TestBuildPrompt_RoutineStepWithNoAgentHasNoAgentBlock(t *testing.T) {
+	// A routine step with no agent: field must produce NO `## Agent`
+	// block — t.Agent is not a fallback for routine tasks.
 	env := testutil.NewTestEnv(t, 0)
 	_ = env
 
 	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
 	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "presetOnly.yaml"), []byte(
-		`name: presetOnly
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "noAgent.yaml"), []byte(
+		`name: noAgent
 steps:
   - id: impl
-    preset: opus-high
     advance: auto
   - id: done
     kind: terminal
 `), 0o644))
 
 	tk := &task.Task{
-		Name:        "rt/preset-only",
-		Title:       "Routine preset-only step",
+		Name:        "rt/no-agent-step",
+		Title:       "Routine step without agent",
 		BaseBranch:  "main",
-		Routine:     "presetOnly",
+		Routine:     "noAgent",
 		Agent:       "should-not-load", // routine ignores t.Agent
 		Description: "Per-task description.",
 	}
@@ -343,7 +339,7 @@ steps:
 
 	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Build.", nil)
 	require.NoError(t, err)
-	require.NotContains(t, got, "## Agent", "preset-only step must not emit ## Agent block")
+	require.NotContains(t, got, "## Agent", "step with no agent: must not emit ## Agent block")
 }
 
 func TestBuildPrompt_AgentLoadFailurePropagates(t *testing.T) {

@@ -20,7 +20,6 @@ import (
 
 	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/task"
-	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 //go:embed templates/*.yaml
@@ -91,12 +90,8 @@ type Step struct {
 	Kind string `yaml:"kind,omitempty"`
 
 	// Agent references .subtask/agents/<name>.yaml (resolved by
-	// pkg/agent.LoadByName at send/BuildPrompt time). Mutually exclusive
-	// with Preset.
+	// pkg/agent.LoadByName at send/BuildPrompt time).
 	Agent string `yaml:"agent,omitempty"`
-
-	// Preset names a cfg.Presets entry. Mutually exclusive with Agent.
-	Preset string `yaml:"preset,omitempty"`
 
 	// Consumes / Produces are inert metadata for downstream tooling.
 	// Produces is a single filename; a step can produce at most one artifact for v1.
@@ -138,7 +133,7 @@ type Step struct {
 // Unknown keys trigger an error at parse time so authors catch typos
 // (e.g. "next: deepdive" instead of relying on declaration order).
 var knownStepKeys = map[string]struct{}{
-	"id": {}, "kind": {}, "agent": {}, "preset": {},
+	"id": {}, "kind": {}, "agent": {},
 	"consumes": {}, "produces": {}, "advance": {}, "notify": {},
 	"worker_instructions": {}, "worker_context": {}, "instructions": {},
 	"branches": {}, "options": {}, "surface": {},
@@ -150,7 +145,7 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		key := value.Content[i].Value
 		if _, ok := knownStepKeys[key]; !ok {
-			return fmt.Errorf("line %d: unknown step key %q (not a recognised field — known: id, kind, agent, preset, consumes, produces, advance, notify, worker_instructions, worker_context, instructions, branches, options, surface)", value.Content[i].Line, key)
+			return fmt.Errorf("line %d: unknown step key %q (not a recognised field — known: id, kind, agent, consumes, produces, advance, notify, worker_instructions, worker_context, instructions, branches, options, surface)", value.Content[i].Line, key)
 		}
 	}
 	type stepAlias Step
@@ -513,8 +508,8 @@ func validateSteps(steps []Step) error {
 		}
 
 		if s.Kind == KindGate {
-			if s.Agent != "" || s.Preset != "" {
-				return fmt.Errorf("step %q: gate steps cannot reference agent: or preset:", s.ID)
+			if s.Agent != "" {
+				return fmt.Errorf("step %q: gate steps cannot reference agent:", s.ID)
 			}
 			if len(s.Options) == 0 {
 				return fmt.Errorf("step %q: gate steps require at least one option", s.ID)
@@ -535,8 +530,8 @@ func validateSteps(steps []Step) error {
 		}
 
 		if s.Kind == KindTerminal {
-			if s.Agent != "" || s.Preset != "" {
-				return fmt.Errorf("step %q: terminal steps cannot reference agent: or preset:", s.ID)
+			if s.Agent != "" {
+				return fmt.Errorf("step %q: terminal steps cannot reference agent:", s.ID)
 			}
 			if len(s.Branches) > 0 || len(s.Options) > 0 {
 				return fmt.Errorf("step %q: terminal steps cannot declare branches: or options:", s.ID)
@@ -568,9 +563,6 @@ func validateSteps(steps []Step) error {
 			// equivalent.
 			if s.Surface != nil {
 				return fmt.Errorf("step %q: surface: is only valid on terminal or gate steps; use notify: false to silence a regular step", s.ID)
-			}
-			if s.Agent != "" && s.Preset != "" {
-				return fmt.Errorf("step %q: agent: and preset: are mutually exclusive — pick one", s.ID)
 			}
 			if len(s.Branches) > 0 && strings.TrimSpace(s.Produces) == "" {
 				return fmt.Errorf("step %q: branches: requires produces: (the artifact whose frontmatter is read)", s.ID)
@@ -630,32 +622,15 @@ func validateSteps(steps []Step) error {
 	return nil
 }
 
-// ValidateReferences resolves every step's agent: and preset: against
-// the actual environment (filesystem agent YAMLs, cfg.Presets). Called
-// at draft time so a typo in a later step's reference fails fast at
-// the boundary instead of mid-routine after worker rounds.
-// parseRoutine handles schema shape; ValidateReferences handles lookups.
-func (r *Routine) ValidateReferences(cfg *workspace.Config) error {
+// ValidateReferences resolves every step's agent: reference against the
+// filesystem (agent YAMLs under .subtask/agents/). Called at draft time
+// so a typo fails fast at the boundary instead of mid-routine after
+// worker rounds. parseRoutine handles schema shape; this handles lookups.
+func (r *Routine) ValidateReferences() error {
 	for _, s := range r.Steps {
 		if s.Agent != "" {
-			ag, err := agent.LoadByName(s.Agent)
-			if err != nil {
+			if _, err := agent.LoadByName(s.Agent); err != nil {
 				return fmt.Errorf("routine %q step %q: %w", r.Name, s.ID, err)
-			}
-			// If the agent's preset is a string ref, check it resolves
-			// here too — surfaces the same broken reference at draft
-			// rather than at the first cross-stage swap.
-			if ag.PresetName != "" {
-				if _, ok := cfg.Presets[ag.PresetName]; !ok {
-					return fmt.Errorf("routine %q step %q: agent %q references unknown preset %q\n\nAvailable: %s",
-						r.Name, s.ID, s.Agent, ag.PresetName, workspace.PresetNames(cfg))
-				}
-			}
-		}
-		if s.Preset != "" {
-			if _, ok := cfg.Presets[s.Preset]; !ok {
-				return fmt.Errorf("routine %q step %q: unknown preset %q\n\nAvailable: %s",
-					r.Name, s.ID, s.Preset, workspace.PresetNames(cfg))
 			}
 		}
 	}

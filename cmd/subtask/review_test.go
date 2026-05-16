@@ -216,27 +216,26 @@ func TestReviewCmd_Task_UsesTaskAdapterOverProjectDefault(t *testing.T) {
 	assert.NotEmpty(t, stdout)
 }
 
-// TestReviewCmd_Preset_OverridesProjectDefault verifies that --preset on review
-// selects the preset's adapter over the project default.
-func TestReviewCmd_Preset_OverridesProjectDefault(t *testing.T) {
-	_ = testutil.NewTestEnv(t, 0)
+// TestReviewCmd_Agent_OverridesProjectDefault verifies that --agent on review
+// selects the agent's adapter over the project default.
+func TestReviewCmd_Agent_OverridesProjectDefault(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
 
-	// Override project config: pi as default, preset that uses builtin-mock.
+	// Override project config: pi as default, but --agent use-mock switches to builtin-mock.
 	cfgPath := task.ConfigPath()
 	cfg := &workspace.Config{
 		Adapter:       "pi",
 		MaxWorkspaces: workspace.DefaultMaxWorkspaces,
-		Presets: map[string]workspace.Preset{
-			"use-mock": {Adapter: "builtin-mock"},
-		},
 	}
 	cfgData, err := json.Marshal(cfg)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(cfgPath, cfgData, 0o644))
 
+	writeAgentFile(t, env, "use-mock", "builtin-mock", "mock", "")
+
 	stdout, _, err := captureStdoutStderr(t, (&ReviewCmd{
 		Uncommitted: true,
-		Preset:      "use-mock",
+		Agent:       "use-mock",
 	}).Run)
 
 	require.NoError(t, err)

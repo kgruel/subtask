@@ -1,11 +1,13 @@
 // Package agent loads Agent YAML files from .subtask/agents/<name>.yaml.
 //
-// An Agent bundles a preset (adapter+model+reasoning) with a prompt that
-// defines its role. It is the first half of the Routine + Agent layer
-// described in docs/dev/_audit-skill-workflow-primitives.md.
+// An Agent carries a flat dispatch spec (adapter/model/reasoning/provider)
+// and an optional role prompt. Agents with no prompt: block are bare-dispatch
+// agents (former Presets); agents with a prompt: block carry a role.
+// Both forms are the same YAML primitive — one optional field distinguishes them.
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,9 +20,6 @@ import (
 )
 
 // Agent is a parsed .subtask/agents/<name>.yaml file.
-//
-// Exactly one of PresetName or PresetInline is non-zero. Exactly one of
-// Prompt.Text or Prompt.File is non-empty (enforced at parse time).
 type Agent struct {
 	// Name is the agent name (file basename without .yaml).
 	Name string
@@ -28,16 +27,16 @@ type Agent struct {
 	// Description is an optional human-readable summary from the YAML.
 	Description string
 
-	// PresetName is the named preset to overlay (resolved against
-	// cfg.Presets by the caller). Empty when the agent declares an
-	// inline preset block.
-	PresetName string
+	// Dispatch fields — adapter and model are required; provider and
+	// reasoning are optional and adapter-dependent.
+	Adapter   string
+	Provider  string
+	Model     string
+	Reasoning string
 
-	// PresetInline is the inline preset block. Nil when the agent
-	// references a named preset.
-	PresetInline *workspace.Preset
-
-	// Prompt holds the agent's role-defining text. Exactly one source.
+	// Prompt holds the agent's role-defining text. Both fields empty means
+	// bare-dispatch agent (no role prompt injected into the worker prompt).
+	// Exactly one of Text or File is non-empty when a prompt is declared.
 	Prompt PromptSource
 }
 
@@ -56,6 +55,17 @@ type PromptSource struct {
 // AgentsDir returns the path to the agents directory.
 func AgentsDir() string {
 	return filepath.Join(task.ProjectDir(), "agents")
+}
+
+// AgentSpec constructs a workspace.AgentSpec from this agent's dispatch fields.
+// Callers use this to overlay the agent onto the resolution chain.
+func (a *Agent) AgentSpec() workspace.AgentSpec {
+	return workspace.AgentSpec{
+		Adapter:   a.Adapter,
+		Provider:  a.Provider,
+		Model:     a.Model,
+		Reasoning: a.Reasoning,
+	}
 }
 
 // validateAgentName rejects names that would escape .subtask/agents/.
@@ -157,13 +167,14 @@ func LoadByName(name string) (*Agent, error) {
 	return a, nil
 }
 
-// rawAgent is the on-disk YAML shape with the polymorphic preset field
-// captured as a raw node so we can decode it as either a string or a
-// preset map.
+// rawAgent is the on-disk YAML shape with flat dispatch fields.
 type rawAgent struct {
-	Description string    `yaml:"description,omitempty"`
-	Preset      yaml.Node `yaml:"preset"`
-	Prompt      rawPrompt `yaml:"prompt"`
+	Description string     `yaml:"description,omitempty"`
+	Adapter     string     `yaml:"adapter"`
+	Provider    string     `yaml:"provider,omitempty"`
+	Model       string     `yaml:"model"`
+	Reasoning   string     `yaml:"reasoning,omitempty"`
+	Prompt      *rawPrompt `yaml:"prompt"`
 }
 
 // rawPrompt mirrors the prompt: block. Skill is captured explicitly so
@@ -180,47 +191,39 @@ type rawPrompt struct {
 // parse can be tested with pure in-memory fixtures.
 func parseAgent(data []byte) (*Agent, error) {
 	var raw rawAgent
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 
 	a := &Agent{Description: raw.Description}
 
-	// Preset: required, polymorphic (string ref OR inline block).
-	if raw.Preset.IsZero() {
-		return nil, fmt.Errorf("missing required field: preset")
+	// adapter and model are required at the agent level.
+	if strings.TrimSpace(raw.Adapter) == "" {
+		return nil, fmt.Errorf("missing required field: adapter")
 	}
-	switch raw.Preset.Kind {
-	case yaml.ScalarNode:
-		var s string
-		if err := raw.Preset.Decode(&s); err != nil {
-			return nil, fmt.Errorf("preset: %w", err)
-		}
-		if s == "" {
-			return nil, fmt.Errorf("preset: empty string reference")
-		}
-		a.PresetName = s
-	case yaml.MappingNode:
-		var p workspace.Preset
-		if err := raw.Preset.Decode(&p); err != nil {
-			return nil, fmt.Errorf("preset: %w", err)
-		}
-		if p.Adapter == "" || p.Model == "" {
-			return nil, fmt.Errorf("inline preset requires at least adapter and model")
-		}
-		a.PresetInline = &p
-	default:
-		return nil, fmt.Errorf("preset: must be a string reference or an inline map")
+	if strings.TrimSpace(raw.Model) == "" {
+		return nil, fmt.Errorf("missing required field: model")
+	}
+	a.Adapter = strings.TrimSpace(raw.Adapter)
+	a.Provider = strings.TrimSpace(raw.Provider)
+	a.Model = strings.TrimSpace(raw.Model)
+	a.Reasoning = strings.TrimSpace(raw.Reasoning)
+
+	// prompt: is optional. Absent = bare-dispatch agent (no role prompt).
+	// Present but empty = error. Present with exactly one source = OK.
+	if raw.Prompt == nil {
+		return a, nil
 	}
 
-	// Prompt: required, exactly one of text/file.
 	if raw.Prompt.Skill != nil {
 		return nil, fmt.Errorf("prompt.skill: source is not yet supported; use text: or file:")
 	}
 	hasText := raw.Prompt.Text != nil
 	hasFile := raw.Prompt.File != nil
 	if !hasText && !hasFile {
-		return nil, fmt.Errorf("missing required field: prompt (one of text: or file:)")
+		return nil, fmt.Errorf("prompt: text: or file: required when prompt: is declared (or omit prompt: entirely for a bare-dispatch agent)")
 	}
 	if hasText && hasFile {
 		return nil, fmt.Errorf("prompt: text: and file: are mutually exclusive — pick one")
@@ -244,7 +247,7 @@ func parseAgent(data []byte) (*Agent, error) {
 // ResolvePromptText returns the prompt body for an agent. For text:
 // agents this is a no-op; for file: agents it reads the file at call
 // time (lazy by design — edits to the prompt file do not require
-// redrafting tasks).
+// redrafting tasks). Returns "" for bare-dispatch agents.
 //
 // The same traversal check that runs at LoadByName is re-applied here,
 // not trusted from prior load: ResolvePromptText is the read-the-bytes
@@ -253,6 +256,9 @@ func parseAgent(data []byte) (*Agent, error) {
 func (a *Agent) ResolvePromptText() (string, error) {
 	if a.Prompt.Text != "" {
 		return a.Prompt.Text, nil
+	}
+	if a.Prompt.File == "" {
+		return "", nil
 	}
 	fp, err := resolvePromptFile(a.Prompt.File)
 	if err != nil {

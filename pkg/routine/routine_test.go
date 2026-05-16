@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kgruel/subtask/pkg/testutil"
-	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 func TestParseRoutine_LinearValid(t *testing.T) {
@@ -195,7 +194,7 @@ steps:
 	require.Contains(t, err.Error(), "duplicate step id")
 }
 
-func TestParseRoutine_StepWithAgentAndPreset(t *testing.T) {
+func TestParseRoutine_StepWithPresetIsUnknownKey(t *testing.T) {
 	data := []byte(`name: bad
 steps:
   - id: plan
@@ -205,7 +204,7 @@ steps:
 `)
 	_, err := parseRoutine(data)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "mutually exclusive")
+	require.Contains(t, err.Error(), "preset")
 }
 
 func TestParseRoutine_BranchToUnknownStep(t *testing.T) {
@@ -695,21 +694,21 @@ steps:
 
 // ---- ValidateReferences: agent + preset lookups at draft time --------------
 
-func writeAgent(t *testing.T, root, name, preset string) {
+func writeAgent(t *testing.T, root, name string) {
 	t.Helper()
 	dir := filepath.Join(root, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(
-		`preset: `+preset+`
+		`adapter: claude
+model: sonnet
 prompt:
-  text: |
-    You are `+name+`.
+  text: You are `+name+`.
 `), 0o644))
 }
 
 func TestValidateReferences_UnknownAgentInLaterStep(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	writeAgent(t, env.RootDir, "good", "p")
+	writeAgent(t, env.RootDir, "good")
 
 	data := []byte(`name: bad-agent
 steps:
@@ -726,83 +725,21 @@ steps:
 	require.NoError(t, err, "schema parse should succeed; the agent name is shape-valid")
 	r.Name = "bad-agent"
 
-	cfg := &workspace.Config{Presets: map[string]workspace.Preset{"p": {Adapter: "claude", Model: "m"}}}
-	err = r.ValidateReferences(cfg)
+	err = r.ValidateReferences()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `step "b"`)
 	require.Contains(t, err.Error(), "ghost")
 	require.Contains(t, err.Error(), ".subtask/agents/ghost.yaml")
 }
 
-func TestValidateReferences_UnknownPresetInLaterStep(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-	writeAgent(t, env.RootDir, "good", "p")
-
-	data := []byte(`name: bad-preset
-steps:
-  - id: a
-    agent: good
-    advance: auto
-  - id: b
-    preset: missing-preset
-    advance: auto
-  - id: done
-    kind: terminal
-`)
-	r, err := parseRoutine(data)
-	require.NoError(t, err)
-	r.Name = "bad-preset"
-
-	cfg := &workspace.Config{Presets: map[string]workspace.Preset{
-		"p":         {Adapter: "claude", Model: "m"},
-		"other-one": {Adapter: "codex", Model: "m"},
-	}}
-	err = r.ValidateReferences(cfg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `step "b"`)
-	require.Contains(t, err.Error(), "missing-preset")
-	// Available presets must be listed so the user can correct the typo.
-	require.Contains(t, err.Error(), "other-one")
-	require.Contains(t, err.Error(), "p")
-}
-
-func TestValidateReferences_AgentReferencesUnknownPreset(t *testing.T) {
-	// Agent declares a string-ref preset that doesn't exist in cfg.
-	// Routine drafting should catch this at the boundary, not at the
-	// first cross-stage swap.
-	env := testutil.NewTestEnv(t, 0)
-	writeAgent(t, env.RootDir, "agent-with-missing-preset", "nope")
-
-	data := []byte(`name: agent-preset-broken
-steps:
-  - id: a
-    agent: agent-with-missing-preset
-    advance: auto
-  - id: done
-    kind: terminal
-`)
-	r, err := parseRoutine(data)
-	require.NoError(t, err)
-	r.Name = "agent-preset-broken"
-
-	cfg := &workspace.Config{Presets: map[string]workspace.Preset{"different": {Adapter: "claude", Model: "m"}}}
-	err = r.ValidateReferences(cfg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "agent-with-missing-preset")
-	require.Contains(t, err.Error(), "nope")
-}
-
 func TestValidateReferences_AllResolved(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	writeAgent(t, env.RootDir, "good", "p")
+	writeAgent(t, env.RootDir, "good")
 
 	data := []byte(`name: ok
 steps:
   - id: a
     agent: good
-    advance: auto
-  - id: b
-    preset: p
     advance: auto
   - id: done
     kind: terminal
@@ -811,8 +748,7 @@ steps:
 	require.NoError(t, err)
 	r.Name = "ok"
 
-	cfg := &workspace.Config{Presets: map[string]workspace.Preset{"p": {Adapter: "claude", Model: "m"}}}
-	require.NoError(t, r.ValidateReferences(cfg))
+	require.NoError(t, r.ValidateReferences())
 }
 
 func TestLoadByName_DefaultPromptFileResolves(t *testing.T) {

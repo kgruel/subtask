@@ -30,8 +30,7 @@ type DraftCmd struct {
 	Model       string `help:"Default model for this task (overrides project config)"`
 	Reasoning   string `help:"Default reasoning for this task (adapter-dependent; overrides project config)"`
 	FollowUp    string `name:"follow-up" help:"Task whose conversation to continue"`
-	Preset      string `help:"Preset from project config (e.g., sonnet-medium); shorthand for --adapter --model --reasoning"`
-	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles preset + role prompt. Mutually exclusive with --preset and --routine"`
+	Agent       string `help:"Agent file from .subtask/agents/<name>.yaml; bundles dispatch + role prompt. Mutually exclusive with --routine"`
 	Routine     string `help:"Routine file from .subtask/routines/<name>.yaml; runs a multi-step recipe. Mutually exclusive with --agent"`
 }
 
@@ -49,11 +48,9 @@ func (c *DraftCmd) Run() error {
 	}
 
 	// Requirements: git + global config (config may be migrated on first access).
-	res, err := preflightProject()
-	if err != nil {
+	if _, err := preflightProject(); err != nil {
 		return err
 	}
-	cfg := res.Config
 
 	// Check if task already exists
 	if _, err := task.Load(c.Task); err == nil {
@@ -62,15 +59,6 @@ func (c *DraftCmd) Run() error {
 
 	if strings.Contains(c.Task, "--") {
 		return fmt.Errorf("task name cannot contain \"--\" (used for path escaping)")
-	}
-
-	// --agent and --preset are mutually exclusive. An agent already
-	// bundles a preset; pairing them would silently shadow one or the
-	// other depending on the precedence chain. Reject before any
-	// resolution so the user sees the intent conflict, not a subtle
-	// behavioural diff.
-	if c.Agent != "" && c.Preset != "" {
-		return fmt.Errorf("--agent and --preset are mutually exclusive: an agent already bundles a preset.\n\nDrop one, or use explicit --adapter/--model flags to override an agent's preset")
 	}
 
 	// --routine and --agent are mutually exclusive. Routine steps define
@@ -85,13 +73,12 @@ func (c *DraftCmd) Run() error {
 	}
 
 	if c.Routine != "" {
-		return c.runRoutineDraft(description, cfg)
+		return c.runRoutineDraft(description)
 	}
 
 	// Resolve adapter/model/reasoning with this precedence:
-	//   1. --agent's preset (overlay via existing ApplyPreset).
-	//   2. --preset resolves the named preset.
-	//   3. Anything still unset falls through to project then user config defaults.
+	//   1. --agent's dispatch fields (overlay via ApplyAgentSpec).
+	//   2. Anything still unset falls through to project then user config defaults.
 	resolvedAdapter := c.Adapter
 	resolvedProvider := c.Provider
 	resolvedModel := c.Model
@@ -102,19 +89,8 @@ func (c *DraftCmd) Run() error {
 		if err != nil {
 			return err
 		}
-		p, err := resolveAgentPreset(ag, cfg)
-		if err != nil {
-			return err
-		}
-		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-	}
-
-	if c.Preset != "" {
-		p, ok := cfg.Presets[c.Preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, workspace.PresetNames(cfg))
-		}
-		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+		spec := ag.AgentSpec()
+		workspace.ApplyAgentSpec(spec, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 	}
 
 	// Create task
@@ -226,7 +202,7 @@ func (c *DraftCmd) Run() error {
 // Reuses the same task.opened + stage.changed history events so
 // downstream tooling (history.Tail, list, TUI) does not have to learn a
 // new event shape.
-func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) error {
+func (c *DraftCmd) runRoutineDraft(description string) error {
 	r, err := routine.LoadByName(c.Routine)
 	if err != nil {
 		return err
@@ -241,7 +217,7 @@ func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) er
 	// surface mid-routine after worker rounds have already run.
 	// Mirrors the workflow draft path, which validates all stage
 	// presets up front.
-	if err := r.ValidateReferences(cfg); err != nil {
+	if err := r.ValidateReferences(); err != nil {
 		return err
 	}
 
@@ -254,34 +230,15 @@ func (c *DraftCmd) runRoutineDraft(description string, cfg *workspace.Config) er
 	// agent overlay applies here. Routine tasks pick agents per step,
 	// not from a draft-time flag.
 
-	if c.Preset != "" {
-		p, ok := cfg.Presets[c.Preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q\n\nAvailable: %s", c.Preset, workspace.PresetNames(cfg))
-		}
-		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-	}
-
-	// Entry step preset / agent fills any remaining adapter/model fields.
-	// Mirrors the workflow first-stage-preset path.
+	// Entry step agent fills any remaining adapter/model fields.
 	entry := &r.Steps[0]
 	if entry.Agent != "" {
 		ag, err := agent.LoadByName(entry.Agent)
 		if err != nil {
 			return fmt.Errorf("routine %q entry step %q: %w", c.Routine, entry.ID, err)
 		}
-		p, err := resolveAgentPreset(ag, cfg)
-		if err != nil {
-			return err
-		}
-		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
-	} else if entry.Preset != "" {
-		p, ok := cfg.Presets[entry.Preset]
-		if !ok {
-			return fmt.Errorf("routine %q entry step %q references unknown preset %q\n\nAvailable: %s",
-				c.Routine, entry.ID, entry.Preset, workspace.PresetNames(cfg))
-		}
-		workspace.ApplyPreset(p, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
+		spec := ag.AgentSpec()
+		workspace.ApplyAgentSpec(spec, &resolvedAdapter, &resolvedProvider, &resolvedModel, &resolvedReasoning)
 	}
 
 	if err := workspace.ValidateReasoningLevel(resolvedReasoning); err != nil {
@@ -415,21 +372,6 @@ func unreadTaskNames(exclude string) []string {
 		}
 	}
 	return pending
-}
-
-// resolveAgentPreset converts an agent's preset declaration (string ref
-// OR inline block) into a workspace.Preset ready for ApplyPreset. String
-// refs are looked up against the merged cfg.Presets map so the resulting
-// overlay matches what `--preset <name>` would produce.
-func resolveAgentPreset(a *agent.Agent, cfg *workspace.Config) (workspace.Preset, error) {
-	if a.PresetInline != nil {
-		return *a.PresetInline, nil
-	}
-	p, ok := cfg.Presets[a.PresetName]
-	if !ok {
-		return workspace.Preset{}, fmt.Errorf("agent %q references unknown preset %q\n\nAvailable: %s", a.Name, a.PresetName, workspace.PresetNames(cfg))
-	}
-	return p, nil
 }
 
 // readStdinForDraft reads from stdin if data is piped/heredoc.

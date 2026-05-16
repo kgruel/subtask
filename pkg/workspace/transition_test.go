@@ -130,13 +130,13 @@ func TestApplyStageTransition_ReturnsObservedFromState(t *testing.T) {
 	}))
 
 	resolveFrom := func(raw string) workspace.FromState {
-		return workspace.FromState{Stage: raw, PresetName: "from-preset-" + raw}
+		return workspace.FromState{Stage: raw, AgentName: "from-agent-" + raw}
 	}
 
-	from, err := workspace.ApplyStageTransition(taskName, "beta", "to-preset", nil, time.Now().UTC(), resolveFrom)
+	from, err := workspace.ApplyStageTransition(taskName, "beta", "to-agent", nil, time.Now().UTC(), resolveFrom)
 	require.NoError(t, err)
 	require.Equal(t, "alpha", from.Stage, "FromState.Stage must equal the raw tail.Stage observed under lock")
-	require.Equal(t, "from-preset-alpha", from.PresetName, "FromState.PresetName must equal the resolver's output")
+	require.Equal(t, "from-agent-alpha", from.AgentName, "FromState.AgentName must equal the resolver's output")
 }
 
 // TestApplyStageTransition_SameStepNoOp verifies that targeting the current

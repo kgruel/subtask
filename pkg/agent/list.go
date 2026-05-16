@@ -5,8 +5,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // AgentSummary is a lightweight description of an agent for listing purposes.
@@ -14,20 +12,20 @@ type AgentSummary struct {
 	Name         string `json:"name"`
 	Description  string `json:"description,omitempty"`
 	Source       string `json:"source"`
-	PresetLabel  string `json:"preset"`
-	PresetValid  bool   `json:"preset_valid"` // true when preset is inline or its named reference resolves in project config
+	Adapter      string `json:"adapter"`
+	Model        string `json:"model"`
+	Reasoning    string `json:"reasoning,omitempty"`
 	PromptSource string `json:"prompt"`
 }
 
 // List reads .subtask/agents/*.yaml and returns a summary of each agent,
 // sorted alphabetically by name. Returns an empty slice (not an error) when
-// the agents directory is absent or empty. PresetValid is false for any agent
-// whose named preset: reference is not defined in cfg.
+// the agents directory is absent or empty.
 //
 // The second return value collects per-agent load errors as warning strings.
 // A failed agent is omitted from the summary; others are still listed.
 // A non-nil error means the directory itself could not be read.
-func List(cfg *workspace.Config) ([]AgentSummary, []string, error) {
+func List() ([]AgentSummary, []string, error) {
 	dir := AgentsDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -50,21 +48,10 @@ func List(cfg *workspace.Config) ([]AgentSummary, []string, error) {
 			continue
 		}
 
-		presetLabel := a.PresetName
-		presetValid := true
-		if a.PresetInline != nil {
-			p := a.PresetInline
-			parts := []string{p.Adapter, p.Model}
-			if p.Reasoning != "" {
-				parts = append(parts, p.Reasoning)
-			}
-			presetLabel = "inline: " + strings.Join(parts, "/")
-		} else if a.PresetName != "" {
-			_, presetValid = cfg.Presets[a.PresetName]
-		}
-
-		promptSrc := "text"
-		if a.Prompt.File != "" {
+		promptSrc := ""
+		if a.Prompt.Text != "" {
+			promptSrc = "text"
+		} else if a.Prompt.File != "" {
 			promptSrc = "file:" + a.Prompt.File
 		}
 
@@ -72,8 +59,9 @@ func List(cfg *workspace.Config) ([]AgentSummary, []string, error) {
 			Name:         name,
 			Description:  a.Description,
 			Source:       "project",
-			PresetLabel:  presetLabel,
-			PresetValid:  presetValid,
+			Adapter:      a.Adapter,
+			Model:        a.Model,
+			Reasoning:    a.Reasoning,
 			PromptSource: promptSrc,
 		})
 	}

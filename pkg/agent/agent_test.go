@@ -11,52 +11,74 @@ import (
 	"github.com/kgruel/subtask/pkg/testutil"
 )
 
-func TestParseAgent_StringRefPreset(t *testing.T) {
-	data := []byte(`preset: opus-high
+func TestParseAgent_FlatDispatch(t *testing.T) {
+	data := []byte(`adapter: claude
+model: opus
+reasoning: high
 prompt:
   text: You are the planner.
 `)
 	a, err := parseAgent(data)
 	require.NoError(t, err)
-	require.Equal(t, "opus-high", a.PresetName)
-	require.Nil(t, a.PresetInline)
+	require.Equal(t, "claude", a.Adapter)
+	require.Equal(t, "opus", a.Model)
+	require.Equal(t, "high", a.Reasoning)
 	require.Equal(t, "You are the planner.", a.Prompt.Text)
 	require.Empty(t, a.Prompt.File)
 }
 
-func TestParseAgent_InlinePreset(t *testing.T) {
-	data := []byte(`preset:
-  adapter: codex
-  model: gpt-5.5
-  reasoning: high
-  provider: openai
+func TestParseAgent_AllFields(t *testing.T) {
+	data := []byte(`adapter: codex
+model: gpt-5.5
+reasoning: high
+provider: openai
 prompt:
   text: You are an extractor.
 `)
 	a, err := parseAgent(data)
 	require.NoError(t, err)
-	require.Empty(t, a.PresetName)
-	require.NotNil(t, a.PresetInline)
-	require.Equal(t, "codex", a.PresetInline.Adapter)
-	require.Equal(t, "gpt-5.5", a.PresetInline.Model)
-	require.Equal(t, "high", a.PresetInline.Reasoning)
-	require.Equal(t, "openai", a.PresetInline.Provider)
+	require.Equal(t, "codex", a.Adapter)
+	require.Equal(t, "gpt-5.5", a.Model)
+	require.Equal(t, "high", a.Reasoning)
+	require.Equal(t, "openai", a.Provider)
 }
 
-func TestParseAgent_InlinePresetMissingRequired(t *testing.T) {
-	// adapter only, no model
-	data := []byte(`preset:
-  adapter: codex
+func TestParseAgent_BareDispatch(t *testing.T) {
+	// No prompt: block — bare-dispatch agent (no role injected).
+	data := []byte(`adapter: claude
+model: sonnet
+`)
+	a, err := parseAgent(data)
+	require.NoError(t, err)
+	require.Equal(t, "claude", a.Adapter)
+	require.Equal(t, "sonnet", a.Model)
+	require.Empty(t, a.Prompt.Text)
+	require.Empty(t, a.Prompt.File)
+}
+
+func TestParseAgent_MissingAdapter(t *testing.T) {
+	data := []byte(`model: opus
 prompt:
   text: hi
 `)
 	_, err := parseAgent(data)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "adapter and model")
+	require.Contains(t, err.Error(), "adapter")
+}
+
+func TestParseAgent_MissingModel(t *testing.T) {
+	data := []byte(`adapter: claude
+prompt:
+  text: hi
+`)
+	_, err := parseAgent(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "model")
 }
 
 func TestParseAgent_PromptText(t *testing.T) {
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt:
   text: |
     Multi-line
@@ -71,16 +93,15 @@ prompt:
 func TestLoadByName_PromptFileExists(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 
-	// Drop a prompt file under .subtask/prompts/.
 	promptsDir := filepath.Join(env.RootDir, ".subtask", "prompts")
 	require.NoError(t, os.MkdirAll(promptsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(promptsDir, "planner.md"), []byte("Plan carefully."), 0o644))
 
-	// Drop the agent file referencing it.
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		`preset: opus-high
+		`adapter: claude
+model: opus
 prompt:
   file: prompts/planner.md
 `), 0o644))
@@ -102,7 +123,8 @@ func TestLoadByName_PromptFileMissing(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "broken.yaml"), []byte(
-		`preset: opus-high
+		`adapter: claude
+model: opus
 prompt:
   file: prompts/does-not-exist.md
 `), 0o644))
@@ -114,10 +136,8 @@ prompt:
 }
 
 func TestParseAgent_PromptTextEmptyString(t *testing.T) {
-	// prompt: { text: "" } passes the "exactly one source" check (text is
-	// explicitly set) but is meaningless as a role prompt. Reject at load
-	// time so the failure surfaces at draft, not at the next send.
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt:
   text: ""
 `)
@@ -128,9 +148,7 @@ prompt:
 }
 
 func TestParseAgent_PromptTextWhitespaceOnly(t *testing.T) {
-	// Whitespace-only text would BuildPrompt to an empty ## Agent block —
-	// equivalent to no prompt at all. Reject early.
-	data := []byte("preset: opus-high\nprompt:\n  text: \"   \\n  \"\n")
+	data := []byte("adapter: claude\nmodel: opus\nprompt:\n  text: \"   \\n  \"\n")
 	_, err := parseAgent(data)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prompt.text")
@@ -138,7 +156,8 @@ func TestParseAgent_PromptTextWhitespaceOnly(t *testing.T) {
 }
 
 func TestParseAgent_PromptFileEmptyString(t *testing.T) {
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt:
   file: ""
 `)
@@ -149,14 +168,15 @@ prompt:
 }
 
 func TestParseAgent_PromptFileWhitespaceOnly(t *testing.T) {
-	data := []byte("preset: opus-high\nprompt:\n  file: \"   \"\n")
+	data := []byte("adapter: claude\nmodel: opus\nprompt:\n  file: \"   \"\n")
 	_, err := parseAgent(data)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prompt.file")
 }
 
 func TestParseAgent_PromptBothTextAndFile(t *testing.T) {
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt:
   text: inline
   file: prompts/x.md
@@ -167,7 +187,8 @@ prompt:
 }
 
 func TestParseAgent_PromptNeitherTextNorFile(t *testing.T) {
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt: {}
 `)
 	_, err := parseAgent(data)
@@ -176,7 +197,8 @@ prompt: {}
 }
 
 func TestParseAgent_PromptSkillIsDeferred(t *testing.T) {
-	data := []byte(`preset: opus-high
+	data := []byte(`adapter: claude
+model: opus
 prompt:
   skill: org-jira-extract
 `)
@@ -186,21 +208,30 @@ prompt:
 	require.Contains(t, err.Error(), "not yet supported")
 }
 
-func TestParseAgent_MissingPreset(t *testing.T) {
-	data := []byte(`prompt:
-  text: hi
+func TestParseAgent_UnknownTopLevelKey(t *testing.T) {
+	// A typo like 'promt:' must surface as an error, not silently produce
+	// a bare-dispatch agent.
+	data := []byte(`adapter: claude
+model: opus
+promt:
+  text: You are the planner.
 `)
 	_, err := parseAgent(data)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "preset")
+	require.Contains(t, err.Error(), "promt")
 }
 
-func TestParseAgent_MissingPrompt(t *testing.T) {
-	data := []byte(`preset: opus-high
+func TestParseAgent_BareDispatchNoPromptFieldIsOK(t *testing.T) {
+	// Omitting prompt: entirely is the bare-dispatch case — must succeed
+	// even with strict decoding.
+	data := []byte(`adapter: claude
+model: sonnet
 `)
-	_, err := parseAgent(data)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "prompt")
+	a, err := parseAgent(data)
+	require.NoError(t, err)
+	require.Equal(t, "claude", a.Adapter)
+	require.Empty(t, a.Prompt.Text)
+	require.Empty(t, a.Prompt.File)
 }
 
 func TestLoadByName_FileNotFound(t *testing.T) {
@@ -212,7 +243,7 @@ func TestLoadByName_FileNotFound(t *testing.T) {
 	require.Contains(t, err.Error(), "not found")
 }
 
-// --- Path-traversal hardening (P1 #2) -----------------------------------
+// --- Path-traversal hardening -------------------------------------------------
 
 func TestLoadByName_RejectsTraversalInName(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
@@ -225,8 +256,6 @@ func TestLoadByName_RejectsAbsoluteName(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 	_, err := LoadByName("/etc/passwd")
 	require.Error(t, err)
-	// On Unix this trips the "absolute path" branch; the separator branch
-	// would have matched anyway, but we want the absolute-specific message.
 	require.True(t,
 		strings.Contains(err.Error(), "absolute path") || strings.Contains(err.Error(), "path separators"),
 		"got: %v", err)
@@ -244,7 +273,8 @@ func TestLoadByName_RejectsAbsolutePromptFile(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "abs.yaml"), []byte(
-		`preset: opus-high
+		`adapter: claude
+model: opus
 prompt:
   file: /etc/passwd
 `), 0o644))
@@ -259,7 +289,8 @@ func TestLoadByName_RejectsDotDotPromptFile(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "esc.yaml"), []byte(
-		`preset: opus-high
+		`adapter: claude
+model: opus
 prompt:
   file: ../../../etc/passwd
 `), 0o644))
@@ -270,8 +301,6 @@ prompt:
 }
 
 func TestLoadByName_AcceptsPromptFileUnderPromptsDir(t *testing.T) {
-	// Positive case: a normal nested path under .subtask/prompts/ resolves
-	// and loads. Confirms the traversal check doesn't over-reject.
 	env := testutil.NewTestEnv(t, 0)
 
 	promptsDir := filepath.Join(env.RootDir, ".subtask", "prompts")
@@ -281,7 +310,8 @@ func TestLoadByName_AcceptsPromptFileUnderPromptsDir(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		`preset: opus-high
+		`adapter: claude
+model: opus
 prompt:
   file: prompts/planner.md
 `), 0o644))

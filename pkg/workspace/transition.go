@@ -18,9 +18,9 @@ type FromState struct {
 	// raw tail.Stage to a workflow/routine entry point in the resolver
 	// closure.
 	Stage string
-	// PresetName is the from-stage's bound preset, used only for the
-	// event payload's from_preset field. Empty when none.
-	PresetName string
+	// AgentName is the from-stage's bound agent label, used only for the
+	// event payload's from_agent field. Empty when none.
+	AgentName string
 	// NoOp is true when the resolved from-stage equals toStage (the task
 	// was already on the requested step). No history event is written and
 	// no adapter swap is performed. Callers should print "already on step
@@ -67,7 +67,7 @@ func ApplyStageTransition(
 	taskName string,
 	toStage string,
 	toPresetName string,
-	toPreset *Preset,
+	toPreset *AgentSpec,
 	ts time.Time,
 	resolveFrom func(rawFromStage string) FromState,
 ) (FromState, error) {
@@ -123,10 +123,10 @@ func ApplyStageTransition(
 		}
 
 		data, _ := json.Marshal(map[string]any{
-			"from":        from.Stage,
-			"to":          toStage,
-			"from_preset": from.PresetName,
-			"to_preset":   toPresetName,
+			"from":       from.Stage,
+			"to":         toStage,
+			"from_agent": from.AgentName,
+			"to_agent":   toPresetName,
 		})
 		return history.AppendLocked(taskName, history.Event{TS: ts, Type: "stage.changed", Data: data})
 	})

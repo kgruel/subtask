@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
@@ -69,7 +70,7 @@ type ReviewCmd struct {
 
 	// Adapter/model/reasoning overrides (do not persist)
 	Adapter   string `help:"Override adapter for this review (does not persist)"`
-	Preset    string `help:"Preset shorthand for adapter/model/reasoning (does not persist)"`
+	Agent     string `help:"Agent override for adapter/model/reasoning (does not persist)"`
 	Model     string `help:"Override model for this review"`
 	Reasoning string `help:"Override reasoning effort (low, medium, high, xhigh)"`
 
@@ -132,13 +133,21 @@ func (c *ReviewCmd) Run() error {
 		t = loaded
 	}
 
-	// Resolve adapter/model/reasoning — mirror send.go preset resolution.
-	// Precedence: explicit flags > --preset > task snapshot (when --task) > project default.
+	// Resolve adapter/model/reasoning.
+	var agentOverride *workspace.AgentSpec
+	if c.Agent != "" {
+		ag, agErr := agent.LoadByName(c.Agent)
+		if agErr != nil {
+			return agErr
+		}
+		spec := ag.AgentSpec()
+		agentOverride = &spec
+	}
 	r, err := workspace.Resolve(cfg, t, workspace.ResolveOverrides{
 		Adapter:   c.Adapter,
 		Model:     c.Model,
 		Reasoning: c.Reasoning,
-		Preset:    c.Preset,
+		Agent:     agentOverride,
 	})
 	if err != nil {
 		return err

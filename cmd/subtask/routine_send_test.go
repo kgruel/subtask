@@ -53,9 +53,8 @@ steps:
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		`preset:
-  adapter: builtin-mock
-  model: m
+		`adapter: builtin-mock
+model: m
 prompt:
   text: |
     You are the planner.
@@ -105,7 +104,7 @@ func TestDraft_RoutineRejectsBrokenLaterStep(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "good.yaml"), []byte(
-		"preset:\n  adapter: claude\n  model: m\nprompt:\n  text: |\n    You are good.\n"), 0o644))
+		"adapter: claude\nmodel: m\nprompt:\n  text: |\n    You are good.\n"), 0o644))
 
 	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
 	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
@@ -148,7 +147,7 @@ func TestShow_RoutineRendersProgression(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
-		"preset:\n  adapter: claude\n  model: m\nprompt:\n  text: |\n    Plan.\n"), 0o644))
+		"adapter: claude\nmodel: m\nprompt:\n  text: |\n    Plan.\n"), 0o644))
 
 	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
 	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
@@ -212,7 +211,7 @@ func TestSend_RoutineAutoDispatchInheritsQuiet(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "a.yaml"), []byte(
-		"preset:\n  adapter: builtin-mock\n  model: m\nprompt:\n  text: |\n    role A\n"), 0o644))
+		"adapter: builtin-mock\nmodel: m\nprompt:\n  text: |\n    role A\n"), 0o644))
 
 	// Two regular agent steps so the first reply triggers exactly one
 	// auto-dispatch — enough to exercise the recursion site without
@@ -276,7 +275,7 @@ func TestDraft_RoutineAndAgentMutex(t *testing.T) {
 	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "a.yaml"), []byte(
-		"preset:\n  adapter: claude\n  model: m\nprompt:\n  text: |\n    Hello.\n"), 0o644))
+		"adapter: claude\nmodel: m\nprompt:\n  text: |\n    Hello.\n"), 0o644))
 
 	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
 	require.NoError(t, os.MkdirAll(routinesDir, 0o755))

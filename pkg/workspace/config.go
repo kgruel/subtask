@@ -23,14 +23,16 @@ var knownConfigKeys = map[string]struct{}{
 	"model":         {},
 	"reasoning":     {},
 	"max_workspaces": {},
-	"presets":       {},
 	"harness":       {}, // legacy
 	"options":       {}, // legacy
 }
 
-// warnUnknownKeysOnce ensures the unknown-key warning fires at most once per
-// process, even when LoadConfig is called multiple times in the same run.
+// warnUnknownKeysOnce ensures the project config unknown-key warning fires at
+// most once per process, even when LoadConfig is called multiple times.
 var warnUnknownKeysOnce sync.Once
+
+// warnUserUnknownKeysOnce is the same guard for the user (~/.subtask) config.
+var warnUserUnknownKeysOnce sync.Once
 
 // unknownConfigKeys returns a sorted list of unrecognised top-level keys in
 // the JSON blob. Returns nil when data is not a JSON object or all keys are known.
@@ -59,17 +61,14 @@ type Config struct {
 	Reasoning     string `json:"reasoning,omitempty"`
 	MaxWorkspaces int    `json:"max_workspaces"`
 
-	Presets map[string]Preset `json:"presets,omitempty"`
-
 	// Legacy fields for migration (read from old configs, never written).
 	LegacyHarness string         `json:"harness,omitempty"`
 	LegacyOptions map[string]any `json:"options,omitempty"`
 }
 
-// Preset is a named adapter+model+reasoning bundle. Used as shorthand at the
-// CLI (`--preset opus-high`) and as the per-stage harness binding in workflow
-// YAML.
-type Preset struct {
+// AgentSpec is an adapter+model+reasoning bundle. Used as the resolved dispatch
+// configuration for an agent or as an ephemeral CLI override.
+type AgentSpec struct {
 	Adapter   string `json:"adapter,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
@@ -113,6 +112,24 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	if userExists {
+		if raw, readErr := os.ReadFile(userPath); readErr == nil {
+			if unknown := unknownConfigKeys(raw); len(unknown) > 0 {
+				warnUserUnknownKeysOnce.Do(func() {
+					hint := ""
+					for _, k := range unknown {
+						if k == "presets" {
+							hint = "\nhint: \"presets\" has been replaced by agents — create .subtask/agents/<name>.yaml for each preset"
+							break
+						}
+					}
+					fmt.Fprintf(os.Stderr, "warning: %s contains unknown config keys: %s (ignored)%s\n",
+						userPath, strings.Join(unknown, ", "), hint)
+				})
+			}
+		}
+	}
+
 	if !userExists || user == nil {
 		return nil, subtaskerr.ErrNotConfigured
 	}
@@ -131,18 +148,6 @@ func LoadConfig() (*Config, error) {
 // validated at draft time (they require loading templates from disk).
 func validateConfig(_ *Config) error {
 	return nil
-}
-
-func joinKeys[V any](m map[string]V) string {
-	if len(m) == 0 {
-		return "(none defined)"
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, ", ")
 }
 
 // SaveTo writes the config to a specific path.
@@ -213,10 +218,6 @@ func mergeConfig(user, project *Config) *Config {
 		Model:         strings.TrimSpace(user.Model),
 		Reasoning:     strings.TrimSpace(user.Reasoning),
 		MaxWorkspaces: user.MaxWorkspaces,
-		Presets:       map[string]Preset{},
-	}
-	for k, v := range user.Presets {
-		out.Presets[k] = v
 	}
 
 	if project == nil {
@@ -237,10 +238,6 @@ func mergeConfig(user, project *Config) *Config {
 	}
 	if project.MaxWorkspaces > 0 {
 		out.MaxWorkspaces = project.MaxWorkspaces
-	}
-	// Project entries shadow user entries on key collision.
-	for k, v := range project.Presets {
-		out.Presets[k] = v
 	}
 	return out
 }

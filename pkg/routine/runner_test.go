@@ -13,7 +13,6 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
-	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // helperRoutine parses YAML and fails the test on error.
@@ -82,54 +81,35 @@ steps:
     kind: terminal
 `
 
-const presetOnlyStep = `name: preset-only
+// plainStep has no agent and no worker_instructions — should not auto-dispatch.
+const plainStep = `name: plain
 steps:
   - id: explore
     agent: explorer
     advance: auto
   - id: impl
-    preset: opus-high
     advance: auto
   - id: done
     kind: terminal
 `
 
-func mkAgent(t *testing.T, env *testutil.TestEnv, name, preset string) {
+func mkAgent(t *testing.T, env *testutil.TestEnv, name, adapter, model string) {
 	t.Helper()
 	dir := filepath.Join(env.RootDir, ".subtask", "agents")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(
-		"preset: "+preset+"\nprompt:\n  text: |\n    You are "+name+".\n"), 0o644))
-}
-
-func mkAgentInline(t *testing.T, env *testutil.TestEnv, name, adapter, model string) {
-	t.Helper()
-	dir := filepath.Join(env.RootDir, ".subtask", "agents")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(
-		"preset:\n  adapter: "+adapter+"\n  model: "+model+"\nprompt:\n  text: |\n    You are "+name+".\n"), 0o644))
-}
-
-func newCfgWithPreset(name, adapter, model string) *workspace.Config {
-	return &workspace.Config{
-		Adapter: "claude",
-		Model:   "test",
-		Presets: map[string]workspace.Preset{
-			name: {Adapter: adapter, Model: model},
-		},
-	}
+		"adapter: "+adapter+"\nmodel: "+model+"\nprompt:\n  text: You are "+name+".\n"), 0o644))
 }
 
 // TestHandleAutoAdvance_LinearAdvance: no branches, default-advance to next step.
 func TestHandleAutoAdvance_LinearAdvance(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "lin/adv")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, linearTwoStep)
 
-	res, err := HandleAutoAdvance("lin/adv", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("lin/adv", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "done", res.NextStep, "should default-advance to next in declaration order")
 	require.False(t, res.Dispatch, "terminal steps never dispatch")
@@ -138,16 +118,15 @@ func TestHandleAutoAdvance_LinearAdvance(t *testing.T) {
 // TestHandleAutoAdvance_BranchTakenWhenFieldTrue: branches with bool=true → branch.to taken.
 func TestHandleAutoAdvance_BranchTakenWhenFieldTrue(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "br/true")
 	helperWriteArtifact(t, "br/true", "PLAN.md",
 		map[string]any{"needs_rework": true},
 		"")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, branchLoopback)
 
-	res, err := HandleAutoAdvance("br/true", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("br/true", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "plan", res.NextStep, "branch field=true should loop back to plan")
 	require.True(t, res.Dispatch, "agent-driven regular step must auto-dispatch")
@@ -156,16 +135,15 @@ func TestHandleAutoAdvance_BranchTakenWhenFieldTrue(t *testing.T) {
 // TestHandleAutoAdvance_BranchSkippedWhenFieldFalse: field=false → default-advance.
 func TestHandleAutoAdvance_BranchSkippedWhenFieldFalse(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "br/false")
 	helperWriteArtifact(t, "br/false", "PLAN.md",
 		map[string]any{"needs_rework": false},
 		"")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, branchLoopback)
 
-	res, err := HandleAutoAdvance("br/false", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("br/false", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "done", res.NextStep, "field=false should fall through to declaration order")
 }
@@ -173,16 +151,15 @@ func TestHandleAutoAdvance_BranchSkippedWhenFieldFalse(t *testing.T) {
 // TestHandleAutoAdvance_BranchSkippedWhenFieldAbsent: field missing → default-advance.
 func TestHandleAutoAdvance_BranchSkippedWhenFieldAbsent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "br/absent")
 	helperWriteArtifact(t, "br/absent", "PLAN.md",
 		map[string]any{"other_field": true},
 		"")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, branchLoopback)
 
-	res, err := HandleAutoAdvance("br/absent", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("br/absent", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "done", res.NextStep)
 }
@@ -190,14 +167,13 @@ func TestHandleAutoAdvance_BranchSkippedWhenFieldAbsent(t *testing.T) {
 // TestHandleAutoAdvance_BranchSkippedWhenArtifactMissing: file missing → default-advance.
 func TestHandleAutoAdvance_BranchSkippedWhenArtifactMissing(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "br/missing")
 	// No PLAN.md written.
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, branchLoopback)
 
-	res, err := HandleAutoAdvance("br/missing", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("br/missing", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "done", res.NextStep)
 }
@@ -205,13 +181,12 @@ func TestHandleAutoAdvance_BranchSkippedWhenArtifactMissing(t *testing.T) {
 // TestHandleAutoAdvance_TerminalStops: current step terminal → no advance.
 func TestHandleAutoAdvance_TerminalStops(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "term/stops")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, linearTwoStep)
 
-	res, err := HandleAutoAdvance("term/stops", r, "done", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("term/stops", r, "done", time.Now().UTC())
 	require.NoError(t, err)
 	require.Empty(t, res.NextStep, "terminal step must not advance")
 }
@@ -219,13 +194,12 @@ func TestHandleAutoAdvance_TerminalStops(t *testing.T) {
 // TestHandleAutoAdvance_GateNeverDispatches: advancing into a gate stops dispatch.
 func TestHandleAutoAdvance_GateNeverDispatches(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "gate/test")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, gateStop)
 
-	res, err := HandleAutoAdvance("gate/test", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("gate/test", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "review", res.NextStep, "should land on the gate step")
 	require.False(t, res.Dispatch, "gate steps never auto-dispatch")
@@ -233,18 +207,16 @@ func TestHandleAutoAdvance_GateNeverDispatches(t *testing.T) {
 
 // TestHandleAutoAdvance_TerminalEmitsRoutineSurfacedEvent: landing on
 // a default-surfaced terminal appends a routine.surfaced history event
-// the unread substrate can watch (gates and terminals share the event
-// type since they share the "lead must act" semantic).
+// the unread substrate can watch.
 func TestHandleAutoAdvance_TerminalEmitsRoutineSurfacedEvent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "term/event")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, linearTwoStep)
 
 	ts := time.Now().UTC()
-	_, err := HandleAutoAdvance("term/event", r, "plan", cfg, ts)
+	_, err := HandleAutoAdvance("term/event", r, "plan", ts)
 	require.NoError(t, err)
 
 	events, err := history.Read("term/event", history.ReadOptions{})
@@ -265,14 +237,12 @@ func TestHandleAutoAdvance_TerminalEmitsRoutineSurfacedEvent(t *testing.T) {
 	require.True(t, sawSurfaced, "routine.surfaced event must be emitted on entry to a surfaced terminal")
 }
 
-// surface:false suppresses the routine.surfaced event so the routine
-// author can mark a terminal as "silent finish" (e.g. cancellation).
+// surface:false suppresses the routine.surfaced event.
 func TestHandleAutoAdvance_TerminalSurfaceFalseSuppressesEvent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "term/silent")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	const silentTerm = `name: term-silent
 steps:
   - id: plan
@@ -285,7 +255,7 @@ steps:
 	r := helperRoutine(t, silentTerm)
 
 	ts := time.Now().UTC()
-	_, err := HandleAutoAdvance("term/silent", r, "plan", cfg, ts)
+	_, err := HandleAutoAdvance("term/silent", r, "plan", ts)
 	require.NoError(t, err)
 
 	events, err := history.Read("term/silent", history.ReadOptions{})
@@ -296,15 +266,12 @@ steps:
 	}
 }
 
-// Gates share the same surface-event semantic. Auto-advance into a
-// default-surfaced gate must emit routine.surfaced so the lead's
-// `subtask unread` view sees the handoff.
+// Gates share the same surface-event semantic.
 func TestHandleAutoAdvance_GateEmitsRoutineSurfacedEvent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "gate/event")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	const gateRoutine = `name: gate-surface
 steps:
   - id: plan
@@ -320,7 +287,7 @@ steps:
 	r := helperRoutine(t, gateRoutine)
 
 	ts := time.Now().UTC()
-	_, err := HandleAutoAdvance("gate/event", r, "plan", cfg, ts)
+	_, err := HandleAutoAdvance("gate/event", r, "plan", ts)
 	require.NoError(t, err)
 
 	events, err := history.Read("gate/event", history.ReadOptions{})
@@ -341,14 +308,12 @@ steps:
 	require.True(t, sawSurfaced, "routine.surfaced event must be emitted on entry to a surfaced gate")
 }
 
-// Gate with surface: false suppresses the event (e.g. a checkpoint
-// gate the lead handles in batch).
+// Gate with surface: false suppresses the event.
 func TestHandleAutoAdvance_GateSurfaceFalseSuppressesEvent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "gate/silent")
 
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	const silentGate = `name: gate-silent
 steps:
   - id: plan
@@ -365,7 +330,7 @@ steps:
 	r := helperRoutine(t, silentGate)
 
 	ts := time.Now().UTC()
-	_, err := HandleAutoAdvance("gate/silent", r, "plan", cfg, ts)
+	_, err := HandleAutoAdvance("gate/silent", r, "plan", ts)
 	require.NoError(t, err)
 
 	events, err := history.Read("gate/silent", history.ReadOptions{})
@@ -377,15 +342,13 @@ steps:
 }
 
 // TestHandleAutoAdvance_CrossAdapterSwapClearsSession mirrors
-// TestSend_AutoAdvanceSwapsAdapterAndClearsSession but at the runner
-// level — the routine path must use the same adapter-swap + session-clear
-// substrate that workflow tasks rely on.
+// TestSend_AutoAdvanceSwapsAdapterAndClearsSession but at the runner level.
 func TestHandleAutoAdvance_CrossAdapterSwapClearsSession(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 
 	// Agent "planner" pins adapter=claude; "swapper" pins adapter=codex.
-	mkAgentInline(t, env, "planner", "claude", "m1")
-	mkAgentInline(t, env, "swapper", "codex", "m2")
+	mkAgent(t, env, "planner", "claude", "m1")
+	mkAgent(t, env, "swapper", "codex", "m2")
 
 	const yaml = `name: swap
 steps:
@@ -412,8 +375,7 @@ steps:
 	tk.Model = "m1"
 	require.NoError(t, tk.Save())
 
-	cfg := &workspace.Config{Adapter: "claude", Model: "m1"}
-	res, err := HandleAutoAdvance("swap/task", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("swap/task", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "swap", res.NextStep)
 
@@ -428,28 +390,25 @@ steps:
 	require.Equal(t, "m2", tk2.Model)
 }
 
-// TestHandleAutoAdvance_AgentStepDispatchesPresetStepDoesNot: an agent
-// step entry auto-dispatches; a preset-only step entry does not.
-func TestHandleAutoAdvance_AgentStepDispatchesPresetStepDoesNot(t *testing.T) {
+// TestHandleAutoAdvance_AgentStepDispatches_PlainStepDoesNot: an agent
+// step entry auto-dispatches; a step with no agent and no worker_instructions does not.
+func TestHandleAutoAdvance_AgentStepDispatches_PlainStepDoesNot(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "explorer", "alt")
-	helperCreateTask(t, env, "presetonly/task")
+	mkAgent(t, env, "explorer", "claude", "sonnet")
+	helperCreateTask(t, env, "plain/task")
 
-	cfg := newCfgWithPreset("opus-high", "claude", "opus-x")
-	cfg.Presets["alt"] = workspace.Preset{Adapter: "claude", Model: "m2"}
+	r := helperRoutine(t, plainStep)
 
-	r := helperRoutine(t, presetOnlyStep)
-
-	res, err := HandleAutoAdvance("presetonly/task", r, "explore", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("plain/task", r, "explore", time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "impl", res.NextStep)
-	require.False(t, res.Dispatch, "preset-only step (no agent, no worker_instructions) must NOT auto-dispatch")
+	require.False(t, res.Dispatch, "step with no agent and no worker_instructions must NOT auto-dispatch")
 }
 
 // TestHandleAutoAdvance_NonAutoStepStops: advance != "auto" → no transition.
 func TestHandleAutoAdvance_NonAutoStepStops(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
-	mkAgent(t, env, "planner", "alt")
+	mkAgent(t, env, "planner", "claude", "opus")
 	helperCreateTask(t, env, "nonauto/task")
 
 	const yaml = `name: nonauto
@@ -459,17 +418,15 @@ steps:
   - id: done
     kind: terminal
 `
-	cfg := newCfgWithPreset("alt", "claude", "m2")
 	r := helperRoutine(t, yaml)
 
-	res, err := HandleAutoAdvance("nonauto/task", r, "plan", cfg, time.Now().UTC())
+	res, err := HandleAutoAdvance("nonauto/task", r, "plan", time.Now().UTC())
 	require.NoError(t, err)
 	require.Empty(t, res.NextStep, "advance!=auto must not advance")
 }
 
 // TestReadArtifactBool_MalformedFrontmatter: unterminated frontmatter
-// surfaces as an error. (Default-advance only applies to absence, not
-// corruption.)
+// surfaces as an error.
 func TestReadArtifactBool_MalformedFrontmatter(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	helperCreateTask(t, env, "bad/fm")
