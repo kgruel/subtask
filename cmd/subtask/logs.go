@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"github.com/kgruel/subtask/pkg/logs"
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/store"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
 // LogsCmd implements 'subtask logs'.
@@ -35,7 +38,8 @@ type harnessLogBackend struct {
 
 // Run executes the logs command.
 func (c *LogsCmd) Run() error {
-	if _, err := preflightProject(); err != nil {
+	res, err := preflightProject()
+	if err != nil {
 		return err
 	}
 
@@ -45,7 +49,7 @@ func (c *LogsCmd) Run() error {
 	}
 
 	// Try to find session file - could be task name or session ID
-	sessionFile, backend, sessionID, err := c.resolveSession(backends)
+	sessionFile, backend, sessionID, taskName, err := c.resolveSession(backends)
 	if err != nil {
 		return err
 	}
@@ -68,9 +72,19 @@ func (c *LogsCmd) Run() error {
 	}
 
 	if c.Follow {
+		if taskName != "" {
+			if err := printTraceHeader(taskName, res.Config); err != nil {
+				return err
+			}
+		}
 		return c.streamLogs(sessionFile, backend, formatter, sinceTime)
 	}
 
+	if taskName != "" {
+		if err := printTraceHeader(taskName, res.Config); err != nil {
+			return err
+		}
+	}
 	return c.showLogs(sessionFile, backend, formatter, sinceTime)
 }
 
@@ -436,8 +450,9 @@ func truncate(s string, max int) string {
 }
 
 // resolveSession resolves a task name or session ID to a session file path.
-// Returns (sessionFile, backend, sessionID, error).
-func (c *LogsCmd) resolveSession(backends []harnessLogBackend) (string, harnessLogBackend, string, error) {
+// Returns (sessionFile, backend, sessionID, taskName, error). taskName is empty
+// when the argument resolves only as a raw session ID.
+func (c *LogsCmd) resolveSession(backends []harnessLogBackend) (string, harnessLogBackend, string, string, error) {
 	arg := c.TaskOrSession
 
 	// First, try as a task name
@@ -448,10 +463,10 @@ func (c *LogsCmd) resolveSession(backends []harnessLogBackend) (string, harnessL
 		for _, b := range candidates {
 			sessionFile, err := b.locator.FindSessionFile(state.SessionID)
 			if err == nil {
-				return sessionFile, b, state.SessionID, nil
+				return sessionFile, b, state.SessionID, arg, nil
 			}
 			if !os.IsNotExist(err) {
-				return "", harnessLogBackend{}, "", err
+				return "", harnessLogBackend{}, "", "", err
 			}
 		}
 		// Session file not found - fall through to try as session ID
@@ -462,24 +477,40 @@ func (c *LogsCmd) resolveSession(backends []harnessLogBackend) (string, harnessL
 	for _, b := range backends {
 		sessionFile, err := b.locator.FindSessionFile(arg)
 		if err == nil {
-			return sessionFile, b, arg, nil
+			return sessionFile, b, arg, "", nil
 		}
 		if !os.IsNotExist(err) {
-			return "", harnessLogBackend{}, "", err
+			return "", harnessLogBackend{}, "", "", err
 		}
 	}
 
 	// Neither worked - give helpful error
 	if state != nil && state.SessionID != "" {
-		return "", harnessLogBackend{}, "", fmt.Errorf("session file not found for task %q\n\nSession ID: %s\nThe session file may have been deleted or moved.", arg, state.SessionID)
+		return "", harnessLogBackend{}, "", "", fmt.Errorf("session file not found for task %q\n\nSession ID: %s\nThe session file may have been deleted or moved.", arg, state.SessionID)
 	}
 
 	// Check if task exists at all
 	if _, taskErr := task.Load(arg); taskErr == nil {
-		return "", harnessLogBackend{}, "", fmt.Errorf("task %q has no session (never run?)", arg)
+		return "", harnessLogBackend{}, "", "", fmt.Errorf("task %q has no session (never run?)", arg)
 	}
 
-	return "", harnessLogBackend{}, "", fmt.Errorf("no task or session found for %q", arg)
+	return "", harnessLogBackend{}, "", "", fmt.Errorf("no task or session found for %q", arg)
+}
+
+func printTraceHeader(taskName string, cfg *workspace.Config) error {
+	view, err := store.BuildView(context.Background(), taskName, cfg, store.BuildViewOptions{})
+	if err != nil {
+		return err
+	}
+	parts := []string{view.Name, view.Agent.Label()}
+	if view.Routine != nil && strings.TrimSpace(view.Routine.CurrentStep) != "" {
+		parts = append(parts, "stage: "+strings.TrimSpace(view.Routine.CurrentStep))
+	}
+	if strings.TrimSpace(view.StatusText) != "" {
+		parts = append(parts, view.StatusText)
+	}
+	fmt.Println(strings.Join(parts, " | "))
+	return nil
 }
 
 func orderBackends(backends []harnessLogBackend, preferred string) []harnessLogBackend {

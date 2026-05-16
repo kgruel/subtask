@@ -18,22 +18,27 @@ import (
 
 // reviewStartedData is the JSON payload for a review.started history event.
 type reviewStartedData struct {
-	RunID        string `json:"run_id"`
-	Kind         string `json:"kind"`
-	Adapter      string `json:"adapter,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Reasoning    string `json:"reasoning,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
+	RunID        string             `json:"run_id"`
+	Kind         string             `json:"kind"`
+	Adapter      string             `json:"adapter,omitempty"`
+	Model        string             `json:"model,omitempty"`
+	Reasoning    string             `json:"reasoning,omitempty"`
+	Instructions string             `json:"instructions,omitempty"`
+	Agent        history.EventAgent `json:"agent,omitempty"`
 }
 
 // reviewFinishedData is the JSON payload for a review.finished history event.
 type reviewFinishedData struct {
-	RunID      string `json:"run_id"`
-	Kind       string `json:"kind"`
-	DurationMS int    `json:"duration_ms"`
-	Outcome    string `json:"outcome"`
-	File       string `json:"file,omitempty"`
-	Error      string `json:"error,omitempty"`
+	RunID      string             `json:"run_id"`
+	Kind       string             `json:"kind"`
+	DurationMS int                `json:"duration_ms"`
+	Outcome    string             `json:"outcome"`
+	File       string             `json:"file,omitempty"`
+	Error      string             `json:"error,omitempty"`
+	Adapter    string             `json:"adapter,omitempty"`
+	Model      string             `json:"model,omitempty"`
+	Reasoning  string             `json:"reasoning,omitempty"`
+	Agent      history.EventAgent `json:"agent,omitempty"`
 }
 
 // persistReviewFile writes the review text to the task's reviews/ subdirectory.
@@ -152,6 +157,7 @@ func (c *ReviewCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	reviewAgent := resolvedReviewEventAgent(c.Agent, t, r)
 
 	// Plan-review path: read PLAN.md and TASK.md, run a fresh prompt that
 	// asks the harness to find drift between spec intent and plan steps.
@@ -232,6 +238,7 @@ func (c *ReviewCmd) Run() error {
 		Model:        r.Model,
 		Reasoning:    r.Reasoning,
 		Instructions: instructions,
+		Agent:        reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: "review.started", Data: json.RawMessage(startData)}); err != nil {
 		return fmt.Errorf("failed to write review history: %w", err)
@@ -248,6 +255,10 @@ func (c *ReviewCmd) Run() error {
 			DurationMS: durationMS,
 			Outcome:    "error",
 			Error:      reviewErr.Error(),
+			Adapter:    r.Adapter,
+			Model:      r.Model,
+			Reasoning:  r.Reasoning,
+			Agent:      reviewAgent,
 		})
 		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
@@ -263,6 +274,10 @@ func (c *ReviewCmd) Run() error {
 			DurationMS: durationMS,
 			Outcome:    "error",
 			Error:      persistErr.Error(),
+			Adapter:    r.Adapter,
+			Model:      r.Model,
+			Reasoning:  r.Reasoning,
+			Agent:      reviewAgent,
 		})
 		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
@@ -277,15 +292,20 @@ func (c *ReviewCmd) Run() error {
 		DurationMS: durationMS,
 		Outcome:    "success",
 		File:       relPath,
+		Adapter:    r.Adapter,
+		Model:      r.Model,
+		Reasoning:  r.Reasoning,
+		Agent:      reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: history.EventTypeReviewFinished, Data: json.RawMessage(finData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
 	}
 
 	artData, _ := json.Marshal(history.ArtifactProducedData{
-		Name: filepath.Base(relPath),
-		Path: relPath,
-		Kind: "review",
+		Name:  filepath.Base(relPath),
+		Path:  relPath,
+		Kind:  "review",
+		Agent: reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: history.EventTypeArtifactProduced, Data: json.RawMessage(artData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write artifact history: %v\n", err)
@@ -301,6 +321,7 @@ func (c *ReviewCmd) Run() error {
 func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspace.Resolved, instructions string) error {
 	taskName := strings.TrimSpace(c.Task)
 	taskDir := task.Dir(taskName)
+	reviewAgent := resolvedReviewEventAgent(c.Agent, t, r)
 
 	planPath := filepath.Join(taskDir, "PLAN.md")
 	planData, err := os.ReadFile(planPath)
@@ -352,6 +373,7 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 		Model:        r.Model,
 		Reasoning:    r.Reasoning,
 		Instructions: instructions,
+		Agent:        reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: "review.started", Data: json.RawMessage(startData)}); err != nil {
 		return fmt.Errorf("failed to write review history: %w", err)
@@ -368,6 +390,10 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 			DurationMS: durationMS,
 			Outcome:    "error",
 			Error:      reviewErr.Error(),
+			Adapter:    r.Adapter,
+			Model:      r.Model,
+			Reasoning:  r.Reasoning,
+			Agent:      reviewAgent,
 		})
 		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
@@ -384,6 +410,10 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 			DurationMS: durationMS,
 			Outcome:    "error",
 			Error:      persistErr.Error(),
+			Adapter:    r.Adapter,
+			Model:      r.Model,
+			Reasoning:  r.Reasoning,
+			Agent:      reviewAgent,
 		})
 		if err := history.Append(taskName, history.Event{Type: "review.finished", Data: json.RawMessage(errData)}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
@@ -398,15 +428,20 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 		DurationMS: durationMS,
 		Outcome:    "success",
 		File:       relPath,
+		Adapter:    r.Adapter,
+		Model:      r.Model,
+		Reasoning:  r.Reasoning,
+		Agent:      reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: history.EventTypeReviewFinished, Data: json.RawMessage(finData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write review history: %v\n", err)
 	}
 
 	artData, _ := json.Marshal(history.ArtifactProducedData{
-		Name: filepath.Base(relPath),
-		Path: relPath,
-		Kind: "review",
+		Name:  filepath.Base(relPath),
+		Path:  relPath,
+		Kind:  "review",
+		Agent: reviewAgent,
 	})
 	if err := history.Append(taskName, history.Event{Type: history.EventTypeArtifactProduced, Data: json.RawMessage(artData)}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write artifact history: %v\n", err)
@@ -414,6 +449,19 @@ func (c *ReviewCmd) runPlanReview(cfg *workspace.Config, t *task.Task, r workspa
 
 	fmt.Println(reply)
 	return nil
+}
+
+func resolvedReviewEventAgent(agentName string, t *task.Task, r workspace.Resolved) history.EventAgent {
+	name := strings.TrimSpace(agentName)
+	if name == "" && t != nil {
+		name = strings.TrimSpace(t.Agent)
+	}
+	return history.EventAgent{
+		Name:      name,
+		Adapter:   r.Adapter,
+		Model:     r.Model,
+		Reasoning: r.Reasoning,
+	}
 }
 
 // buildPlanReviewPrompt frames PLAN.md as the artifact under review and

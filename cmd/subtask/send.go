@@ -130,6 +130,7 @@ func (c *SendCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	runAgent := c.resolvedEventAgent(cfg, t, r, tail.Stage)
 	var h harness.Harness
 	if c.testHarness != nil {
 		h = c.testHarness
@@ -206,6 +207,7 @@ func (c *SendCmd) Run() error {
 					"error_message": errMsg,
 					"tool_calls":    int(runToolCalls.Load()),
 					"stage":         tail.Stage,
+					"agent":         runAgent,
 				}),
 				TS: finished,
 			})
@@ -228,7 +230,7 @@ func (c *SendCmd) Run() error {
 		signal.Stop(sigChan)
 	}()
 
-	wsPath, prevWorkspace, continueFrom, repoStatus, err := c.prepareWorkspaceAndState(cfg, h, t, tail, prompt, runID)
+	wsPath, prevWorkspace, continueFrom, repoStatus, err := c.prepareWorkspaceAndState(cfg, h, t, tail, prompt, runID, runAgent)
 	if err != nil {
 		return err
 	}
@@ -381,6 +383,7 @@ func (c *SendCmd) Run() error {
 				"error":         errMsg,
 				"error_message": errMsg,
 				"stage":         tail.Stage,
+				"agent":         runAgent,
 			}),
 			TS: finished,
 		})
@@ -422,6 +425,7 @@ func (c *SendCmd) Run() error {
 		Type:    "message",
 		Role:    "worker",
 		Content: reply,
+		Data:    mustJSON(map[string]any{"agent": runAgent}),
 		TS:      finished,
 	})
 	_ = history.Append(c.Task, history.Event{
@@ -432,6 +436,7 @@ func (c *SendCmd) Run() error {
 			"tool_calls":  int(runToolCalls.Load()),
 			"outcome":     "replied",
 			"stage":       tail.Stage,
+			"agent":       runAgent,
 		}),
 		TS: finished,
 	})
@@ -525,7 +530,7 @@ func (c *SendCmd) Run() error {
 	return nil
 }
 
-func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, err error) {
+func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string, runAgent history.EventAgent) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, err error) {
 	now := time.Now().UTC()
 
 	var st *task.State
@@ -790,6 +795,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			Data: mustJSON(map[string]any{
 				"run_id":       runID,
 				"prompt_bytes": len([]byte(prompt)),
+				"agent":        runAgent,
 			}),
 			TS: now,
 		})
@@ -803,6 +809,25 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	}
 
 	return wsPath, prevWorkspace, continueFrom, repoStatus, nil
+}
+
+func (c *SendCmd) resolvedEventAgent(cfg *workspace.Config, t *task.Task, r workspace.Resolved, stage string) history.EventAgent {
+	name := ""
+	if v, _ := store.BuildView(context.Background(), c.Task, cfg, store.BuildViewOptions{Stage: stage}); v != nil {
+		name = v.Agent.Name
+	}
+	if c.Agent != "" {
+		name = c.Agent
+	}
+	if name == "" && t != nil {
+		name = t.Agent
+	}
+	return history.EventAgent{
+		Name:      name,
+		Adapter:   r.Adapter,
+		Model:     r.Model,
+		Reasoning: r.Reasoning,
+	}
 }
 
 const (

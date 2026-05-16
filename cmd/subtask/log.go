@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
 )
@@ -72,6 +73,15 @@ func formatHistoryEvent(ev history.Event) string {
 		content := strings.TrimRight(ev.Content, "\n")
 		if strings.TrimSpace(content) == "" {
 			content = "(empty)"
+		}
+		if role == "worker" {
+			var d struct {
+				Agent history.EventAgent `json:"agent"`
+			}
+			_ = json.Unmarshal(ev.Data, &d)
+			if strings.TrimSpace(d.Agent.Name) != "" {
+				role = fmt.Sprintf("worker (%s)", strings.TrimSpace(d.Agent.Name))
+			}
 		}
 		if ts != "" {
 			return fmt.Sprintf("%s %s: %s", ts, role, content)
@@ -156,11 +166,13 @@ func formatHistoryEvent(ev history.Event) string {
 		}
 	case "review.started":
 		var d struct {
-			RunID        string `json:"run_id"`
-			Kind         string `json:"kind"`
-			Adapter      string `json:"adapter"`
-			Model        string `json:"model"`
-			Instructions string `json:"instructions"`
+			RunID        string             `json:"run_id"`
+			Kind         string             `json:"kind"`
+			Adapter      string             `json:"adapter"`
+			Model        string             `json:"model"`
+			Reasoning    string             `json:"reasoning"`
+			Instructions string             `json:"instructions"`
+			Agent        history.EventAgent `json:"agent"`
 		}
 		_ = json.Unmarshal(ev.Data, &d)
 		desc = "review started"
@@ -170,20 +182,30 @@ func formatHistoryEvent(ev history.Event) string {
 		if d.Kind != "" {
 			desc += " kind=" + d.Kind
 		}
+		if label := eventAgentLabel(d.Agent); label != "" {
+			desc += " agent=" + label
+		}
 		if d.Adapter != "" {
 			desc += " adapter=" + d.Adapter
 		}
 		if d.Model != "" {
 			desc += " model=" + d.Model
 		}
+		if d.Reasoning != "" {
+			desc += " reasoning=" + d.Reasoning
+		}
 	case "review.finished":
 		var d struct {
-			RunID      string `json:"run_id"`
-			Kind       string `json:"kind"`
-			DurationMS int    `json:"duration_ms"`
-			Outcome    string `json:"outcome"`
-			File       string `json:"file"`
-			Error      string `json:"error"`
+			RunID      string             `json:"run_id"`
+			Kind       string             `json:"kind"`
+			DurationMS int                `json:"duration_ms"`
+			Outcome    string             `json:"outcome"`
+			File       string             `json:"file"`
+			Error      string             `json:"error"`
+			Adapter    string             `json:"adapter"`
+			Model      string             `json:"model"`
+			Reasoning  string             `json:"reasoning"`
+			Agent      history.EventAgent `json:"agent"`
 		}
 		_ = json.Unmarshal(ev.Data, &d)
 		desc = "review finished"
@@ -196,6 +218,18 @@ func formatHistoryEvent(ev history.Event) string {
 		if d.Outcome != "" {
 			desc += " outcome=" + d.Outcome
 		}
+		if label := eventAgentLabel(d.Agent); label != "" {
+			desc += " agent=" + label
+		}
+		if d.Adapter != "" {
+			desc += " adapter=" + d.Adapter
+		}
+		if d.Model != "" {
+			desc += " model=" + d.Model
+		}
+		if d.Reasoning != "" {
+			desc += " reasoning=" + d.Reasoning
+		}
 		if d.Outcome == "error" && d.Error != "" {
 			desc += fmt.Sprintf(" error=%q", d.Error)
 		}
@@ -207,8 +241,9 @@ func formatHistoryEvent(ev history.Event) string {
 		}
 	case "worker.started":
 		var d struct {
-			RunID     string `json:"run_id"`
-			SessionID string `json:"session_id"`
+			RunID     string             `json:"run_id"`
+			SessionID string             `json:"session_id"`
+			Agent     history.EventAgent `json:"agent"`
 		}
 		_ = json.Unmarshal(ev.Data, &d)
 		desc = "worker started"
@@ -218,14 +253,18 @@ func formatHistoryEvent(ev history.Event) string {
 		if d.SessionID != "" {
 			desc += " session=" + d.SessionID
 		}
+		if label := eventAgentLabel(d.Agent); label != "" {
+			desc += " agent=" + label
+		}
 	case "worker.finished":
 		var d struct {
-			RunID        string `json:"run_id"`
-			DurationMS   int    `json:"duration_ms"`
-			ToolCalls    int    `json:"tool_calls"`
-			Outcome      string `json:"outcome"`
-			ErrorMessage string `json:"error_message"`
-			Error        string `json:"error"`
+			RunID        string             `json:"run_id"`
+			DurationMS   int                `json:"duration_ms"`
+			ToolCalls    int                `json:"tool_calls"`
+			Outcome      string             `json:"outcome"`
+			ErrorMessage string             `json:"error_message"`
+			Error        string             `json:"error"`
+			Agent        history.EventAgent `json:"agent"`
 		}
 		_ = json.Unmarshal(ev.Data, &d)
 		desc = "worker finished"
@@ -234,6 +273,9 @@ func formatHistoryEvent(ev history.Event) string {
 		}
 		if d.Outcome != "" {
 			desc += " outcome=" + d.Outcome
+		}
+		if label := eventAgentLabel(d.Agent); label != "" {
+			desc += " agent=" + label
 		}
 		if strings.TrimSpace(d.ErrorMessage) == "" {
 			d.ErrorMessage = d.Error
@@ -247,6 +289,23 @@ func formatHistoryEvent(ev history.Event) string {
 		if d.ToolCalls > 0 {
 			desc += fmt.Sprintf(" tool_calls=%d", d.ToolCalls)
 		}
+	case "artifact.produced":
+		var d struct {
+			Kind  string             `json:"kind"`
+			Path  string             `json:"path"`
+			Agent history.EventAgent `json:"agent"`
+		}
+		_ = json.Unmarshal(ev.Data, &d)
+		desc = "artifact produced"
+		if d.Kind != "" {
+			desc += " kind=" + d.Kind
+		}
+		if d.Path != "" {
+			desc += " path=" + d.Path
+		}
+		if label := eventAgentLabel(d.Agent); label != "" {
+			desc += " by=" + label
+		}
 	}
 
 	if ts != "" {
@@ -254,6 +313,18 @@ func formatHistoryEvent(ev history.Event) string {
 	}
 	return fmt.Sprintf("[%s]", desc)
 }
+
+func eventAgentLabel(agent history.EventAgent) string {
+	if agent == (history.EventAgent{}) {
+		return ""
+	}
+	label := agent.ToAgentView().Label()
+	if label == (task.AgentView{}).Label() {
+		return ""
+	}
+	return label
+}
+
 
 func shortSHA(sha string) string {
 	s := strings.TrimSpace(sha)

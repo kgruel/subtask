@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,4 +100,37 @@ func TestLogsCmd_WorksWhileTaskWorking_AfterSessionStart(t *testing.T) {
 
 	close(h.Release)
 	require.NoError(t, <-sendDone)
+}
+
+func TestLogsCmd_TaskTracePrintsViewHeader(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	env := testutil.NewTestEnv(t, 1)
+	taskName := "fix/logs-header"
+	env.CreateTask(taskName, "Logs header", "main", "desc")
+	env.CreateTaskHistory(taskName, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": gitCmdOutput(t, env.RootDir, "rev-parse", "HEAD")})},
+		{Type: "stage.changed", Data: mustJSON(map[string]any{"from": "", "to": "implement"})},
+		{Type: "worker.finished", Data: mustJSON(map[string]any{"run_id": "r1", "duration_ms": 1000, "tool_calls": 1, "outcome": "replied"})},
+	})
+
+	sessionID := "sess-header"
+	sessionsDir := filepath.Join(tmpHome, ".codex", "sessions")
+	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionsDir, "test-"+sessionID+".jsonl"), []byte(`{"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"agent_message","message":"hello"}}`+"\n"), 0o644))
+
+	st := &task.State{SessionID: sessionID, Adapter: "codex"}
+	require.NoError(t, st.Save(taskName))
+
+	stdout, stderr, err := captureStdoutStderr(t, (&LogsCmd{TaskOrSession: taskName}).Run)
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	require.NotEmpty(t, lines)
+	require.Contains(t, lines[0], taskName+" | ")
+	require.NotContains(t, lines[0], "stage:")
+	require.Contains(t, lines[0], "replied (1s)")
+	require.NotContains(t, lines[0], "===")
 }
