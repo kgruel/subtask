@@ -1,0 +1,4 @@
+description: Opus high reasoning. Use for planning, hard problems, and review.
+adapter: claude
+model: opus
+reasoning: high

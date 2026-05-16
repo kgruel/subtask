@@ -2,8 +2,9 @@
 /subtask
 dist/
 
-# Project's own subtask data
-.subtask/
+# Project's own subtask data (tasks and runtime state — .subtask/agents/ is versioned)
+.subtask/*
+!.subtask/agents/
 
 # IDE
 .idea/

@@ -1,0 +1,5 @@
+description: Gemini 3.1 Pro via pi adapter. Alternative cross-adapter reviewer.
+adapter: pi
+provider: google-gemini-cli
+model: gemini-3.1-pro-preview
+reasoning: high

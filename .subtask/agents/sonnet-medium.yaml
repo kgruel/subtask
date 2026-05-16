@@ -1,0 +1,4 @@
+description: Sonnet medium reasoning. Default for most implementation work.
+adapter: claude
+model: sonnet
+reasoning: medium

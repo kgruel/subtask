@@ -1,0 +1,4 @@
+description: Codex GPT-5.5 low reasoning. Cross-adapter review pass.
+adapter: codex
+model: gpt-5.5
+reasoning: low
