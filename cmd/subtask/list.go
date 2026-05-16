@@ -105,7 +105,7 @@ func (c *ListCmd) renderJSON() (string, error) {
 		if !it.LastActive.IsZero() {
 			item.LastActive = it.LastActive.UTC().Format(time.RFC3339)
 		}
-		if loadReviewSummary(it.Name).Count > 0 {
+		if rs := task.LoadReviewSummary(it.Name); rs != nil && rs.Count > 0 {
 			item.HasReview = true
 		}
 		items = append(items, item)
@@ -164,7 +164,7 @@ func (c *ListCmd) render() (string, error) {
 
 	// Mark tasks that have at least one persisted review file.
 	for i := range tasks {
-		if loadReviewSummary(tasks[i].Name).Count > 0 {
+		if rs := task.LoadReviewSummary(tasks[i].Name); rs != nil && rs.Count > 0 {
 			tasks[i].HasReview = true
 		}
 	}

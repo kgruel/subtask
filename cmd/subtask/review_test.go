@@ -588,7 +588,7 @@ func TestReviewSummary_EmptyDir(t *testing.T) {
 	// Create the reviews dir but put no .md files in it.
 	require.NoError(t, os.MkdirAll(task.ReviewsDir(taskName), 0o755))
 
-	rs := loadReviewSummary(taskName)
-	assert.Equal(t, 0, rs.Count, "empty reviews dir should report Count==0")
+	rs := task.LoadReviewSummary(taskName)
+	assert.True(t, rs == nil || rs.Count == 0, "empty reviews dir should report no summary or Count==0")
 }
 

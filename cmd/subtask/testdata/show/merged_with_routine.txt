@@ -2,7 +2,7 @@ Task: show/merged-routine
 Title: Merged routine task
 Status: ✓ merged
 Branch: show/merged-routine (based on main)
-Agent: builtin-mock/gpt-5.2 (no named agent)
+builtin-mock/gpt-5.2
 
 Changes: +3 -1
 

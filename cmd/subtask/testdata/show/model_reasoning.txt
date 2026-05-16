@@ -2,7 +2,7 @@ Task: show/model-reasoning
 Title: Model reasoning task
 Status: draft
 Branch: show/model-reasoning (based on main)
-Agent: codex/gpt-5.2 (no named agent)
+codex/gpt-5.2 (reasoning:high)
 
 Changes: -
 Commits: 0

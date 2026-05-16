@@ -109,7 +109,7 @@ func TestShow_ModelUsesTaskOverride(t *testing.T) {
 
 	stdout, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Agent: mock/task-model (no named agent)")
+	require.Contains(t, stdout, "mock/task-model")
 }
 
 func TestShow_ModelIncludesReasoningWhenCodex(t *testing.T) {
@@ -127,14 +127,15 @@ func TestShow_ModelIncludesReasoningWhenCodex(t *testing.T) {
 	env.CreateTask(taskName, "Test task", "main", "Description")
 	env.CreateTaskHistory(taskName, mustHistoryOpen(t, "main"))
 
-	// Default (slim) view shows Agent line; verbose restores the Model: line with reasoning.
+	// Default (slim) view shows Agent line (collapsed); verbose doesn't add separate Model: line anymore.
 	stdout, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName}).Run)
 	require.NoError(t, err)
-	require.Contains(t, stdout, "Agent: codex/gpt-5.2 (no named agent)")
+	require.Contains(t, stdout, "codex/gpt-5.2 (reasoning:high)")
 
 	stdoutVerbose, _, err := captureStdoutStderr(t, (&ShowCmd{Task: taskName, Verbose: true}).Run)
 	require.NoError(t, err)
-	require.Contains(t, stdoutVerbose, "Model: gpt-5.2 (high)")
+	require.Contains(t, stdoutVerbose, "codex/gpt-5.2 (reasoning:high)")
+	require.NotContains(t, stdoutVerbose, "Model: ")
 }
 
 func TestSend_ModelOverrideAppearsInBothSpinnerAndFooter(t *testing.T) {
@@ -160,6 +161,7 @@ func TestSend_ModelOverrideAppearsInBothSpinnerAndFooter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both spinner and footer must reflect the override model, not the snapshot.
+	// Note: spinner still uses (no named agent) until Stage B refactors send.go.
 	require.Contains(t, stdout, "[Waiting for builtin-mock/over-model (no named agent)...]")
 	require.Contains(t, stdout, "builtin-mock/over-model (no named agent) replied")
 }

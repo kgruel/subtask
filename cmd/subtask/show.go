@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -53,98 +51,12 @@ func (c *ShowCmd) Run() error {
 }
 
 func (c *ShowCmd) render() (string, error) {
-	st := store.New()
-	detail, err := st.Get(context.Background(), c.Task, store.GetOptions{})
+	view, err := store.BuildView(context.Background(), c.Task)
 	if err != nil {
 		return "", err
 	}
 
-	t := detail.Task
-	state := detail.State
-
-	// Build task card.
-	card := &render.TaskCard{
-		Name:       t.Name,
-		Title:      t.Title,
-		Branch:     t.Name,
-		BaseBranch: t.BaseBranch,
-		Verbose:    c.Verbose,
-	}
-
-	lastError := ""
-	if state != nil {
-		lastError = state.LastError
-	}
-	card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, time.Time{}, detail.LastRunMS, lastError)
-	if state != nil && detail.WorkerStatus == task.WorkerStatusRunning && !state.StartedAt.IsZero() {
-		card.TaskStatus = userStatusText(detail.TaskStatus, detail.WorkerStatus, state.StartedAt, detail.LastRunMS, lastError)
-	}
-	card.IsTerminal = detail.TaskStatus == task.TaskStatusMerged || detail.TaskStatus == task.TaskStatusClosed
-
-	if state != nil && detail.WorkerStatus == task.WorkerStatusError && strings.TrimSpace(state.LastError) != "" {
-		card.Error = state.LastError
-	}
-
-	if c.Verbose {
-		card.BaseCommit = detail.BaseCommit
-		card.Model = detail.Model
-		card.Reasoning = detail.Reasoning
-		if state != nil {
-			card.Workspace = state.Workspace
-		}
-	}
-
-	card.LinesAdded = detail.Changes.Added
-	card.LinesRemoved = detail.Changes.Removed
-	card.ChangesStatus = string(detail.Changes.Status)
-	if detail.Changes.Err != nil && detail.Changes.Status != store.ChangesStatusMissing {
-		card.ChangesError = detail.Changes.Err.Error()
-	}
-	card.CommitCount = detail.Commits.Count
-	if detail.Commits.Err != nil {
-		card.CommitError = detail.Commits.Err.Error()
-	}
-	card.ShowCommits = detail.TaskStatus == task.TaskStatusOpen
-	card.ConflictFiles = detail.ConflictFiles
-
-	if rs := loadReviewSummary(c.Task); rs.Count > 0 {
-		card.ReviewCount = rs.Count
-		card.LastReviewTS = rs.LastTS
-		card.LastReviewKind = rs.LastKind
-		card.LastReviewer = rs.LastAdapter
-	}
-
-	var stepAgent string
-	if detail.Routine != nil {
-		card.Routine = detail.Routine.Name
-		card.RoutineSource = detail.Routine.Source
-		if strings.TrimSpace(detail.Stage) != "" {
-			card.Stage = render.FormatRoutineDiagram(routineDiagramSteps(detail.Routine), detail.Stage)
-			if step := detail.Routine.GetStep(detail.Stage); step != nil {
-				stepAgent = step.Agent
-			}
-		}
-	}
-	card.Agent = task.WorkerLabel(stepAgent, detail.Task.Agent, detail.Adapter, detail.Model)
-
-	// Load artifacts.
-	if arts, err := task.Artifacts(c.Task); err == nil {
-		card.Artifacts = arts
-	}
-
-	// Load progress steps.
-	card.ProgressSteps = make([]render.ProgressStep, 0, len(detail.ProgressSteps))
-	for _, s := range detail.ProgressSteps {
-		card.ProgressSteps = append(card.ProgressSteps, render.ProgressStep{Step: s.Step, Done: s.Done})
-	}
-	if len(card.ProgressSteps) > 0 {
-		card.Progress = "" // Don't show summary when we have steps.
-	}
-
-	if c.Verbose {
-		card.TaskDir = task.Dir(c.Task)
-		card.Files = detail.TaskFiles
-	}
+	card := render.TaskCardFromView(view, c.Verbose)
 
 	if render.Pretty {
 		return card.RenderPretty(), nil
@@ -214,7 +126,7 @@ func (c *ShowCmd) renderJSON() (string, error) {
 		ConflictFiles:   detail.ConflictFiles,
 	}
 
-	if rs := loadReviewSummary(c.Task); rs.Count > 0 {
+	if rs := task.LoadReviewSummary(c.Task); rs != nil && rs.Count > 0 {
 		out.ReviewCount = rs.Count
 		if !rs.LastTS.IsZero() {
 			out.LastReviewAt = rs.LastTS.UTC().Format(time.RFC3339)
@@ -256,64 +168,6 @@ func (c *ShowCmd) renderJSON() (string, error) {
 		return "", err
 	}
 	return string(data) + "\n", nil
-}
-
-// reviewSummary holds aggregated review file metadata for display.
-type reviewSummary struct {
-	Count       int
-	LastTS      time.Time
-	LastKind    string
-	LastAdapter string
-}
-
-// loadReviewSummary scans the task's reviews/ directory and returns aggregate info.
-// Files are sorted alphabetically; since names begin with a compact ISO timestamp
-// the last entry is the most recent review.
-func loadReviewSummary(taskName string) reviewSummary {
-	dir := task.ReviewsDir(taskName)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return reviewSummary{}
-	}
-
-	// Only count files matching the generated review filename format:
-	//   <timestamp>-<runID>-<kind>-<adapter>.md
-	// Stray files (a manual README, a legacy filename) are ignored — Count
-	// reflects reviews this command produced, not arbitrary .md in the dir.
-	type parsed struct {
-		name    string
-		ts      time.Time
-		kind    string
-		adapter string
-	}
-	var matched []parsed
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		stem := strings.TrimSuffix(e.Name(), ".md")
-		// SplitN with n=4 captures adapter (may contain hyphens) as the final part.
-		parts := strings.SplitN(stem, "-", 4)
-		if len(parts) != 4 {
-			continue
-		}
-		ts, err := time.Parse("20060102T150405Z", parts[0])
-		if err != nil {
-			continue
-		}
-		matched = append(matched, parsed{name: e.Name(), ts: ts, kind: parts[2], adapter: parts[3]})
-	}
-	if len(matched) == 0 {
-		return reviewSummary{}
-	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].name < matched[j].name })
-	last := matched[len(matched)-1]
-	return reviewSummary{
-		Count:       len(matched),
-		LastTS:      last.ts,
-		LastKind:    last.kind,
-		LastAdapter: last.adapter,
-	}
 }
 
 func lastWorkerReply(taskName string) string {

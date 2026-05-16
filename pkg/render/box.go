@@ -84,6 +84,7 @@ type TaskCard struct {
 	Model         string
 	Reasoning     string
 	Agent         string // Agent name, if bound (task-level or current routine step)
+	AgentIsNamed  bool   // true if Agent is a user-assigned name, not an adapter/model fallback
 	Workspace     string
 	Progress      string // "3/5" or empty
 	ProgressSteps []ProgressStep
@@ -127,8 +128,12 @@ func (c *TaskCard) RenderPlain() string {
 		fmt.Fprintf(&buf, "Error: %s\n", c.Error)
 	}
 	fmt.Fprintf(&buf, "Branch: %s (based on %s)\n", c.Branch, c.BaseBranch)
-	if c.Agent != "" && c.Agent != "Worker" {
-		fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
+	if c.Agent != "" {
+		if c.AgentIsNamed {
+			fmt.Fprintf(&buf, "Agent: %s\n", c.Agent)
+		} else {
+			fmt.Fprintf(&buf, "%s\n", c.Agent)
+		}
 	}
 	if c.Workspace != "" {
 		fmt.Fprintf(&buf, "Workspace: %s\n", c.Workspace)
@@ -184,17 +189,10 @@ func (c *TaskCard) RenderPlain() string {
 		buf.WriteString(workStr)
 	}
 
-	// --- Routine group: [Base commit (verbose)], [Model (verbose)], Routine, Flow ---
+	// --- Routine group: [Base commit (verbose)], Routine, Flow ---
 	var rout strings.Builder
 	if c.BaseCommit != "" {
 		fmt.Fprintf(&rout, "Base commit: %s\n", c.BaseCommit)
-	}
-	if c.Model != "" {
-		if c.Reasoning != "" {
-			fmt.Fprintf(&rout, "Model: %s (%s)\n", c.Model, c.Reasoning)
-		} else {
-			fmt.Fprintf(&rout, "Model: %s\n", c.Model)
-		}
 	}
 	if c.Progress != "" {
 		fmt.Fprintf(&rout, "Progress: %s\n", c.Progress)
@@ -235,19 +233,132 @@ func (c *TaskCard) RenderPlain() string {
 
 // FormatDuration formats a duration for display.
 // Returns: Xs, Xm, or XhYm
+// FormatDuration formats a duration for display (e.g., "5s", "2m", "1h10m").
 func FormatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
+	return task.FormatDuration(d)
+}
+
+// TaskCardFromView builds a TaskCard from a unified task.View.
+func TaskCardFromView(v *task.View, verbose bool) *TaskCard {
+	card := &TaskCard{
+		Name:          v.Name,
+		Title:         v.Title,
+		TaskStatus:    v.StatusText,
+		IsTerminal:    v.IsTerminal,
+		Error:         v.Error,
+		Branch:        v.Branch,
+		BaseBranch:    v.BaseBranch,
+		Verbose:       verbose,
+		Artifacts:     v.Artifacts,
+		ConflictFiles: v.Conflicts,
+		LinesAdded:    v.Changes.Added,
+		LinesRemoved:  v.Changes.Removed,
+		ChangesStatus: v.Changes.Status,
 	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
+	if v.Changes.Err != nil && v.Changes.Status != "missing" {
+		card.ChangesError = v.Changes.Err.Error()
 	}
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-	if minutes == 0 {
-		return fmt.Sprintf("%dh", hours)
+	card.CommitCount = v.Commits.Count
+	if v.Commits.Err != nil {
+		card.CommitError = v.Commits.Err.Error()
 	}
-	return fmt.Sprintf("%dh%dm", hours, minutes)
+	card.ShowCommits = v.Commits.Show
+
+	if v.Reviews != nil {
+		card.ReviewCount = v.Reviews.Count
+		card.LastReviewTS = v.Reviews.LastTS
+		card.LastReviewKind = v.Reviews.LastKind
+		card.LastReviewer = v.Reviews.LastAdapter
+	}
+
+	if v.Routine != nil {
+		card.Routine = v.Routine.Name
+		card.RoutineSource = v.Routine.Source
+		if v.Routine.CurrentStep != "" {
+			diagramSteps := make([]DiagramStep, len(v.Routine.Steps))
+			for i, s := range v.Routine.Steps {
+				ds := DiagramStep{
+					ID:       s.ID,
+					Terminal: s.Kind == "terminal",
+					Gate:     s.Kind == "gate",
+				}
+				if len(s.Options) > 0 {
+					ds.Edges = make([]DiagramEdge, len(s.Options))
+					for j, o := range s.Options {
+						ds.Edges[j] = DiagramEdge{
+							Label:    o.Name,
+							Target:   o.Next,
+							Loopback: isLoopback(v.Routine.Steps, i, o.Next),
+						}
+					}
+				}
+				if len(s.Branches) > 0 {
+					ds.Edges = make([]DiagramEdge, len(s.Branches))
+					for j, b := range s.Branches {
+						ds.Edges[j] = DiagramEdge{
+							Label:    b.Field,
+							Target:   b.To,
+							Loopback: isLoopback(v.Routine.Steps, i, b.To),
+						}
+					}
+				}
+				diagramSteps[i] = ds
+			}
+			card.Stage = FormatRoutineDiagram(diagramSteps, v.Routine.CurrentStep)
+		}
+	}
+
+	// Identity resolution: collapse Agent + Model + Reasoning
+	// Cases:
+	// 1. Named agent:   "Agent: <name> (<adapter>/<model>, reasoning:<X>)"
+	// 2. Unnamed agent: "<adapter>/<model>" (no "Agent:" label)
+	identity := v.Agent.Name
+	card.AgentIsNamed = identity != ""
+	adapterModel := ""
+	if v.Agent.Adapter != "" && v.Agent.Model != "" {
+		adapterModel = v.Agent.Adapter + "/" + v.Agent.Model
+	} else if v.Agent.Model != "" {
+		adapterModel = v.Agent.Model
+	}
+
+	if card.AgentIsNamed {
+		if adapterModel != "" {
+			identity = fmt.Sprintf("%s (%s", identity, adapterModel)
+			if v.Agent.Reasoning != "" {
+				identity += fmt.Sprintf(", reasoning:%s", v.Agent.Reasoning)
+			}
+			identity += ")"
+		}
+	} else {
+		identity = adapterModel
+		if v.Agent.Reasoning != "" {
+			identity += fmt.Sprintf(" (reasoning:%s)", v.Agent.Reasoning)
+		}
+	}
+	card.Agent = identity
+
+	if verbose {
+		card.BaseCommit = v.BaseCommit
+		card.Workspace = v.Workspace
+		card.TaskDir = v.TaskDir
+		card.Files = v.TaskFiles
+	}
+
+	card.ProgressSteps = make([]ProgressStep, len(v.ProgressSteps))
+	for i, s := range v.ProgressSteps {
+		card.ProgressSteps[i] = ProgressStep{Step: s.Step, Done: s.Done}
+	}
+
+	return card
+}
+
+func isLoopback(steps []task.StepView, currentIdx int, targetID string) bool {
+	for i, s := range steps {
+		if s.ID == targetID {
+			return i <= currentIdx
+		}
+	}
+	return false
 }
 
 // RenderPretty renders the task card with styling and box.
@@ -270,8 +381,12 @@ func (c *TaskCard) RenderPretty() string {
 	}
 	branchInfo := fmt.Sprintf("%s %s", c.Branch, styleDim.Render("(based on "+c.BaseBranch+")"))
 	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Branch"), branchInfo))
-	if c.Agent != "" && c.Agent != "Worker" {
-		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Agent"), c.Agent))
+	if c.Agent != "" {
+		if c.AgentIsNamed {
+			lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Agent"), c.Agent))
+		} else {
+			lines = append(lines, c.Agent)
+		}
 	}
 	if c.Workspace != "" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Workspace"), c.Workspace))
@@ -327,17 +442,10 @@ func (c *TaskCard) RenderPretty() string {
 		lines = append(lines, work...)
 	}
 
-	// --- Routine group: [Base (verbose)], [Model (verbose)], Routine, Flow ---
+	// --- Routine group: [Base (verbose)], Routine, Flow ---
 	var rout []string
 	if strings.TrimSpace(c.BaseCommit) != "" {
 		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Base"), styleDim.Render(strings.TrimSpace(c.BaseCommit))))
-	}
-	if c.Model != "" {
-		modelInfo := c.Model
-		if c.Reasoning != "" {
-			modelInfo = fmt.Sprintf("%s %s", c.Model, styleDim.Render("("+c.Reasoning+")"))
-		}
-		rout = append(rout, fmt.Sprintf("%s  %s", styleBold.Render("Model"), modelInfo))
 	}
 	if c.Routine != "" {
 		routineLabel := c.Routine
