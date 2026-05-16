@@ -49,11 +49,12 @@ type AgentView struct {
 
 // RoutineView represents the routine-driven state of a task.
 type RoutineView struct {
-	Name        string
-	Source      string
-	CurrentStep string     // routine-relative step id; "" when terminal
-	Steps       []StepView // for diagram rendering
-	StepAgent   string     // resolved agent for current step (empty when no per-step override)
+	Name         string
+	Source       string
+	CurrentStep  string     // routine-relative step id; "" when terminal
+	Steps        []StepView // for diagram rendering
+	StepAgent    string     // resolved agent for current step (empty when no per-step override)
+	Instructions string     // raw instructions for the current step (contains <task> placeholders)
 }
 
 // StepView carries diagram data for one routine step.

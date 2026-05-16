@@ -180,7 +180,7 @@ func (c *TaskCard) RenderPlain() string {
 			if a.Missing {
 				fmt.Fprintf(&work, "  %s (missing, %s)\n", a.Name, a.Kind)
 			} else {
-				fmt.Fprintf(&work, "  %s (%s, %s)\n", a.Name, formatArtifactSize(a.Size), a.Kind)
+				fmt.Fprintf(&work, "  %s (%s, %s)\n", a.Name, FormatArtifactSize(a.Size), a.Kind)
 			}
 		}
 	}
@@ -432,7 +432,7 @@ func (c *TaskCard) RenderPretty() string {
 			if a.Missing {
 				parts = append(parts, fmt.Sprintf("%s (missing, %s)", a.Name, a.Kind))
 			} else {
-				parts = append(parts, fmt.Sprintf("%s (%s, %s)", a.Name, formatArtifactSize(a.Size), a.Kind))
+				parts = append(parts, fmt.Sprintf("%s (%s, %s)", a.Name, FormatArtifactSize(a.Size), a.Kind))
 			}
 		}
 		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Artifacts"), strings.Join(parts, "\n           ")))
@@ -514,8 +514,8 @@ func stripStatusAge(s string) string {
 	return s
 }
 
-// formatArtifactSize returns a human-readable byte count.
-func formatArtifactSize(n int64) string {
+// FormatArtifactSize returns a human-readable byte count.
+func FormatArtifactSize(n int64) string {
 	const kb = 1024
 	const mb = 1024 * kb
 	if n < kb {

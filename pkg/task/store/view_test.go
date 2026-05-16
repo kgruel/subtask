@@ -20,7 +20,7 @@ func TestBuildView_Basic(t *testing.T) {
 
 	env.CreateTask(taskName, "Test View", "main", "desc")
 
-	v, err := store.BuildView(context.Background(), taskName)
+	v, err := store.BuildView(context.Background(), taskName, nil, store.BuildViewOptions{})
 	require.NoError(t, err)
 	require.Equal(t, taskName, v.Name)
 	require.Equal(t, "Test View", v.Title)
@@ -36,7 +36,7 @@ func TestBuildView_WithAgent(t *testing.T) {
 	tk.Agent = "senior-dev"
 	require.NoError(t, tk.Save())
 
-	v, err := store.BuildView(context.Background(), taskName)
+	v, err := store.BuildView(context.Background(), taskName, nil, store.BuildViewOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "senior-dev", v.Agent.Name)
 }
@@ -68,7 +68,7 @@ steps:
 		{Type: "stage.changed", Data: json.RawMessage(`{"to":"plan"}`)},
 	})
 
-	v, err := store.BuildView(context.Background(), taskName)
+	v, err := store.BuildView(context.Background(), taskName, nil, store.BuildViewOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, v.Routine)
 	require.Equal(t, "test-routine", v.Routine.Name)

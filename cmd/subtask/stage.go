@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -180,19 +182,21 @@ func (c *StageCmd) runRoutineStage(t *task.Task) error {
 	}
 
 	// Passive path: print lead-facing step guidance (suppressed by -q).
-	if !c.Quiet && targetStep.Instructions != "" {
-		fmt.Println()
-		fmt.Printf("Step: %s\n", render.FormatRoutineDiagram(routineDiagramSteps(r), target))
-		fmt.Println()
-		displayName := target
-		if len(displayName) > 0 {
-			displayName = strings.ToUpper(displayName[:1]) + displayName[1:]
-		}
-		fmt.Printf("%s:\n", displayName)
-		lines := strings.Split(strings.TrimSpace(targetStep.Instructions), "\n")
-		for _, line := range lines {
-			line = strings.ReplaceAll(line, "<task>", c.Task)
-			fmt.Printf("  %s\n", line)
+	if !c.Quiet {
+		if v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{Stage: target}); v != nil && v.Routine != nil && v.Routine.Instructions != "" {
+			fmt.Println()
+			fmt.Printf("Step: %s\n", render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), target))
+			fmt.Println()
+			displayName := target
+			if len(displayName) > 0 {
+				displayName = strings.ToUpper(displayName[:1]) + displayName[1:]
+			}
+			fmt.Printf("%s:\n", displayName)
+			lines := strings.Split(strings.TrimSpace(v.Routine.Instructions), "\n")
+			for _, line := range lines {
+				line = strings.ReplaceAll(line, "<task>", c.Task)
+				fmt.Printf("  %s\n", line)
+			}
 		}
 	}
 

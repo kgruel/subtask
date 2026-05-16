@@ -158,6 +158,7 @@ type model struct {
 	// detail data (refreshed on demand)
 	detailTaskName string
 	detail         store.TaskView
+	detailView     *task.View
 	detailErr      error
 
 	// viewports (one per tab; diff uses split-pane viewport)
@@ -396,6 +397,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.detail = msg.detail
+		m.detailView, _ = store.BuildViewFromTaskView(msg.detail)
 		m.updateTabContent()
 
 		var cmds []tea.Cmd

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/kgruel/subtask/pkg/routine"
+	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
 )
@@ -72,14 +72,13 @@ func (m *model) updateTabContent() {
 }
 
 func (m *model) updateOverviewContent() {
-	if m.detail.Task == nil {
+	if m.detail.Task == nil || m.detailView == nil {
 		m.vpOverview.SetContent(styleDim.Render("No task data."))
 		m.overviewLayout = overviewSelectionLayout{}
 		return
 	}
 
-	tk := m.detail.Task
-	st := m.detail.State
+	v := m.detailView
 
 	// Side-by-side layout: Description (left) | Progress + Metadata (right)
 	contentWidth := m.vpOverview.Width
@@ -94,8 +93,13 @@ func (m *model) updateOverviewContent() {
 
 	// LEFT: Task description
 	var leftLines []string
-	if strings.TrimSpace(tk.Description) != "" {
-		md := renderMarkdown(leftW, tk.Description)
+	if strings.TrimSpace(v.Title) != "" {
+		leftLines = append(leftLines, styleBold.Render(v.Title))
+		leftLines = append(leftLines, "")
+	}
+	description := m.detail.Task.Description // TaskView still has the raw description
+	if strings.TrimSpace(description) != "" {
+		md := renderMarkdown(leftW, description)
 		leftLines = append(leftLines, strings.Split(md, "\n")...)
 	} else {
 		leftLines = append(leftLines, styleDim.Render("(no description)"))
@@ -111,13 +115,13 @@ func (m *model) updateOverviewContent() {
 	var sections [][]string
 
 	// Progress section
-	if len(m.detail.ProgressSteps) > 0 {
+	if len(v.ProgressSteps) > 0 {
 		var progressLines []string
-		done, total := task.CountProgressSteps(m.detail.ProgressSteps)
+		done, total := task.CountProgressSteps(v.ProgressSteps)
 		progressLines = append(progressLines, styleBold.Render("Progress")+styleDim.Render(fmt.Sprintf(" %d/%d", done, total)))
 		progressLines = append(progressLines, "")
 
-		for _, s := range m.detail.ProgressSteps {
+		for _, s := range v.ProgressSteps {
 			var checkbox, text string
 			if s.Done {
 				checkbox = styleSuccess.Render("■")
@@ -142,37 +146,43 @@ func (m *model) updateOverviewContent() {
 
 	const labelWidth = 10
 
-	if tk.BaseBranch != "" {
-		detailsLines = append(detailsLines, styleDim.Render(padRight("Base", labelWidth))+tk.BaseBranch)
+	if v.BaseBranch != "" {
+		detailsLines = append(detailsLines, styleDim.Render(padRight("Base", labelWidth))+v.BaseBranch)
 	}
-	if m.detail.Model != "" {
-		modelInfo := m.detail.Model
-		if strings.TrimSpace(m.detail.Reasoning) != "" {
-			modelInfo += styleDim.Render(" (" + strings.TrimSpace(m.detail.Reasoning) + ")")
+	if v.Agent.Name != "" {
+		detailsLines = append(detailsLines, styleDim.Render(padRight("Agent", labelWidth))+v.Agent.Name)
+	}
+	if v.Agent.Model != "" {
+		modelInfo := v.Agent.Model
+		if v.Agent.Adapter != "" {
+			modelInfo = v.Agent.Adapter + "/" + v.Agent.Model
+		}
+		if strings.TrimSpace(v.Agent.Reasoning) != "" {
+			modelInfo += styleDim.Render(" (" + strings.TrimSpace(v.Agent.Reasoning) + ")")
 		}
 		detailsLines = append(detailsLines, styleDim.Render(padRight("Model", labelWidth))+modelInfo)
 	}
-	switch m.detail.Changes.Status {
-	case store.ChangesStatusMissing:
+	switch v.Changes.Status {
+	case string(store.ChangesStatusMissing):
 		detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+styleDim.Render("missing"))
 		detailsLines = append(detailsLines, styleDim.Render(padRight("", labelWidth))+"Branch deleted or commit objects missing.")
-	case store.ChangesStatusApplied:
-		changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", m.detail.Changes.Added)) +
-			" " + styleError.Render(fmt.Sprintf("-%d", m.detail.Changes.Removed))
+	case string(store.ChangesStatusApplied):
+		changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", v.Changes.Added)) +
+			" " + styleError.Render(fmt.Sprintf("-%d", v.Changes.Removed))
 		detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+changesInfo)
 		detailsLines = append(detailsLines, styleDim.Render(padRight("", labelWidth))+"Already in base branch. Merge to mark as merged.")
 	default:
-		if m.detail.Changes.Added > 0 || m.detail.Changes.Removed > 0 {
-			changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", m.detail.Changes.Added)) +
-				" " + styleError.Render(fmt.Sprintf("-%d", m.detail.Changes.Removed))
+		if v.Changes.Added > 0 || v.Changes.Removed > 0 {
+			changesInfo := styleSuccess.Render(fmt.Sprintf("+%d", v.Changes.Added)) +
+				" " + styleError.Render(fmt.Sprintf("-%d", v.Changes.Removed))
 			detailsLines = append(detailsLines, styleDim.Render(padRight("Changes", labelWidth))+changesInfo)
 		}
 	}
-	if m.detail.TaskStatus == task.TaskStatusOpen {
-		if m.detail.Commits.Err != nil {
-			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+styleStatusError.Render(m.detail.Commits.Err.Error()))
+	if v.Status == task.TaskStatusOpen {
+		if v.Commits.Err != nil {
+			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+styleStatusError.Render(v.Commits.Err.Error()))
 		} else {
-			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+fmt.Sprintf("%d", m.detail.Commits.Count))
+			detailsLines = append(detailsLines, styleDim.Render(padRight("Commits", labelWidth))+fmt.Sprintf("%d", v.Commits.Count))
 		}
 	}
 	if m.detail.ProgressMeta != nil {
@@ -182,21 +192,40 @@ func (m *model) updateOverviewContent() {
 	sections = append(sections, detailsLines)
 
 	// Routine section
-	if m.detail.Routine != nil && strings.TrimSpace(m.detail.Stage) != "" {
+	if v.Routine != nil && strings.TrimSpace(v.Routine.CurrentStep) != "" {
 		var routineLines []string
 		routineLines = append(routineLines, styleBold.Render("Routine"))
 		routineLines = append(routineLines, "")
-		stepLines := formatRoutineDiagram(m.detail.Routine, m.detail.Stage, innerW)
+		stepLines := formatRoutineDiagram(v.Routine, innerW)
 		routineLines = append(routineLines, strings.Split(stepLines, "\n")...)
 		sections = append(sections, routineLines)
 	}
 
+	// Artifacts section
+	if len(v.Artifacts) > 0 {
+		var artifactLines []string
+		artifactLines = append(artifactLines, styleBold.Render("Artifacts"))
+		artifactLines = append(artifactLines, "")
+
+		for _, a := range v.Artifacts {
+			var sizeInfo string
+			if a.Missing {
+				sizeInfo = styleDim.Render("missing")
+			} else {
+				sizeInfo = render.FormatArtifactSize(a.Size)
+			}
+			line := fmt.Sprintf("%s (%s, %s)", a.Name, sizeInfo, a.Kind)
+			artifactLines = append(artifactLines, wrapWithIndent(line, innerW, 0)...)
+		}
+		sections = append(sections, artifactLines)
+	}
+
 	// Error section (outside box, after it)
 	var errorLines []string
-	if m.detail.WorkerStatus == task.WorkerStatusError && st != nil && strings.TrimSpace(st.LastError) != "" {
+	if v.WorkerStatus == task.WorkerStatusError && v.Error != "" {
 		errorLines = append(errorLines, "")
 		errorLines = append(errorLines, styleStatusError.Render("Error"))
-		for _, line := range strings.Split(st.LastError, "\n") {
+		for _, line := range strings.Split(v.Error, "\n") {
 			errorLines = append(errorLines, styleDim.Render(line))
 		}
 	}
@@ -472,13 +501,13 @@ var styleCurrentStage = lipgloss.NewStyle().
 
 var styleOtherStage = styleDim
 
-func formatRoutineDiagram(r *routine.Routine, current string, width int) string {
-	if r == nil || len(r.Steps) == 0 {
+func formatRoutineDiagram(rv *task.RoutineView, width int) string {
+	if rv == nil || len(rv.Steps) == 0 {
 		return ""
 	}
 
-	idxOf := make(map[string]int, len(r.Steps))
-	for i, s := range r.Steps {
+	idxOf := make(map[string]int, len(rv.Steps))
+	for i, s := range rv.Steps {
 		idxOf[s.ID] = i
 	}
 
@@ -490,10 +519,10 @@ func formatRoutineDiagram(r *routine.Routine, current string, width int) string 
 	var line string
 	lineWidth := 0
 
-	for i, s := range r.Steps {
+	for i, s := range rv.Steps {
 		sigil := tuiSigilFor(&s)
 		var styledLabel string
-		if s.ID == current && current != "" {
+		if s.ID == rv.CurrentStep && rv.CurrentStep != "" {
 			styledLabel = styleCurrentStage.Render(s.ID) + sigil
 		} else {
 			styledLabel = styleOtherStage.Render(s.ID) + sigil
@@ -524,9 +553,8 @@ func formatRoutineDiagram(r *routine.Routine, current string, width int) string 
 	}
 
 	// Append flow notes for steps with non-linear edges, wrapped to pane width.
-	for i, s := range r.Steps {
-		switch s.Kind {
-		case routine.KindGate:
+	for i, s := range rv.Steps {
+		if s.Kind == "gate" {
 			edges := make([]string, 0, len(s.Options))
 			for _, o := range s.Options {
 				if idxOf[o.Next] <= i {
@@ -541,7 +569,7 @@ func formatRoutineDiagram(r *routine.Routine, current string, width int) string 
 				lines = append(lines, prefix+noteLines[0])
 				lines = append(lines, noteLines[1:]...)
 			}
-		default:
+		} else {
 			if len(s.Branches) == 0 {
 				continue
 			}
@@ -563,19 +591,18 @@ func formatRoutineDiagram(r *routine.Routine, current string, width int) string 
 	return strings.Join(lines, "\n")
 }
 
-// tuiSigilFor returns the type marker character for a step.
-func tuiSigilFor(s *routine.Step) string {
-	switch s.Kind {
-	case routine.KindTerminal:
+// tuiSigilFor returns the type marker character for a StepView.
+func tuiSigilFor(s *task.StepView) string {
+	if s.Kind == "terminal" {
 		return "!"
-	case routine.KindGate:
-		return "*"
-	default:
-		if len(s.Branches) > 0 {
-			return "?"
-		}
-		return ""
 	}
+	if s.Kind == "gate" {
+		return "*"
+	}
+	if len(s.Branches) > 0 {
+		return "?"
+	}
+	return ""
 }
 
 // wrapWithIndent wraps text to width, indenting continuation lines by indentWidth spaces.

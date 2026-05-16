@@ -22,6 +22,7 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate"
+	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -268,15 +269,18 @@ func (c *SendCmd) Run() error {
 		runErr = buildErr
 	} else {
 		c.info(fmt.Sprintf("Sending to task: %s", c.Task))
-		var spinnerStepAgent string
-		if tail.Stage != "" && t.Routine != "" {
-			if spinnerRoutine, err := routine.LoadByName(t.Routine); err == nil {
-				if spinnerStep := spinnerRoutine.GetStep(tail.Stage); spinnerStep != nil {
-					spinnerStepAgent = spinnerStep.Agent
-				}
+		v, _ := store.BuildView(context.Background(), c.Task, cfg, store.BuildViewOptions{Stage: tail.Stage})
+		if v != nil {
+			v.Agent.Adapter = r.Adapter
+			v.Agent.Model = r.Model
+			v.Agent.Reasoning = r.Reasoning
+			if c.Agent != "" {
+				v.Agent.Name = c.Agent
 			}
+			resolvedWorkerLabel = task.WorkerLabel(v.Agent.Name, "", v.Agent.Adapter, v.Agent.Model)
+		} else {
+			resolvedWorkerLabel = task.WorkerLabel("", t.Agent, r.Adapter, r.Model)
 		}
-		resolvedWorkerLabel = task.WorkerLabel(spinnerStepAgent, t.Agent, r.Adapter, r.Model)
 		c.info(fmt.Sprintf("[Waiting for %s...]", resolvedWorkerLabel))
 
 		// runToolCalls is tracked atomically for accurate interruption accounting.

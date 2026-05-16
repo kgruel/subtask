@@ -51,7 +51,7 @@ func (c *ShowCmd) Run() error {
 }
 
 func (c *ShowCmd) render() (string, error) {
-	view, err := store.BuildView(context.Background(), c.Task)
+	view, err := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{})
 	if err != nil {
 		return "", err
 	}

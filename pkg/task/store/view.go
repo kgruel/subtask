@@ -6,16 +6,31 @@ import (
 	"time"
 
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/workspace"
 )
 
+// BuildViewOptions allows overriding parts of the task view during construction.
+type BuildViewOptions struct {
+	Stage string // override current routine stage
+}
+
 // BuildView gathers all data needed for a unified task view.
-func BuildView(ctx context.Context, name string) (*task.View, error) {
-	st := New()
-	tv, err := st.Get(ctx, name, GetOptions{})
+// If cfg is non-nil, it is used for adapter/model resolution; otherwise
+// the default project config is loaded from disk.
+func BuildView(ctx context.Context, name string, cfg *workspace.Config, opts BuildViewOptions) (*task.View, error) {
+	st := &store{}
+	tv, err := st.getWithConfig(ctx, name, cfg)
 	if err != nil {
 		return nil, err
 	}
+	if opts.Stage != "" {
+		tv.Stage = opts.Stage
+	}
+	return BuildViewFromTaskView(tv)
+}
 
+// BuildViewFromTaskView converts a TaskView (internal store model) to a task.View (UI model).
+func BuildViewFromTaskView(tv TaskView) (*task.View, error) {
 	t := tv.Task
 	state := tv.State
 
@@ -50,10 +65,12 @@ func BuildView(ctx context.Context, name string) (*task.View, error) {
 
 	// Agent resolution
 	var stepAgent string
+	var stepInstructions string
 	if tv.Routine != nil {
 		if strings.TrimSpace(tv.Stage) != "" {
 			if step := tv.Routine.GetStep(tv.Stage); step != nil {
 				stepAgent = step.Agent
+				stepInstructions = step.Instructions
 			}
 		}
 	}
@@ -89,10 +106,11 @@ func BuildView(ctx context.Context, name string) (*task.View, error) {
 	// Routine
 	if tv.Routine != nil {
 		v.Routine = &task.RoutineView{
-			Name:        tv.Routine.Name,
-			Source:      tv.Routine.Source,
-			CurrentStep: tv.Stage,
-			StepAgent:   stepAgent,
+			Name:         tv.Routine.Name,
+			Source:       tv.Routine.Source,
+			CurrentStep:  tv.Stage,
+			StepAgent:    stepAgent,
+			Instructions: stepInstructions,
 		}
 		// Convert steps for diagram rendering
 		v.Routine.Steps = make([]task.StepView, len(tv.Routine.Steps))

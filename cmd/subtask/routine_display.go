@@ -3,24 +3,25 @@ package main
 import (
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/routine"
+	"github.com/kgruel/subtask/pkg/task"
 )
 
-// routineDiagramSteps converts a *routine.Routine to []render.DiagramStep for
+// routineDiagramSteps converts []task.StepView to []render.DiagramStep for
 // use with render.FormatRoutineDiagram. Loopback edges are detected by step
 // position: a target whose index is ≤ the source's index is a loopback
 // (includes self-loops where target == source).
-func routineDiagramSteps(r *routine.Routine) []render.DiagramStep {
-	if r == nil {
+func routineDiagramSteps(steps []task.StepView) []render.DiagramStep {
+	if len(steps) == 0 {
 		return nil
 	}
 
-	idxOf := make(map[string]int, len(r.Steps))
-	for i, s := range r.Steps {
+	idxOf := make(map[string]int, len(steps))
+	for i, s := range steps {
 		idxOf[s.ID] = i
 	}
 
-	steps := make([]render.DiagramStep, len(r.Steps))
-	for i, s := range r.Steps {
+	out := make([]render.DiagramStep, len(steps))
+	for i, s := range steps {
 		ds := render.DiagramStep{
 			ID:       s.ID,
 			Terminal: s.Kind == routine.KindTerminal,
@@ -48,7 +49,7 @@ func routineDiagramSteps(r *routine.Routine) []render.DiagramStep {
 				}
 			}
 		}
-		steps[i] = ds
+		out[i] = ds
 	}
-	return steps
+	return out
 }

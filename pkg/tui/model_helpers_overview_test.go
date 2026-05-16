@@ -50,6 +50,7 @@ func TestUpdateOverviewContent_RendersProgressAndRoutine(t *testing.T) {
 			},
 		},
 	}
+	m.detailView, _ = store.BuildViewFromTaskView(m.detail)
 
 	m.updateOverviewContent()
 	out := ansi.Strip(m.vpOverview.View())

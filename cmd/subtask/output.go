@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/routine"
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -255,9 +257,15 @@ func PrintWorkerResult(taskName string, reply string, toolCalls int, changedFile
 // When workerLabel is non-empty it is used directly; otherwise the label is
 // resolved from the task snapshot (fallback for callers without a live cfg).
 func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, changedFiles []string, stage, workerLabel string) {
+	v, _ := store.BuildView(context.Background(), taskName, nil, store.BuildViewOptions{Stage: stage})
+
 	label := workerLabel
 	if label == "" {
-		label = resolveWorkerLabelForTask(taskName, stage)
+		if v != nil {
+			label = task.WorkerLabel(v.Agent.Name, "", v.Agent.Adapter, v.Agent.Model)
+		} else {
+			label = resolveWorkerLabelForTask(taskName, stage)
+		}
 	}
 	fmt.Printf("%s replied (%d tool calls)", label, toolCalls)
 
@@ -274,12 +282,11 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	}
 
 	// Print workspace: diff stats (when non-empty) + path.
-	state, _ := task.LoadState(taskName)
-	if state != nil && state.Workspace != "" {
+	if v != nil && v.Workspace != "" {
 		var statsLine string
-		if t, err := task.Load(taskName); err == nil && t.BaseBranch != "" {
-			if base, err := git.ResolveDiffBase(state.Workspace, "HEAD", t.BaseBranch); err == nil {
-				if stats, err := git.DiffNumstat(state.Workspace, base); err == nil && len(stats) > 0 {
+		if v.BaseBranch != "" {
+			if base, err := git.ResolveDiffBase(v.Workspace, "HEAD", v.BaseBranch); err == nil {
+				if stats, err := git.DiffNumstat(v.Workspace, base); err == nil && len(stats) > 0 {
 					var added, removed int
 					for _, s := range stats {
 						added += s.Added
@@ -295,19 +302,19 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 		}
 		render.Section("Workspace")
 		if statsLine != "" {
-			render.SectionContent(statsLine + "\n" + state.Workspace)
+			render.SectionContent(statsLine + "\n" + v.Workspace)
 		} else {
-			render.SectionContent(state.Workspace)
+			render.SectionContent(v.Workspace)
 		}
 	}
 
 	// Conflicts (only when merge would fail).
-	if state != nil && state.Workspace != "" {
-		if t, err := task.Load(taskName); err == nil && t.BaseBranch != "" {
+	if v != nil && v.Workspace != "" {
+		if v.BaseBranch != "" {
 			// Local-first: compare against the local base branch only.
-			target := t.BaseBranch
-			if git.BranchExists(state.Workspace, target) {
-				conflicts, err := git.MergeConflictFiles(state.Workspace, target, "HEAD")
+			target := v.BaseBranch
+			if git.BranchExists(v.Workspace, target) {
+				conflicts, err := git.MergeConflictFiles(v.Workspace, target, "HEAD")
 				if err == nil && len(conflicts) > 0 {
 					var b strings.Builder
 					b.WriteString("Cannot merge cleanly. Conflicting files:\n")
@@ -324,25 +331,19 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	}
 
 	// Print routine and step info (routine-driven tasks only).
-	if t, err := task.Load(taskName); err == nil && t.Routine != "" {
-		if r, err := routine.LoadByName(t.Routine); err == nil {
-			render.Section("Routine: " + r.Name + routine.SourceSuffix(r.Source))
-			fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), stage))
-			if stage != "" {
-				if step := r.GetStep(stage); step != nil && step.Agent != "" {
-					fmt.Printf("Agent: %s\n", step.Agent)
-				}
-			}
-			fmt.Println()
+	if v != nil && v.Routine != nil {
+		render.Section("Routine: " + v.Routine.Name + routine.SourceSuffix(v.Routine.Source))
+		fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), v.Routine.CurrentStep))
+		if v.Routine.StepAgent != "" {
+			fmt.Printf("Agent: %s\n", v.Routine.StepAgent)
+		}
+		fmt.Println()
 
-			if stage != "" {
-				if step := r.GetStep(stage); step != nil && step.Instructions != "" {
-					lines := strings.Split(strings.TrimSpace(step.Instructions), "\n")
-					for _, line := range lines {
-						line = strings.ReplaceAll(line, "<task>", taskName)
-						fmt.Println(line)
-					}
-				}
+		if v.Routine.Instructions != "" {
+			lines := strings.Split(strings.TrimSpace(v.Routine.Instructions), "\n")
+			for _, line := range lines {
+				line = strings.ReplaceAll(line, "<task>", taskName)
+				fmt.Println(line)
 			}
 		}
 	}

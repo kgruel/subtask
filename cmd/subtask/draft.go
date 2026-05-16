@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/task/migrate/gitredesign"
+	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
@@ -324,20 +326,23 @@ func (c *DraftCmd) runRoutineDraft(description string) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	printSection("Routine: " + r.Name + routine.SourceSuffix(r.Source))
-	fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(r), entry.ID))
-	if entry.Agent != "" {
-		fmt.Printf("Agent: %s\n", entry.Agent)
-	}
-	fmt.Println()
-
-	if entry.Instructions != "" {
-		lines := strings.Split(strings.TrimSpace(entry.Instructions), "\n")
-		for _, line := range lines {
-			line = strings.ReplaceAll(line, "<task>", c.Task)
-			fmt.Println(line)
+	v, _ := store.BuildView(context.Background(), c.Task, nil, store.BuildViewOptions{})
+	if v != nil && v.Routine != nil {
+		printSection("Routine: " + v.Routine.Name + routine.SourceSuffix(v.Routine.Source))
+		fmt.Println(render.FormatRoutineDiagram(routineDiagramSteps(v.Routine.Steps), v.Routine.CurrentStep))
+		if v.Routine.StepAgent != "" {
+			fmt.Printf("Agent: %s\n", v.Routine.StepAgent)
 		}
 		fmt.Println()
+
+		if v.Routine.Instructions != "" {
+			lines := strings.Split(strings.TrimSpace(v.Routine.Instructions), "\n")
+			for _, line := range lines {
+				line = strings.ReplaceAll(line, "<task>", c.Task)
+				fmt.Println(line)
+			}
+			fmt.Println()
+		}
 	}
 
 	printSection("Usage")

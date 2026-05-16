@@ -244,7 +244,11 @@ func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) 
 	return out, nil
 }
 
-func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, error) {
+func (s *store) Get(ctx context.Context, name string, opts GetOptions) (TaskView, error) {
+	return s.getWithConfig(ctx, name, nil)
+}
+
+func (s *store) getWithConfig(ctx context.Context, name string, cfg *workspace.Config) (TaskView, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -272,7 +276,10 @@ func (s *store) Get(ctx context.Context, name string, _ GetOptions) (TaskView, e
 	t := rec.Task
 	state := rec.State
 	meta := rec.ProgressMeta
-	cfg, _ := workspace.LoadConfig() // best-effort (allows working in partial setups)
+	if cfg == nil {
+		c, _ := workspace.LoadConfig() // best-effort (allows working in partial setups)
+		cfg = c
+	}
 
 	// The SQLite index projection doesn't carry t.Routine, t.Agent, t.Adapter,
 	// or t.Provider. Recover them from TASK.md before resolving adapter/model so
