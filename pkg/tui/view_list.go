@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
 	zone "github.com/lrstanley/bubblezone"
@@ -117,10 +118,16 @@ func renderListView(m model) string {
 			main.WriteString("\n")
 		}
 
-		// Title line
+		// Title line. Truncate to viewport width so long titles don't
+		// wrap and push other rows offscreen. Overhead: 2 leftPad +
+		// 2 "└ " prefix = 4; -5 gives 1-char safety margin.
 		titleLine := ""
 		if t.Title != "" {
-			titleLine = "└ " + t.Title
+			title := t.Title
+			if m.width > 5 {
+				title = ansi.Truncate(title, m.width-5, "…")
+			}
+			titleLine = "└ " + title
 		}
 
 		// Selection uses indicator + blue task name (no background)
