@@ -16,7 +16,7 @@ func TestResolveConfigValues_Defaults(t *testing.T) {
 	require.Equal(t, workspace.DefaultMaxWorkspaces, values.MaxWorkspaces)
 }
 
-func TestResolveConfigValues_ExistingClaude_DefaultsModel_DropsReasoning(t *testing.T) {
+func TestResolveConfigValues_ExistingClaude_DefaultsModel_PreservesReasoning(t *testing.T) {
 	existing := &workspace.Config{
 		Adapter:       "claude",
 		Reasoning:     "high",
@@ -25,8 +25,18 @@ func TestResolveConfigValues_ExistingClaude_DefaultsModel_DropsReasoning(t *test
 	values := resolveConfigValues(existing, configFlags{})
 	require.Equal(t, "claude", values.Adapter)
 	require.Equal(t, "opus", values.Model)
-	require.Empty(t, values.Reasoning)
+	require.Equal(t, "high", values.Reasoning)
 	require.Equal(t, 7, values.MaxWorkspaces)
+}
+
+func TestResolveConfigValues_ClaudeAdapterFlag_ResetsReasoning(t *testing.T) {
+	existing := &workspace.Config{
+		Adapter:   "claude",
+		Reasoning: "high",
+	}
+	values := resolveConfigValues(existing, configFlags{Adapter: "claude"})
+	require.Equal(t, "claude", values.Adapter)
+	require.Empty(t, values.Reasoning)
 }
 
 func TestResolveConfigValues_FlagsHarnessOverride_ResetsDependentDefaults(t *testing.T) {

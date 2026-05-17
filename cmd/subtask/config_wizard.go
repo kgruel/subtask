@@ -100,11 +100,6 @@ func resolveConfigValues(existing *workspace.Config, flags configFlags) configVa
 		if strings.TrimSpace(values.Model) == "" {
 			values.Model = "opus"
 		}
-		// If reasoning came from defaults/existing and the user didn't explicitly set it as a flag,
-		// drop it for non-codex adapters (keeps config files clean and matches prior behavior).
-		if strings.TrimSpace(flags.Reasoning) == "" {
-			values.Reasoning = ""
-		}
 	case "opencode":
 		if strings.TrimSpace(flags.Reasoning) == "" {
 			values.Reasoning = ""
@@ -256,7 +251,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		if step > 1 && model != "" {
 			fmt.Printf("  Model:     %s\n", model)
 		}
-		if step > 2 && h == "codex" {
+		if step > 2 && (h == "codex" || h == "claude") {
 			fmt.Printf("  Reasoning: %s\n", reasoning)
 		}
 		if step > firstStep {
@@ -291,27 +286,19 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 		case 1:
 			if h == "codex" {
-				opts := []huh.Option[string]{
-					huh.NewOption("gpt-5.2 (recommended)", "gpt-5.2"),
-					huh.NewOption("gpt-5.2-codex", "gpt-5.2-codex"),
-				}
 				form = huh.NewForm(huh.NewGroup(
-					huh.NewSelect[string]().
+					huh.NewInput().
 						Title("Model").
 						Description("Default for workers. Change anytime with: subtask config").
-						Options(opts...).
+						Placeholder("gpt-5.2").
 						Value(&model),
 				))
 			} else if h == "claude" {
-				opts := []huh.Option[string]{
-					huh.NewOption("Opus (recommended)", "opus"),
-					huh.NewOption("Sonnet", "sonnet"),
-				}
 				form = huh.NewForm(huh.NewGroup(
-					huh.NewSelect[string]().
+					huh.NewInput().
 						Title("Model").
 						Description("Default for workers. Change anytime with: subtask config").
-						Options(opts...).
+						Placeholder("opus").
 						Value(&model),
 				))
 			} else if h == "gemini" {
@@ -333,22 +320,38 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 			}
 
 		case 2:
-			if h != "codex" {
+			if h != "codex" && h != "claude" {
 				step++
 				continue
 			}
-			form = huh.NewForm(huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Reasoning").
-					Description("Default for workers. Change anytime with: subtask config").
-					Options(
-						huh.NewOption("Extra High", "xhigh"),
-						huh.NewOption("High (recommended)", "high"),
-						huh.NewOption("Medium", "medium"),
-						huh.NewOption("Low", "low"),
-					).
-					Value(&reasoning),
-			))
+			if h == "claude" {
+				form = huh.NewForm(huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Reasoning").
+						Description("Effort level passed as --effort to claude. Leave blank to use claude's default. Change anytime with: subtask config").
+						Options(
+							huh.NewOption("None (adapter default)", ""),
+							huh.NewOption("Low", "low"),
+							huh.NewOption("Medium", "medium"),
+							huh.NewOption("High", "high"),
+							huh.NewOption("Extra High", "xhigh"),
+						).
+						Value(&reasoning),
+				))
+			} else {
+				form = huh.NewForm(huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Reasoning").
+						Description("Default for workers. Change anytime with: subtask config").
+						Options(
+							huh.NewOption("Extra High", "xhigh"),
+							huh.NewOption("High (recommended)", "high"),
+							huh.NewOption("Medium", "medium"),
+							huh.NewOption("Low", "low"),
+						).
+						Value(&reasoning),
+				))
+			}
 		}
 
 		if step > 2 {
@@ -366,7 +369,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				return nil, false, fmt.Errorf("config cancelled")
 			}
 			step--
-			if step == 2 && h != "codex" {
+			if step == 2 && h != "codex" && h != "claude" {
 				step--
 			}
 			continue
