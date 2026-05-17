@@ -14,7 +14,6 @@ type TaskRow struct {
 	Name          string
 	Status        string
 	Stage         string
-	Agent         string
 	Progress      string // "X/Y" format
 	LastActive    string
 	Title         string
@@ -32,12 +31,11 @@ type TaskListTable struct {
 }
 
 // RenderPlain renders the task list as plain text (for agents).
-// It maintains a stable column count (including AGENT) regardless of width.
 func (t *TaskListTable) RenderPlain() string {
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
 
-	fmt.Fprintln(w, "TASK\tSTATUS\tAGENT\tSTAGE\tPROGRESS\tCHANGES\tLAST ACTIVE\tTITLE")
+	fmt.Fprintln(w, "TASK\tSTATUS\tSTAGE\tPROGRESS\tCHANGES\tLAST ACTIVE\tTITLE")
 
 	for _, task := range t.Tasks {
 		progress := task.Progress
@@ -49,12 +47,12 @@ func (t *TaskListTable) RenderPlain() string {
 		if task.HasReview {
 			title += " [reviewed]"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			task.Name, task.Status, task.Agent, task.Stage, progress, changes, task.LastActive, title)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			task.Name, task.Status, task.Stage, progress, changes, task.LastActive, title)
 	}
 
 	if t.Footer != "" {
-		fmt.Fprintf(w, "\t\t\t\t\t%s\n", t.Footer)
+		fmt.Fprintf(w, "\t\t\t\t%s\n", t.Footer)
 	}
 
 	w.Flush()
@@ -71,14 +69,8 @@ func (t *TaskListTable) RenderPretty() string {
 		return ""
 	}
 
-	showAgent := t.TerminalWidth == 0 || t.TerminalWidth >= 100
-
 	// Headers (no TITLE - it goes on second line)
-	headers := []string{"TASK", "STATUS"}
-	if showAgent {
-		headers = append(headers, "AGENT")
-	}
-	headers = append(headers, "STAGE", "PROGRESS", "CHANGES", "LAST ACTIVE")
+	headers := []string{"TASK", "STATUS", "STAGE", "PROGRESS", "CHANGES", "LAST ACTIVE"}
 
 	// Calculate column widths
 	widths := make([]int, len(headers))
@@ -89,16 +81,11 @@ func (t *TaskListTable) RenderPretty() string {
 		row := []string{
 			task.Name,
 			task.Status,
-		}
-		if showAgent {
-			row = append(row, ansi.Truncate(task.Agent, 12, "…"))
-		}
-		row = append(row,
 			task.Stage,
 			formatProgressBar(task.Progress),
 			formatChangesForTask(task, false), // Use plain for width calculation
 			task.LastActive,
-		)
+		}
 		for i, cell := range row {
 			// For progress bar and changes, use display width not byte length
 			cellWidth := displayWidth(cell)
@@ -136,25 +123,28 @@ func (t *TaskListTable) RenderPretty() string {
 		cells := []string{
 			padRight(task.Name, widths[0]),
 			padRightDisplay(colorUnifiedStatus(task.Status), widths[1]),
+			padRight(task.Stage, widths[2]),
+			padRightDisplay(formatProgressBar(task.Progress), widths[3]),
+			padRightDisplay(formatChangesForTask(task, true), widths[4]),
+			padRight(task.LastActive, widths[5]),
 		}
-		idx := 2
-		if showAgent {
-			cells = append(cells, padRight(ansi.Truncate(task.Agent, 12, "…"), widths[idx]))
-			idx++
-		}
-		cells = append(cells,
-			padRight(task.Stage, widths[idx]),
-			padRightDisplay(formatProgressBar(task.Progress), widths[idx+1]),
-			padRightDisplay(formatChangesForTask(task, true), widths[idx+2]),
-			padRight(task.LastActive, widths[idx+3]),
-		)
 		lines = append(lines, strings.Join(cells, "  "))
 
-		// Title row (dimmed, aligned with task name)
+		// Title row (dimmed, aligned with task name).
+		// Truncate to terminal width so the box stays inside the viewport:
+		// styleBox uses 1 left margin + 2 border + 2 padding = 5 horizontal
+		// overhead; "└ " prefix adds 2. Reserve 1 extra cell as a safety
+		// margin against wide chars or rounding.
 		if task.Title != "" {
 			title := task.Title
 			if task.HasReview {
 				title += "  [reviewed]"
+			}
+			if t.TerminalWidth > 0 {
+				maxTitle := t.TerminalWidth - 8
+				if maxTitle > 0 {
+					title = ansi.Truncate(title, maxTitle, "…")
+				}
 			}
 			titleLine := styleDim.Render("└ " + title)
 			lines = append(lines, titleLine)

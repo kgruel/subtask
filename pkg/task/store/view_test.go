@@ -131,9 +131,6 @@ steps:
 
 			// F1 fix: Agent name should revert to task-level (empty in this fixture)
 			require.Empty(t, v.Agent.Name)
-
-			// F2 fix: ResolveListAgent should also return task-level (empty)
-			require.Empty(t, store.ResolveListAgent(taskName, "plan"))
 		})
 	}
 
@@ -154,8 +151,5 @@ steps:
 		require.True(t, v.IsTerminal)
 		// Should be senior-dev, NOT architect from the 'plan' step
 		require.Equal(t, "senior-dev", v.Agent.Name)
-
-		// ResolveListAgent should also return senior-dev
-		require.Equal(t, "senior-dev", store.ResolveListAgent(taskName, "plan"))
 	})
 }

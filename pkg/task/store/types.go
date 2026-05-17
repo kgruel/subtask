@@ -72,8 +72,6 @@ type TaskListItem struct {
 	LastRunDurationMS int
 	LastError         string
 
-	Agent string
-
 	Changes Changes
 }
 

@@ -41,13 +41,11 @@ type View struct {
 
 // AgentView represents the resolved identity of the agent working on the task.
 //
-// Surface conventions:
-//   - Full identity (Name + adapter/model + reasoning): subtask show
-//     identity line, TUI Overview Details, send/reply footer.
-//     Rendered via AgentView.Label() (with "(no named agent)" suffix)
-//     or render.TaskCardFromView (suffix dropped, reasoning included).
-//   - Named only: subtask list AGENT column.
-//     Rendered via ResolveListAgent in pkg/task/store.
+// Surface conventions: full identity (Name + adapter/model + reasoning) is
+// carried by subtask show, the TUI Overview Details box, the send/reply
+// footer, and the subtask log top tag. Rendered via AgentView.Label() or
+// render.TaskCardFromView. The CLI list table and TUI list view do not
+// display agent at all — they're snapshots of what's actionable.
 type AgentView struct {
 	Name      string // raw name; empty when no named agent
 	Adapter   string

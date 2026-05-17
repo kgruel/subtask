@@ -51,7 +51,6 @@ type TaskInfo struct {
 	Title         string
 	TaskStatus    task.TaskStatus
 	WorkerStatus  task.WorkerStatus
-	Agent         string
 	Stage         string // Current workflow stage
 	Workspace     string
 	BaseBranch    string // For git diff
@@ -111,7 +110,6 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 			Name:          t.Name,
 			Status:        status,
 			Stage:         stage,
-			Agent:         t.Agent,
 			Progress:      progress,
 			LinesAdded:    t.LinesAdded,
 			LinesRemoved:  t.LinesRemoved,

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
 	zone "github.com/lrstanley/bubblezone"
@@ -16,7 +15,7 @@ import (
 const selectionIndicator = "▶"
 
 // Column widths (will be calculated dynamically)
-var listHeaders = []string{"Task", "Status", "Agent", "Stage", "Changes", "Progress", "Activity"}
+var listHeaders = []string{"Task", "Status", "Stage", "Changes", "Progress", "Activity"}
 
 func renderListView(m model) string {
 	// Left padding for content (backgrounds extend full width)
@@ -25,8 +24,6 @@ func renderListView(m model) string {
 	if contentWidth < 40 {
 		contentWidth = 40
 	}
-
-	showAgent := m.width >= 100
 
 	var main strings.Builder
 	var footer strings.Builder
@@ -72,16 +69,13 @@ func renderListView(m model) string {
 	}
 
 	// Calculate column widths (TASK through CHANGES only; PROGRESS stretches, LAST ACTIVE is right-aligned).
-	numLeftCols := 4
-	if showAgent {
-		numLeftCols = 5
-	}
+	const numLeftCols = 4
 	widths := make([]int, numLeftCols)
 	for i := range widths {
 		widths[i] = len(listHeaders[i])
 	}
 	for _, t := range tasks {
-		row := listRowDataLeft(t, showAgent)
+		row := listRowDataLeft(t)
 		for i, cell := range row {
 			if len(cell) > widths[i] {
 				widths[i] = len(cell)
@@ -90,7 +84,7 @@ func renderListView(m model) string {
 	}
 
 	// Table header
-	headerContent := buildHeaderRow(widths, contentWidth, showAgent)
+	headerContent := buildHeaderRow(widths, contentWidth)
 	main.WriteString("\n") // empty line before header
 	main.WriteString(leftPad + headerContent + "\n")
 	main.WriteString("\n") // empty line after header
@@ -133,7 +127,7 @@ func renderListView(m model) string {
 		if i == m.selected {
 			// Indicator prefix replaces first char of leftPad
 			indicator := styleSelectionIndicator.Render(selectionIndicator) + " "
-			row := buildTaskRowSelected(t, widths, contentWidth, m.spinnerFrame, showAgent)
+			row := buildTaskRowSelected(t, widths, contentWidth, m.spinnerFrame)
 			main.WriteString(zone.Mark(zoneTaskRow(t.Name), indicator+row))
 			main.WriteString("\n")
 			if titleLine != "" {
@@ -142,7 +136,7 @@ func renderListView(m model) string {
 			}
 		} else {
 			// Normal row (no indicator)
-			row := buildTaskRow(t, widths, contentWidth, m.spinnerFrame, showAgent)
+			row := buildTaskRow(t, widths, contentWidth, m.spinnerFrame)
 			main.WriteString(zone.Mark(zoneTaskRow(t.Name), leftPad+row))
 			main.WriteString("\n")
 			if titleLine != "" {
@@ -163,7 +157,7 @@ func renderListView(m model) string {
 	help := styleKeycap.Render("/") + " search  " +
 		styleKeycap.Render("↑↓") + " navigate  " +
 		styleKeycap.Render("Enter") + " view  " +
-		styleKeycap.Render("^G") + " merge  " +
+		styleKeycap.Render("m") + " merge  " +
 		styleKeycap.Render("^D") + " close  " +
 		styleKeycap.Render("^X") + " abandon  " +
 		styleKeycap.Render("?") + " help  " +
@@ -197,7 +191,7 @@ func buildFullHeightView(m model, mainContent, footerContent string) string {
 }
 
 // buildHeaderRow builds table header row.
-func buildHeaderRow(widths []int, totalWidth int, showAgent bool) string {
+func buildHeaderRow(widths []int, totalWidth int) string {
 	// Helper: pad header text
 	pad := func(text string, width int) string {
 		styled := styleTableHeader.Render(text)
@@ -209,20 +203,10 @@ func buildHeaderRow(widths []int, totalWidth int, showAgent bool) string {
 	}
 
 	cells := []string{
-		pad("Task", widths[0]),   // Task
-		pad("Status", widths[1]), // Status
-	}
-	if showAgent {
-		cells = append(cells, pad("Agent", widths[2])) // Agent
-		cells = append(cells,
-			pad("Stage", widths[3]),   // Stage
-			pad("Changes", widths[4]), // Changes
-		)
-	} else {
-		cells = append(cells,
-			pad("Stage", widths[2]),   // Stage
-			pad("Changes", widths[3]), // Changes
-		)
+		pad("Task", widths[0]),
+		pad("Status", widths[1]),
+		pad("Stage", widths[2]),
+		pad("Changes", widths[3]),
 	}
 	leftPart := strings.Join(cells, "  ")
 	leftWidth := displayWidth(leftPart)
@@ -271,38 +255,24 @@ func stageText(t store.TaskListItem) string {
 }
 
 // listRowDataLeft returns plain text data for left-column width calculation.
-func listRowDataLeft(t store.TaskListItem, showAgent bool) []string {
-	res := []string{
+func listRowDataLeft(t store.TaskListItem) []string {
+	return []string{
 		t.Name,
 		unifiedStatusTextPlain(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError),
-	}
-	if showAgent {
-		res = append(res, ansi.Truncate(t.Agent, 12, "…"))
-	}
-	res = append(res,
 		stageText(t),
 		changesTextPlain(t),
-	)
-	return res
+	}
 }
 
 // buildTaskRow builds a complete row with stretched layout.
 // PROGRESS column stretches to fill space, LAST ACTIVE is right-aligned.
-func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int, showAgent bool) string {
-	// Build left columns (TASK through CHANGES)
+func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	leftCells := []string{
 		padRight(t.Name, widths[0]),
 		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRight(stageText(t), widths[2]),
+		padRightDisplay(changesTextStyled(t), widths[3]),
 	}
-	idx := 2
-	if showAgent {
-		leftCells = append(leftCells, padRight(ansi.Truncate(t.Agent, 12, "…"), widths[idx]))
-		idx++
-	}
-	leftCells = append(leftCells,
-		padRight(stageText(t), widths[idx]),
-		padRightDisplay(changesTextStyled(t), widths[idx+1]),
-	)
 	leftPart := strings.Join(leftCells, "  ")
 
 	// PROGRESS and LAST ACTIVE
@@ -324,21 +294,13 @@ func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFra
 }
 
 // buildTaskRowSelected builds a row for selected task with blue+bold task name.
-func buildTaskRowSelected(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int, showAgent bool) string {
-	// Build left columns - task name is blue+bold, rest normal
+func buildTaskRowSelected(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	leftCells := []string{
 		styleSelectedTaskName.Render(padRight(t.Name, widths[0])),
 		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRight(stageText(t), widths[2]),
+		padRightDisplay(changesTextStyled(t), widths[3]),
 	}
-	idx := 2
-	if showAgent {
-		leftCells = append(leftCells, padRight(ansi.Truncate(t.Agent, 12, "…"), widths[idx]))
-		idx++
-	}
-	leftCells = append(leftCells,
-		padRight(stageText(t), widths[idx]),
-		padRightDisplay(changesTextStyled(t), widths[idx+1]),
-	)
 	leftPart := strings.Join(leftCells, "  ")
 
 	// PROGRESS and LAST ACTIVE
