@@ -24,7 +24,7 @@ import (
 type DraftCmd struct {
 	Task        string `arg:"" help:"Task name (e.g., fix/epoch-boundary)"`
 	Description string `arg:"" optional:"" help:"Task description (or use stdin)"`
-	Base        string `name:"base-branch" required:"" help:"Base branch"`
+	Base        string `name:"base-branch" help:"Base branch (defaults to the current branch)"`
 	Title       string `required:"" help:"Short description"`
 	Adapter     string `help:"Adapter for this task (overrides project config)"`
 	Provider    string `help:"Provider for this task (adapter-dependent; overrides project config)"`
@@ -71,6 +71,18 @@ func (c *DraftCmd) Run() error {
 	// inconsistent.
 	if c.Routine != "" && c.Agent != "" {
 		return fmt.Errorf("--agent and --routine are mutually exclusive: routine steps define their own agents.\n\nUse the routine's step config to set per-step agents")
+	}
+
+	if c.Base == "" {
+		branch, err := git.CurrentBranch(task.ProjectRoot())
+		if err != nil {
+			return fmt.Errorf("could not determine current branch (pass --base-branch explicitly): %w", err)
+		}
+		branch = strings.TrimSpace(branch)
+		if branch == "" || branch == "HEAD" {
+			return fmt.Errorf("not on a branch (detached HEAD?); pass --base-branch explicitly")
+		}
+		c.Base = branch
 	}
 
 	if c.Routine != "" {
