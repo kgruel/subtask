@@ -16,8 +16,6 @@ type Store interface {
 
 type ListOptions struct {
 	All bool
-	// TargetCount only applies when All is false. If zero, the store uses a default.
-	TargetCount int
 }
 
 type GetOptions struct{}

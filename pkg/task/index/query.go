@@ -125,6 +125,31 @@ ORDER BY last_history_ns DESC, name ASC;
 	return i.queryList(ctx, q)
 }
 
+// ListOpenOnly returns tasks with task_status = 'open' or task_status = ''.
+// The empty-string case covers draft tasks whose history file hasn't recorded
+// a task.opened event yet. Allowlist (not blocklist) so future terminal
+// statuses don't silently appear in the default list.
+func (i *Index) ListOpenOnly(ctx context.Context) ([]ListItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const q = `
+SELECT
+	name, title, follow_up, base_branch, base_commit,
+	task_status, worker_status, stage,
+	workspace, started_at_ns, last_error,
+	last_history_ns,
+	last_active_ns, tool_calls,
+	last_run_duration_ms,
+	progress_done, progress_total,
+	git_lines_added, git_lines_removed
+FROM tasks
+WHERE task_status = 'open' OR task_status = ''
+ORDER BY last_history_ns DESC, name ASC;
+`
+	return i.queryList(ctx, q)
+}
+
 func (i *Index) ListClosed(ctx context.Context) ([]ListItem, error) {
 	if ctx == nil {
 		ctx = context.Background()

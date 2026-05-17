@@ -13,7 +13,7 @@ import (
 
 // ListCmd implements 'subtask list'.
 type ListCmd struct {
-	All  bool `short:"a" help:"Show all tasks including closed"`
+	All  bool `short:"a" help:"Include merged and closed tasks (default: open only)"`
 	JSON bool `short:"j" help:"Output as JSON"`
 }
 

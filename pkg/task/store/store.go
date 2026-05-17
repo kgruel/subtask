@@ -23,8 +23,6 @@ func New() Store {
 	return &store{}
 }
 
-const defaultListTargetCount = 10
-
 func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -58,11 +56,6 @@ func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) 
 		return ListResult{}, err
 	}
 
-	targetCount := opts.TargetCount
-	if targetCount <= 0 {
-		targetCount = defaultListTargetCount
-	}
-
 	var items []index.ListItem
 	if opts.All {
 		ls, err := idx.ListAll(ctx)
@@ -71,24 +64,11 @@ func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) 
 		}
 		items = append(items, ls...)
 	} else {
-		open, err := idx.ListOpen(ctx)
+		ls, err := idx.ListOpenOnly(ctx)
 		if err != nil {
 			return ListResult{}, err
 		}
-		closed, err := idx.ListClosed(ctx)
-		if err != nil {
-			return ListResult{}, err
-		}
-
-		items = append(items, open...)
-
-		remaining := targetCount - len(open)
-		if remaining > 0 {
-			if remaining > len(closed) {
-				remaining = len(closed)
-			}
-			items = append(items, closed[:remaining]...)
-		}
+		items = append(items, ls...)
 	}
 
 	available := countAvailableWorkspaces(items, workspaces)

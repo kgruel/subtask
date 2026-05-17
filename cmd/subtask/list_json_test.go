@@ -56,14 +56,13 @@ func TestListCmd_JSON_RoundTrips(t *testing.T) {
 func TestListCmd_JSON_AllFlag(t *testing.T) {
 	env := testutil.NewTestEnv(t, 1)
 
-	// Create 10 open tasks to fill the default list target count (10),
-	// leaving no room for the closed task in the default output.
-	const defaultTargetCount = 10
-	for i := range defaultTargetCount {
+	// 10 open tasks — all should appear in both default and --all output.
+	const openCount = 10
+	for i := range openCount {
 		env.CreateTask(fmt.Sprintf("open/task-%02d", i), "Open task", "main", "")
 	}
 
-	// Closed task: needs a task.closed event so the index marks it as closed.
+	// Closed task: must be absent from default, present in --all.
 	closedName := "fix/closed-one"
 	env.CreateTask(closedName, "Closed task", "main", "")
 	env.CreateTaskHistory(closedName, []history.Event{
@@ -71,32 +70,38 @@ func TestListCmd_JSON_AllFlag(t *testing.T) {
 		{Type: "task.closed", Data: mustJSON(map[string]any{"reason": "close"})},
 	})
 
-	// Default list: 10 open tasks fill the count; closed task is excluded.
+	// Merged task: must be absent from default, present in --all.
+	mergedName := "fix/merged-one"
+	env.CreateTask(mergedName, "Merged task", "main", "")
+	env.CreateTaskHistory(mergedName, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+		{Type: "task.merged", Data: mustJSON(map[string]any{"via": "detected", "base_branch": "main"})},
+	})
+
+	// Default list: open only — merged and closed are absent.
 	stdout, _, err := captureStdoutStderr(t, (&ListCmd{JSON: true}).Run)
 	require.NoError(t, err)
-	var open []listJSONItem
-	require.NoError(t, json.Unmarshal([]byte(stdout), &open))
-	require.Len(t, open, defaultTargetCount)
-	for _, it := range open {
+	var defaultItems []listJSONItem
+	require.NoError(t, json.Unmarshal([]byte(stdout), &defaultItems))
+	require.Len(t, defaultItems, openCount)
+	for _, it := range defaultItems {
 		require.NotEqual(t, closedName, it.Name, "closed task must not appear in default list")
+		require.NotEqual(t, mergedName, it.Name, "merged task must not appear in default list")
 	}
 
-	// --all list: includes the closed task too.
+	// --all list: includes closed and merged tasks too.
 	stdout, _, err = captureStdoutStderr(t, (&ListCmd{JSON: true, All: true}).Run)
 	require.NoError(t, err)
 	var all []listJSONItem
 	require.NoError(t, json.Unmarshal([]byte(stdout), &all))
-	require.Len(t, all, defaultTargetCount+1)
+	require.Len(t, all, openCount+2)
 
-	var found *listJSONItem
-	for i := range all {
-		if all[i].Name == closedName {
-			found = &all[i]
-			break
-		}
+	statusByName := make(map[string]string, len(all))
+	for _, it := range all {
+		statusByName[it.Name] = it.Status
 	}
-	require.NotNil(t, found, "closed task must appear in --all output")
-	require.Equal(t, "closed", found.Status)
+	require.Equal(t, "closed", statusByName[closedName], "closed task must appear in --all output")
+	require.Equal(t, "merged", statusByName[mergedName], "merged task must appear in --all output")
 }
 
 func TestListCmd_JSON_Empty(t *testing.T) {

@@ -1007,6 +1007,7 @@ func fetchListCmd() tea.Cmd {
 	return func() tea.Msg {
 		done := logging.DebugTimer("refresh", "start")
 		st := store.New()
+		// TUI browses full history; CLI default hides merged/closed — keep TUI consistent with pre-0.5 behavior.
 		data, err := st.List(context.Background(), store.ListOptions{All: true})
 		if err != nil {
 			logging.Error("refresh", "store.List error: "+err.Error())
