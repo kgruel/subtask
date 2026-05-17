@@ -286,8 +286,14 @@ func TestTUI_Artifacts_EnterViewModeAndEsc(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	waitForContains(t, tm, out, 2*time.Second, "Overview")
 
-	// Switch to Artifacts tab and wait for list to load.
+	// Switch to Artifacts tab and wait for list to load. TASK.md is prepended first.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
+		return strings.Contains(s, "▶ TASK.md")
+	})
+
+	// Navigate down to report.md (TASK.md is first).
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
 		return strings.Contains(s, "▶ report.md")
 	})
@@ -302,7 +308,6 @@ func TestTUI_Artifacts_EnterViewModeAndEsc(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
 		// After Esc from view mode, we're back in list mode (Artifacts tab still active).
-		// Press Esc again to exit detail, then look for list footer.
 		return strings.Contains(s, "▶ report.md") // list mode restored
 	})
 
@@ -343,7 +348,13 @@ func TestTUI_Artifacts_CopyContentToast(t *testing.T) {
 	waitForContains(t, tm, out, 2*time.Second, "Overview")
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
-	// Wait for the Artifacts tab to load (bullet "▶" only appears in the list view).
+	// Wait for the Artifacts tab to load. TASK.md is prepended first.
+	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
+		return strings.Contains(s, "▶ TASK.md")
+	})
+
+	// Navigate down to output.txt (TASK.md is first).
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
 		return strings.Contains(s, "▶ output.txt")
 	})
