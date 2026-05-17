@@ -116,7 +116,7 @@ subtask draft fix/bug --routine default --base-branch main --title "Fix worker p
 Intermittent panic in pool.go under high concurrency. Reproduce, fix, add tests.
 EOF
 
-# 2. Dispatch the worker. `send` is synchronous — run with run_in_background: true.
+# 2. Dispatch the worker. run_in_background: true on the Bash tool — no & in the command.
 subtask send fix/bug "Go ahead."
 
 # 3. When notified the bash exited, read the reply from durable history.
@@ -164,4 +164,4 @@ Commands no routine prints. Use these when the lead loop needs them.
 2. **Two-send pattern for plan-approved → implement.** After approving PLAN.md in a `*-plan` routine, run `subtask stage <task> implement` *first*, then `subtask send <task> "..."` separately. Never bundle "approved, now implement" in one message — workers execute against the step they're currently in.
 3. **PROGRESS.json is symlinked, not committable.** The task folder is symlinked into the worktree; `git add .subtask/tasks/<name>/PROGRESS.json` errors with "pathspec ... is beyond a symbolic link." Workers commit code; PROGRESS.json is lead-side bookkeeping and travels with the portable task folder.
 4. **Cross-adapter review is a practice, not optional polish.** Same-family review (Claude reviewing Claude) misses what a different family catches. Make `subtask review --task --agent <different-family>` part of the review step every time — not a bonus pass when you have time.
-5. **`send` blocks; `stage` sometimes blocks.** `subtask send` is synchronous — run it with `run_in_background: true` so you can keep talking to the user. Don't pipe it through `tail`/`head`; use `-q` for quiet output and `subtask reply` to fetch the canonical reply from history. `subtask stage` also blocks when the target step auto-dispatches (see Routines for the triggers); pass `--no-send` to stay passive.
+5. **`send` blocks; `stage` sometimes blocks.** `subtask send` is synchronous — run it with `run_in_background: true` on the Bash tool call. Do not add `&` to the command itself; that backgrounds the subprocess in the shell and the Bash tool exits immediately (exit 0), which defeats the notification — you'll think the send is done when the worker hasn't even started. Don't pipe it through `tail`/`head`; use `-q` for quiet output and `subtask reply` to fetch the canonical reply from history. `subtask stage` also blocks when the target step auto-dispatches (see Routines for the triggers); pass `--no-send` to stay passive.
