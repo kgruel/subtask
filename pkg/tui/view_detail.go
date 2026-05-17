@@ -63,9 +63,11 @@ func renderDetailView(m model) string {
 	help := styleKeycap.Render("Esc") + " back  " +
 		styleKeycap.Render("←→") + " prev/next  " +
 		styleKeycap.Render("1-4") + " tabs  " +
-		styleKeycap.Render("↑↓") + " scroll/files  " +
-		styleKeycap.Render("PgUp/Dn") + " page  " +
-		styleKeycap.Render("^G") + " merge  " +
+		styleKeycap.Render("↑↓") + " scroll  " +
+		styleKeycap.Render("s") + " send  " +
+		styleKeycap.Render(">") + " stage  " +
+		styleKeycap.Render("m") + " merge  " +
+		styleKeycap.Render("?") + " help  " +
 		styleKeycap.Render("q") + " quit"
 	footer.WriteString(leftPad + help)
 
