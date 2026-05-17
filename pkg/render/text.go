@@ -277,7 +277,7 @@ func Status(status string) string {
 	switch base {
 	case "open":
 		return styleStatusWorking.Render(status)
-	case "merged", "✓ merged":
+	case "merged", "✓ merged", "commit":
 		return styleStatusMerged.Render(status)
 	case "closed":
 		return styleStatusClosed.Render(status)
@@ -287,8 +287,10 @@ func Status(status string) string {
 		return styleStatusWorking.Render(status)
 	case "replied":
 		return styleStatusReplied.Render(status)
-	case "error":
+	case "error", "blocked":
 		return styleStatusError.Render(status)
+	case "success":
+		return styleStatusWorking.Render(status)
 	default:
 		return status
 	}
