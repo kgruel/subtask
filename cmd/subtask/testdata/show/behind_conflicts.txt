@@ -1,6 +1,6 @@
 Task: show/behind-conflicts
 Title: Conflict task
-Status: replied
+Status: replied (1s)
 Branch: show/behind-conflicts (based on main)
 builtin-mock/gpt-5.2
 

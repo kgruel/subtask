@@ -119,11 +119,7 @@ func (c *TaskCard) RenderPlain() string {
 	fmt.Fprintf(&buf, "Title: %s\n", c.Title)
 
 	// --- Identity group: Status, Branch, Agent [, Workspace (verbose)] ---
-	statusStr := c.TaskStatus
-	if !c.Verbose {
-		statusStr = stripStatusAge(statusStr)
-	}
-	fmt.Fprintf(&buf, "Status: %s\n", statusStr)
+	fmt.Fprintf(&buf, "Status: %s\n", c.TaskStatus)
 	if c.Error != "" {
 		fmt.Fprintf(&buf, "Error: %s\n", c.Error)
 	}
@@ -174,13 +170,15 @@ func (c *TaskCard) RenderPlain() string {
 	if len(c.ConflictFiles) > 0 {
 		fmt.Fprintf(&work, "Conflicts: %s\n", strings.Join(c.ConflictFiles, ", "))
 	}
-	if len(c.Artifacts) > 0 {
+	if c.Verbose && len(c.Artifacts) > 0 {
 		fmt.Fprintf(&work, "Artifacts:\n")
 		for _, a := range c.Artifacts {
 			if a.Missing {
-				fmt.Fprintf(&work, "  %s (missing, %s)\n", a.Name, a.Kind)
+				fmt.Fprintf(&work, "  → %s (missing)\n", a.Name)
+			} else if a.Kind != "" {
+				fmt.Fprintf(&work, "  → %s [%s]\n", a.Name, a.Kind)
 			} else {
-				fmt.Fprintf(&work, "  %s (%s, %s)\n", a.Name, FormatArtifactSize(a.Size), a.Kind)
+				fmt.Fprintf(&work, "  → %s\n", a.Name)
 			}
 		}
 	}
@@ -331,11 +329,7 @@ func (c *TaskCard) RenderPretty() string {
 	lines = append(lines, "")
 
 	// --- Identity group: Status, Branch, Agent [, Workspace (verbose)] ---
-	prettyStatusStr := c.TaskStatus
-	if !c.Verbose {
-		prettyStatusStr = stripStatusAge(prettyStatusStr)
-	}
-	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Status"), Status(prettyStatusStr)))
+	lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Status"), Status(c.TaskStatus)))
 	if c.Error != "" {
 		lines = append(lines, fmt.Sprintf("%s  %s", styleBold.Render("Error"), styleError.Render(c.Error)))
 	}
@@ -386,13 +380,15 @@ func (c *TaskCard) RenderPretty() string {
 	if len(c.ConflictFiles) > 0 {
 		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Conflicts"), styleDim.Render(strings.Join(c.ConflictFiles, ", "))))
 	}
-	if len(c.Artifacts) > 0 {
+	if c.Verbose && len(c.Artifacts) > 0 {
 		var parts []string
 		for _, a := range c.Artifacts {
 			if a.Missing {
-				parts = append(parts, fmt.Sprintf("%s (missing, %s)", a.Name, a.Kind))
+				parts = append(parts, fmt.Sprintf("→ %s (missing)", a.Name))
+			} else if a.Kind != "" {
+				parts = append(parts, fmt.Sprintf("→ %s [%s]", a.Name, a.Kind))
 			} else {
-				parts = append(parts, fmt.Sprintf("%s (%s, %s)", a.Name, FormatArtifactSize(a.Size), a.Kind))
+				parts = append(parts, fmt.Sprintf("→ %s", a.Name))
 			}
 		}
 		work = append(work, fmt.Sprintf("%s  %s", styleBold.Render("Artifacts"), strings.Join(parts, "\n           ")))
@@ -463,15 +459,6 @@ func (c *TaskCard) Print() {
 	} else {
 		fmt.Print(c.RenderPlain())
 	}
-}
-
-// stripStatusAge removes the parenthetical timing annotation from a status
-// string, e.g. "replied (1s)" → "replied".
-func stripStatusAge(s string) string {
-	if i := strings.Index(s, " ("); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
 
 // FormatArtifactSize returns a human-readable byte count.
