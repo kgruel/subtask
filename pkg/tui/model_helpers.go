@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/kgruel/subtask/pkg/render"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/task/store"
 )
@@ -203,25 +202,6 @@ func (m *model) updateOverviewContent() {
 		stepLines := formatRoutineDiagram(v.Routine, innerW)
 		routineLines = append(routineLines, strings.Split(stepLines, "\n")...)
 		sections = append(sections, routineLines)
-	}
-
-	// Artifacts section
-	if len(v.Artifacts) > 0 {
-		var artifactLines []string
-		artifactLines = append(artifactLines, styleBold.Render("Artifacts"))
-		artifactLines = append(artifactLines, "")
-
-		for _, a := range v.Artifacts {
-			var sizeInfo string
-			if a.Missing {
-				sizeInfo = styleDim.Render("missing")
-			} else {
-				sizeInfo = render.FormatArtifactSize(a.Size)
-			}
-			line := fmt.Sprintf("%s (%s, %s)", a.Name, sizeInfo, a.Kind)
-			artifactLines = append(artifactLines, wrapWithIndent(line, innerW, 0)...)
-		}
-		sections = append(sections, artifactLines)
 	}
 
 	// Error section (outside box, after it)
