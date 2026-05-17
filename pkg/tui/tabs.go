@@ -5,6 +5,7 @@ type tab int
 const (
 	tabOverview tab = iota
 	tabConversation
+	tabArtifacts
 	tabDiff
 	tabConflicts // Only shown when conflicts exist
 	tabCount
@@ -16,6 +17,8 @@ func (t tab) Title() string {
 		return "Overview"
 	case tabConversation:
 		return "Conversation"
+	case tabArtifacts:
+		return "Artifacts"
 	case tabDiff:
 		return "Changes"
 	case tabConflicts:

@@ -108,8 +108,12 @@ func TestTUI_ConversationAndDiffTabsRender(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	waitForContains(t, tm, out, 2*time.Second, "Hello from lead")
 
-	// Changes tab ([3]).
+	// Artifacts tab ([3]).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	waitForContains(t, tm, out, 2*time.Second, "Artifacts")
+
+	// Changes tab ([4] after renumbering).
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
 	waitForContains(t, tm, out, 2*time.Second, "file.txt")
 	waitForContains(t, tm, out, 2*time.Second, "hello")
 

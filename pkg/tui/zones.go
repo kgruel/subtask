@@ -21,6 +21,7 @@ func zoneTab(t tab) string {
 
 func zoneOverviewPane() string     { return "pane:overview" }
 func zoneConversationPane() string { return "pane:conversation" }
+func zoneArtifactsPane() string    { return "pane:artifacts" }
 func zoneDiffFilesPane() string    { return "pane:diff-files" }
 func zoneDiffCodePane() string     { return "pane:diff-code" }
 

@@ -148,6 +148,11 @@ func renderDetailTabBar(m model, leftPad string) string {
 
 		label := t.Title()
 
+		// Add artifact count for Artifacts tab
+		if t == tabArtifacts && m.artifactsTaskName == m.selectedTaskName {
+			label = fmt.Sprintf("%s (%d)", label, len(m.artifacts))
+		}
+
 		// Add file count for Changes tab
 		if t == tabDiff && m.diffTaskName == m.selectedTaskName {
 			label = fmt.Sprintf("%s (%d)", label, len(m.diffFiles))
@@ -179,6 +184,10 @@ func renderDetailContent(m model, leftPad string, contentWidth int) string {
 		}
 		v := m.vpConversation.View()
 		v = zone.Mark(zoneConversationPane(), v)
+		return addPadding(v, leftPad)
+	case tabArtifacts:
+		v := m.vpArtifactList.View()
+		v = zone.Mark(zoneArtifactsPane(), v)
 		return addPadding(v, leftPad)
 	case tabDiff:
 		return renderDiffView(m, leftPad)

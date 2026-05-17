@@ -123,6 +123,12 @@ type diffFileLoadedMsg struct {
 	err      error
 }
 
+type artifactsLoadedMsg struct {
+	taskName  string
+	artifacts []task.ArtifactInfo
+	err       error
+}
+
 type subtaskSpawner func(taskName string, args []string) tea.Cmd
 
 type model struct {
@@ -167,9 +173,16 @@ type model struct {
 	detailErr      error
 
 	// viewports (one per tab; diff uses split-pane viewport)
-	vpOverview     viewport.Model
-	vpConversation viewport.Model
-	vpConflicts    viewport.Model
+	vpOverview      viewport.Model
+	vpConversation  viewport.Model
+	vpArtifactList  viewport.Model
+	vpConflicts     viewport.Model
+
+	// artifacts tab data
+	artifactsTaskName string
+	artifacts         []task.ArtifactInfo
+	artifactsErr      error
+	artifactSelected  int
 
 	// conversation tab data
 	conversationTaskName string
@@ -260,6 +273,7 @@ func newModel() model {
 	m.diffSearchInput = di
 	m.vpOverview = viewport.New(0, 0)
 	m.vpConversation = viewport.New(0, 0)
+	m.vpArtifactList = viewport.New(0, 0)
 	m.vpConflicts = viewport.New(0, 0)
 	return m
 }
@@ -511,6 +525,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case artifactsLoadedMsg:
+		if msg.taskName != m.selectedTaskName {
+			return m, nil
+		}
+		m.artifactsTaskName = msg.taskName
+		m.artifactsErr = msg.err
+		m.artifacts = msg.artifacts
+		if m.tab == tabArtifacts {
+			m.updateArtifactsContent()
+		}
+		return m, nil
+
 	case spawnStartedMsg:
 		return m, m.refreshSelected()
 
@@ -537,6 +563,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchDetailCmd(m.selectedTaskName))
 			if m.tab == tabConversation {
 				cmds = append(cmds, fetchConversationCmd(m.selectedTaskName))
+			}
+			if m.tab == tabArtifacts {
+				cmds = append(cmds, fetchArtifactsCmd(m.selectedTaskName))
 			}
 			if m.tab == tabDiff {
 				cmds = append(cmds, fetchDiffFilesCmd(m.selectedTaskName, m.detail))
@@ -833,6 +862,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureSelectionVisible()
 				return m, nil
 			}
+			if m.mode == viewDetail && m.tab == tabArtifacts {
+				if m.artifactSelected > 0 {
+					m.artifactSelected--
+					m.updateArtifactsContent()
+				}
+				return m, nil
+			}
 			if m.mode == viewDetail && m.tab == tabDiff {
 				if m.diffSelectedIdx > 0 && len(m.diffFilteredPaths) > 0 {
 					return m, m.selectDiffPath(m.diffFilteredPaths[m.diffSelectedIdx-1])
@@ -850,6 +886,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.selectedTaskName = m.tasks[m.selected].Name
 				m.ensureSelectionVisible()
+				return m, nil
+			}
+			if m.mode == viewDetail && m.tab == tabArtifacts {
+				if m.artifactSelected < len(m.artifacts)-1 {
+					m.artifactSelected++
+					m.updateArtifactsContent()
+				}
 				return m, nil
 			}
 			if m.mode == viewDetail && m.tab == tabDiff {
@@ -1045,6 +1088,9 @@ func (m model) refreshSelected() tea.Cmd {
 		cmds = append(cmds, fetchDetailCmd(m.selectedTaskName))
 		if m.tab == tabConversation {
 			cmds = append(cmds, fetchConversationCmd(m.selectedTaskName))
+		}
+		if m.tab == tabArtifacts {
+			cmds = append(cmds, fetchArtifactsCmd(m.selectedTaskName))
 		}
 		if m.tab == tabDiff {
 			cmds = append(cmds, fetchDiffFilesCmd(m.selectedTaskName, m.detail))
@@ -1294,6 +1340,13 @@ func fetchDiffFilesCmd(taskName string, detail store.TaskView) tea.Cmd {
 			}
 		}
 		return diffFilesLoadedMsg{taskName: taskName, ctx: ctx, files: files, err: err}
+	}
+}
+
+func fetchArtifactsCmd(taskName string) tea.Cmd {
+	return func() tea.Msg {
+		arts, err := task.Artifacts(taskName)
+		return artifactsLoadedMsg{taskName: taskName, artifacts: arts, err: err}
 	}
 }
 

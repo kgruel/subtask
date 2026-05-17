@@ -34,6 +34,8 @@ func (m *model) resize() {
 	m.vpOverview.Height = contentHeight
 	m.vpConversation.Width = contentWidth
 	m.vpConversation.Height = contentHeight
+	m.vpArtifactList.Width = contentWidth
+	m.vpArtifactList.Height = contentHeight
 	m.vpConflicts.Width = contentWidth
 	m.vpConflicts.Height = contentHeight
 
@@ -377,6 +379,10 @@ func (m *model) updateConversationContent() {
 
 }
 
+func (m *model) updateArtifactsContent() {
+	m.vpArtifactList.SetContent(renderArtifactsList(*m))
+}
+
 func (m *model) onTabActivated() tea.Cmd {
 	if m.selectedTaskName == "" {
 		return nil
@@ -387,6 +393,8 @@ func (m *model) onTabActivated() tea.Cmd {
 	switch m.tab {
 	case tabConversation:
 		return fetchConversationCmd(m.selectedTaskName)
+	case tabArtifacts:
+		return fetchArtifactsCmd(m.selectedTaskName)
 	case tabDiff:
 		// If we already have files for this task, just do UI setup
 		if m.diffTaskName == m.selectedTaskName && len(m.diffFiles) > 0 {
@@ -408,6 +416,8 @@ func (m model) updateActiveViewport(msg tea.Msg) (model, tea.Cmd) {
 	case tabConversation:
 		m.vpConversation, cmd = m.vpConversation.Update(msg)
 		m.conversationFollow = m.vpConversation.AtBottom()
+	case tabArtifacts:
+		m.vpArtifactList, cmd = m.vpArtifactList.Update(msg)
 	case tabDiff:
 		if mm, ok := msg.(tea.MouseMsg); ok && mm.Action == tea.MouseActionPress {
 			switch mm.Button { //nolint:exhaustive
@@ -430,6 +440,8 @@ func (m *model) scrollActiveViewport(delta int) tea.Cmd {
 	case tabConversation:
 		scrollViewport(&m.vpConversation, delta)
 		m.conversationFollow = m.vpConversation.AtBottom()
+	case tabArtifacts:
+		scrollViewport(&m.vpArtifactList, delta)
 	case tabDiff:
 		m.scrollDiff(delta)
 	case tabConflicts:
@@ -445,6 +457,8 @@ func (m *model) pageActiveViewport(delta int) tea.Cmd {
 	case tabConversation:
 		pageViewport(&m.vpConversation, delta)
 		m.conversationFollow = m.vpConversation.AtBottom()
+	case tabArtifacts:
+		pageViewport(&m.vpArtifactList, delta)
 	case tabDiff:
 		m.pageDiff(delta)
 	case tabConflicts:
