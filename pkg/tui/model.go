@@ -428,6 +428,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Clamp selection to visible list, preserving selected task by name
+		prevSelectedTaskName := m.selectedTaskName
 		visible := m.visibleTasks()
 		m.selected = clampSelection(visible, m.selected, m.selectedTaskName)
 		if m.selected >= 0 && m.selected < len(visible) {
@@ -436,6 +437,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedTaskName = ""
 		}
 		m.ensureSelectionVisible()
+
+		// When the selected task changes, reset artifact view mode to prevent showing stale content.
+		if m.selectedTaskName != prevSelectedTaskName {
+			m.artifactViewMode = artifactModeList
+		}
 
 		// Keep detail view consistent after refreshes that reorder or remove tasks.
 		if m.mode == viewDetail && m.selectedTaskName != "" && m.detailTaskName != m.selectedTaskName {
@@ -563,22 +569,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.artifactsTaskName = msg.taskName
 		m.artifactsErr = msg.err
+		// Snapshot staleness before overwriting the list so we know if the viewed artifact is gone.
+		selectedGone := len(msg.artifacts) == 0 || m.artifactSelected >= len(msg.artifacts)
 		m.artifacts = msg.artifacts
+		if m.artifactSelected >= len(m.artifacts) {
+			m.artifactSelected = len(m.artifacts) - 1
+		}
+		if m.artifactSelected < 0 {
+			m.artifactSelected = 0
+		}
+		if m.artifactViewMode == artifactModeView && selectedGone {
+			m.artifactViewMode = artifactModeList
+		}
 		if m.tab == tabArtifacts {
 			m.updateArtifactsContent()
 		}
 		return m, nil
 
 	case artifactContentLoadedMsg:
-		if msg.taskName != m.selectedTaskName || msg.loadID != m.artifactContentLoadID || m.tab != tabArtifacts || m.artifactViewMode != artifactModeView {
+		if msg.taskName != m.selectedTaskName || msg.loadID != m.artifactContentLoadID {
 			return m, nil
 		}
+		// Always cache — off-tab responses are still valid; re-entering the tab finds content ready.
 		if msg.err != nil {
 			m.cacheArtifactContent(msg.taskName, msg.path, "Error loading file: "+msg.err.Error(), false, false)
 		} else {
 			m.cacheArtifactContent(msg.taskName, msg.path, msg.body, msg.binary, msg.missing)
 		}
-		m.updateArtifactViewContent()
+		if m.tab == tabArtifacts && m.artifactViewMode == artifactModeView {
+			m.updateArtifactViewContent()
+		}
 		return m, nil
 
 	case spawnStartedMsg:
