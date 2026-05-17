@@ -257,6 +257,105 @@ func TestTUI_Actions_MergeAndAbandon(t *testing.T) {
 	})
 }
 
+func TestTUI_Artifacts_EnterViewModeAndEsc(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+
+	taskName := "fix/artifacts-view"
+	baseCommit := gitRevParse(t, ".", "main")
+
+	env.CreateTask(taskName, "Artifact Test", "main", "desc")
+	env.CreateTaskHistory(taskName, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": baseCommit})},
+		{Type: "artifact.produced", Data: mustJSON(map[string]any{"name": "report.md", "path": "report.md", "kind": "review"})},
+		{Type: "worker.finished", Data: mustJSON(map[string]any{"run_id": "r1", "duration_ms": 1000, "tool_calls": 0, "outcome": "replied"})},
+	})
+
+	// Create the actual artifact file.
+	taskDir := task.Dir(taskName)
+	if err := os.MkdirAll(taskDir, 0755); err != nil {
+		t.Fatalf("mkdir task dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "report.md"), []byte("# Hello\nThis is a report.\n"), 0644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	tm, out := newTestTUI(t)
+	waitForContains(t, tm, out, 2*time.Second, taskName)
+
+	// Open detail view.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForContains(t, tm, out, 2*time.Second, "Overview")
+
+	// Switch to Artifacts tab and wait for list to load.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
+		return strings.Contains(s, "▶ report.md")
+	})
+
+	// Press Enter to open view mode. Wait for rendered file body — this string only
+	// appears after the async fetch completes and the viewport renders in view mode.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForContains(t, tm, out, 2*time.Second, "This is a report")
+
+	// Press Esc to return to list mode — should NOT exit to task list.
+	// After Esc, we're still in detail view (Esc from list mode exits; Esc from view mode goes back to list).
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
+		// After Esc from view mode, we're back in list mode (Artifacts tab still active).
+		// Press Esc again to exit detail, then look for list footer.
+		return strings.Contains(s, "▶ report.md") // list mode restored
+	})
+
+	// Press Esc to exit detail.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	waitForContains(t, tm, out, 2*time.Second, "navigate")
+
+	tm.Type("q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+func TestTUI_Artifacts_CopyContentToast(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+
+	taskName := "fix/artifacts-copy"
+	baseCommit := gitRevParse(t, ".", "main")
+
+	env.CreateTask(taskName, "Artifact Copy Test", "main", "desc")
+	env.CreateTaskHistory(taskName, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main", "base_commit": baseCommit})},
+		{Type: "artifact.produced", Data: mustJSON(map[string]any{"name": "output.txt", "path": "output.txt", "kind": "review"})},
+		{Type: "worker.finished", Data: mustJSON(map[string]any{"run_id": "r1", "duration_ms": 1000, "tool_calls": 0, "outcome": "replied"})},
+	})
+
+	taskDir := task.Dir(taskName)
+	if err := os.MkdirAll(taskDir, 0755); err != nil {
+		t.Fatalf("mkdir task dir: %v", err)
+	}
+	content := "hello from artifact\n"
+	if err := os.WriteFile(filepath.Join(taskDir, "output.txt"), []byte(content), 0644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	tm, out := newTestTUI(t)
+	waitForContains(t, tm, out, 2*time.Second, taskName)
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForContains(t, tm, out, 2*time.Second, "Overview")
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	// Wait for the Artifacts tab to load (bullet "▶" only appears in the list view).
+	waitForOutput(t, tm, out, 2*time.Second, func(s string) bool {
+		return strings.Contains(s, "▶ output.txt")
+	})
+
+	// Press y to copy content — should show "Copied N bytes" toast.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	waitForContains(t, tm, out, 2*time.Second, "Copied")
+
+	tm.Type("q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 func newTestTUI(t *testing.T) (*teatest.TestModel, *bytes.Buffer) {
 	t.Helper()
 

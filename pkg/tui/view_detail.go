@@ -186,7 +186,12 @@ func renderDetailContent(m model, leftPad string, contentWidth int) string {
 		v = zone.Mark(zoneConversationPane(), v)
 		return addPadding(v, leftPad)
 	case tabArtifacts:
-		v := m.vpArtifactList.View()
+		var v string
+		if m.artifactViewMode == artifactModeView {
+			v = m.vpArtifactView.View()
+		} else {
+			v = m.vpArtifactList.View()
+		}
 		v = zone.Mark(zoneArtifactsPane(), v)
 		return addPadding(v, leftPad)
 	case tabDiff:

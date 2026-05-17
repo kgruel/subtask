@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -129,6 +130,23 @@ type artifactsLoadedMsg struct {
 	err       error
 }
 
+type artifactMode int
+
+const (
+	artifactModeList artifactMode = iota
+	artifactModeView
+)
+
+type artifactContentLoadedMsg struct {
+	taskName string
+	path     string
+	body     string
+	binary   bool
+	missing  bool
+	err      error
+	loadID   int
+}
+
 type subtaskSpawner func(taskName string, args []string) tea.Cmd
 
 type model struct {
@@ -176,13 +194,20 @@ type model struct {
 	vpOverview      viewport.Model
 	vpConversation  viewport.Model
 	vpArtifactList  viewport.Model
+	vpArtifactView  viewport.Model
 	vpConflicts     viewport.Model
 
 	// artifacts tab data
-	artifactsTaskName string
-	artifacts         []task.ArtifactInfo
-	artifactsErr      error
-	artifactSelected  int
+	artifactsTaskName      string
+	artifacts              []task.ArtifactInfo
+	artifactsErr           error
+	artifactSelected       int
+	artifactViewMode      artifactMode
+	artifactContent       map[string]string
+	artifactContentOrder  []string
+	artifactBinary        map[string]bool
+	artifactMissing       map[string]bool
+	artifactContentLoadID int
 
 	// conversation tab data
 	conversationTaskName string
@@ -258,13 +283,16 @@ func newModel() model {
 	}
 
 	m := model{
-		mode:               viewList,
-		tab:                tabOverview,
-		conversationFollow: true,
-		diffDocCache:       make(map[string]*diffparse.Document),
-		diffSideBySide:     false,
-		searchInput:        ti,
-		subtaskSpawner:     newSubtaskSpawner(subtaskBinary),
+		mode:                viewList,
+		tab:                 tabOverview,
+		conversationFollow:  true,
+		diffDocCache:        make(map[string]*diffparse.Document),
+		diffSideBySide:      false,
+		searchInput:         ti,
+		subtaskSpawner:      newSubtaskSpawner(subtaskBinary),
+		artifactContent: make(map[string]string),
+		artifactBinary:  make(map[string]bool),
+		artifactMissing: make(map[string]bool),
 	}
 	di := textinput.New()
 	di.Placeholder = "filter files..."
@@ -274,6 +302,7 @@ func newModel() model {
 	m.vpOverview = viewport.New(0, 0)
 	m.vpConversation = viewport.New(0, 0)
 	m.vpArtifactList = viewport.New(0, 0)
+	m.vpArtifactView = viewport.New(0, 0)
 	m.vpConflicts = viewport.New(0, 0)
 	return m
 }
@@ -431,6 +460,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == viewDetail && m.tab == tabConversation {
 			cmds = append(cmds, fetchConversationCmd(m.selectedTaskName))
 		}
+		if m.mode == viewDetail && m.tab == tabArtifacts {
+			cmds = append(cmds, fetchArtifactsCmd(m.selectedTaskName))
+		}
 		// Always fetch diff files for the tab count
 		if m.mode == viewDetail {
 			cmds = append(cmds, fetchDiffFilesCmd(m.selectedTaskName, m.detail))
@@ -535,6 +567,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tab == tabArtifacts {
 			m.updateArtifactsContent()
 		}
+		return m, nil
+
+	case artifactContentLoadedMsg:
+		if msg.taskName != m.selectedTaskName || msg.loadID != m.artifactContentLoadID || m.tab != tabArtifacts || m.artifactViewMode != artifactModeView {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.cacheArtifactContent(msg.taskName, msg.path, "Error loading file: "+msg.err.Error(), false, false)
+		} else {
+			m.cacheArtifactContent(msg.taskName, msg.path, msg.body, msg.binary, msg.missing)
+		}
+		m.updateArtifactViewContent()
 		return m, nil
 
 	case spawnStartedMsg:
@@ -862,7 +906,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureSelectionVisible()
 				return m, nil
 			}
-			if m.mode == viewDetail && m.tab == tabArtifacts {
+			if m.mode == viewDetail && m.tab == tabArtifacts && m.artifactViewMode == artifactModeList {
 				if m.artifactSelected > 0 {
 					m.artifactSelected--
 					m.updateArtifactsContent()
@@ -888,7 +932,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureSelectionVisible()
 				return m, nil
 			}
-			if m.mode == viewDetail && m.tab == tabArtifacts {
+			if m.mode == viewDetail && m.tab == tabArtifacts && m.artifactViewMode == artifactModeList {
 				if m.artifactSelected < len(m.artifacts)-1 {
 					m.artifactSelected++
 					m.updateArtifactsContent()
@@ -916,7 +960,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureSelectionVisible()
 			}
 			return m, nil
+		case "y":
+			if m.mode == viewDetail && m.tab == tabArtifacts && len(m.artifacts) > 0 {
+				a := m.artifacts[m.artifactSelected]
+				key := artifactCacheKey(m.selectedTaskName, a.Path)
+				if m.artifactBinary[key] {
+					m.toast = toastState{kind: toastInfo, text: "Cannot copy binary content", until: nowFunc().Add(3 * time.Second)}
+					return m, nil
+				}
+				if m.artifactMissing[key] {
+					m.toast = toastState{kind: toastError, text: "File no longer exists on disk", until: nowFunc().Add(3 * time.Second)}
+					return m, nil
+				}
+				body, cached := m.artifactContent[key]
+				if !cached {
+					data, err := os.ReadFile(filepath.Join(task.Dir(m.selectedTaskName), filepath.FromSlash(a.Path)))
+					if err != nil {
+						if os.IsNotExist(err) {
+							m.cacheArtifactContent(m.selectedTaskName, a.Path, "", false, true)
+							m.toast = toastState{kind: toastError, text: "File no longer exists on disk", until: nowFunc().Add(3 * time.Second)}
+						} else {
+							m.toast = toastState{kind: toastError, text: "Cannot read file", until: nowFunc().Add(3 * time.Second)}
+						}
+						return m, nil
+					}
+					if isBinary(data) {
+						m.cacheArtifactContent(m.selectedTaskName, a.Path, "", true, false)
+						m.toast = toastState{kind: toastInfo, text: "Cannot copy binary content", until: nowFunc().Add(3 * time.Second)}
+						return m, nil
+					}
+					body = string(data)
+					m.cacheArtifactContent(m.selectedTaskName, a.Path, body, false, false)
+				}
+				m.toast = toastState{kind: toastSuccess, text: fmt.Sprintf("Copied %d bytes", len(body)), until: nowFunc().Add(3 * time.Second)}
+				return m, copyToClipboardCmd(body)
+			}
+		case "p":
+			if m.mode == viewDetail && m.tab == tabArtifacts && len(m.artifacts) > 0 {
+				a := m.artifacts[m.artifactSelected]
+				m.toast = toastState{kind: toastSuccess, text: "Copied path", until: nowFunc().Add(3 * time.Second)}
+				return m, copyToClipboardCmd(a.Path)
+			}
 		case "enter":
+			if m.mode == viewDetail && m.tab == tabArtifacts && m.artifactViewMode == artifactModeList && len(m.artifacts) > 0 {
+				m.artifactContentLoadID++
+				m.artifactViewMode = artifactModeView
+				m.vpArtifactView.GotoTop()
+				m.updateArtifactViewContent() // show "Loading..." immediately
+				a := m.artifacts[m.artifactSelected]
+				return m, fetchArtifactContentCmd(m.selectedTaskName, a.Path, m.artifactContentLoadID)
+			}
 			if m.mode == viewList && len(m.tasks) > 0 {
 				m.mode = viewDetail
 				m.tab = tabOverview
@@ -927,6 +1020,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "esc":
+			if m.mode == viewDetail && m.tab == tabArtifacts && m.artifactViewMode == artifactModeView {
+				m.artifactViewMode = artifactModeList
+				return m, nil
+			}
 			if m.mode == viewDetail {
 				m.mode = viewList
 				m.detailTaskName = "" // Clear so re-entering triggers fresh fetch
@@ -937,6 +1034,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected--
 				m.selectedTaskName = m.tasks[m.selected].Name
 				m.detailTaskName = ""
+				m.artifactViewMode = artifactModeList
 				return m, fetchDetailCmd(m.selectedTaskName)
 			}
 		case "right", "l":
@@ -944,6 +1042,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected++
 				m.selectedTaskName = m.tasks[m.selected].Name
 				m.detailTaskName = ""
+				m.artifactViewMode = artifactModeList
 				return m, fetchDetailCmd(m.selectedTaskName)
 			}
 		case "tab":
@@ -1347,6 +1446,26 @@ func fetchArtifactsCmd(taskName string) tea.Cmd {
 	return func() tea.Msg {
 		arts, err := task.Artifacts(taskName)
 		return artifactsLoadedMsg{taskName: taskName, artifacts: arts, err: err}
+	}
+}
+
+func fetchArtifactContentCmd(taskName, path string, loadID int) tea.Cmd {
+	return func() tea.Msg {
+		taskDir := task.Dir(taskName)
+		abs := filepath.Join(taskDir, filepath.FromSlash(path))
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return artifactContentLoadedMsg{taskName: taskName, path: path, missing: true, loadID: loadID}
+			}
+			return artifactContentLoadedMsg{taskName: taskName, path: path, err: err, loadID: loadID}
+		}
+		binary := isBinary(data)
+		body := ""
+		if !binary {
+			body = string(data)
+		}
+		return artifactContentLoadedMsg{taskName: taskName, path: path, body: body, binary: binary, loadID: loadID}
 	}
 }
 

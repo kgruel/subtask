@@ -36,6 +36,8 @@ func (m *model) resize() {
 	m.vpConversation.Height = contentHeight
 	m.vpArtifactList.Width = contentWidth
 	m.vpArtifactList.Height = contentHeight
+	m.vpArtifactView.Width = contentWidth
+	m.vpArtifactView.Height = contentHeight
 	m.vpConflicts.Width = contentWidth
 	m.vpConflicts.Height = contentHeight
 
@@ -383,6 +385,36 @@ func (m *model) updateArtifactsContent() {
 	m.vpArtifactList.SetContent(renderArtifactsList(*m))
 }
 
+const artifactCacheMax = 16
+
+// artifactCacheKey builds a per-task composite key so artifacts with common
+// names (PLAN.md, report.md) from different tasks don't collide.
+func artifactCacheKey(taskName, path string) string {
+	return taskName + "\x00" + path
+}
+
+// cacheArtifactContent stores content in the FIFO cache (evicts oldest at cap).
+func (m *model) cacheArtifactContent(taskName, path, body string, binary, missing bool) {
+	key := artifactCacheKey(taskName, path)
+	if _, exists := m.artifactContent[key]; !exists {
+		m.artifactContentOrder = append(m.artifactContentOrder, key)
+		if len(m.artifactContentOrder) > artifactCacheMax {
+			evict := m.artifactContentOrder[0]
+			m.artifactContentOrder = m.artifactContentOrder[1:]
+			delete(m.artifactContent, evict)
+			delete(m.artifactBinary, evict)
+			delete(m.artifactMissing, evict)
+		}
+	}
+	m.artifactContent[key] = body
+	m.artifactBinary[key] = binary
+	m.artifactMissing[key] = missing
+}
+
+func (m *model) updateArtifactViewContent() {
+	m.vpArtifactView.SetContent(renderArtifactsViewContent(*m))
+}
+
 func (m *model) onTabActivated() tea.Cmd {
 	if m.selectedTaskName == "" {
 		return nil
@@ -417,7 +449,11 @@ func (m model) updateActiveViewport(msg tea.Msg) (model, tea.Cmd) {
 		m.vpConversation, cmd = m.vpConversation.Update(msg)
 		m.conversationFollow = m.vpConversation.AtBottom()
 	case tabArtifacts:
-		m.vpArtifactList, cmd = m.vpArtifactList.Update(msg)
+		if m.artifactViewMode == artifactModeView {
+			m.vpArtifactView, cmd = m.vpArtifactView.Update(msg)
+		} else {
+			m.vpArtifactList, cmd = m.vpArtifactList.Update(msg)
+		}
 	case tabDiff:
 		if mm, ok := msg.(tea.MouseMsg); ok && mm.Action == tea.MouseActionPress {
 			switch mm.Button { //nolint:exhaustive
@@ -441,7 +477,11 @@ func (m *model) scrollActiveViewport(delta int) tea.Cmd {
 		scrollViewport(&m.vpConversation, delta)
 		m.conversationFollow = m.vpConversation.AtBottom()
 	case tabArtifacts:
-		scrollViewport(&m.vpArtifactList, delta)
+		if m.artifactViewMode == artifactModeView {
+			scrollViewport(&m.vpArtifactView, delta)
+		} else {
+			scrollViewport(&m.vpArtifactList, delta)
+		}
 	case tabDiff:
 		m.scrollDiff(delta)
 	case tabConflicts:
@@ -458,7 +498,11 @@ func (m *model) pageActiveViewport(delta int) tea.Cmd {
 		pageViewport(&m.vpConversation, delta)
 		m.conversationFollow = m.vpConversation.AtBottom()
 	case tabArtifacts:
-		pageViewport(&m.vpArtifactList, delta)
+		if m.artifactViewMode == artifactModeView {
+			pageViewport(&m.vpArtifactView, delta)
+		} else {
+			pageViewport(&m.vpArtifactList, delta)
+		}
 	case tabDiff:
 		m.pageDiff(delta)
 	case tabConflicts:
