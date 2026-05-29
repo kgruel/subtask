@@ -62,6 +62,14 @@ func (c *DraftCmd) Run() error {
 		return fmt.Errorf("task name cannot contain \"--\" (used for path escaping)")
 	}
 
+	// The task name IS the branch name, so it must be a valid git ref. Validate
+	// up front (before writing any task folder) so an invalid name fails here at
+	// subtask's boundary rather than as a raw git error on first send — which
+	// would leave an orphan task to clean up.
+	if err := git.RunQuiet(task.ProjectRoot(), "check-ref-format", "--branch", c.Task); err != nil {
+		return fmt.Errorf("invalid task name %q: must be a valid git branch name (no spaces or any of ~^:?*[, no \"..\", no leading \"-\", no trailing \".lock\")", c.Task)
+	}
+
 	// --routine and --agent are mutually exclusive. Routine steps define
 	// their own per-step agents; harness.BuildPrompt sources the ## Agent
 	// block from the current routine step (not t.Agent) for routine
