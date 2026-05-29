@@ -163,3 +163,44 @@ func TestInstallCmd_M9_RepoCheckoutUsesRepoSKILL(t *testing.T) {
 	// Success message must mention the repo SKILL path.
 	require.Contains(t, stdout, "pkg/install/SKILL.md", "success message should include repo SKILL path")
 }
+
+// TestInstallCmd_ExistingConfig_ConfigFlagsWarn verifies that re-running install
+// against an already-configured repo warns when config-shaping flags are passed
+// (instead of silently dropping them, design principle #7) — and, crucially,
+// does NOT warn on a bare re-install (guards against a spurious warning if the
+// MaxWorkspaces default were ever non-zero at the flag layer).
+func TestInstallCmd_ExistingConfig_ConfigFlagsWarn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+
+	cwd := t.TempDir()
+	prev, _ := os.Getwd()
+	require.NoError(t, os.Chdir(cwd))
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	binDir := filepath.Join(cwd, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	_ = writeFakeCLI(t, binDir, "codex")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	withOutputMode(t, false)
+	render.Pretty = false
+
+	// First install: no config yet → writes ~/.subtask/config.json.
+	_, _, err := captureStdoutStderr(t, (&InstallCmd{NoPrompt: true, SkillOnly: true}).Run)
+	require.NoError(t, err)
+	_, statErr := os.Stat(filepath.Join(home, ".subtask", "config.json"))
+	require.NoError(t, statErr, "first install should have written a config")
+
+	// Control: bare re-install (no config flags) must NOT warn.
+	out, errOut, err := captureStdoutStderr(t, (&InstallCmd{NoPrompt: true, SkillOnly: true}).Run)
+	require.NoError(t, err)
+	require.NotContains(t, out+errOut, "were ignored", "bare re-install must not warn about ignored flags")
+
+	// Re-install WITH a config flag against existing config → must warn.
+	out, errOut, err = captureStdoutStderr(t, (&InstallCmd{NoPrompt: true, SkillOnly: true, MaxWorkspaces: 5}).Run)
+	require.NoError(t, err)
+	require.Contains(t, out+errOut, "were ignored", "config flags on an existing config must warn, not be silently dropped")
+}
