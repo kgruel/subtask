@@ -114,6 +114,17 @@ func TestLoadAdapter_FallbackToBuiltin(t *testing.T) {
 	}
 }
 
+func TestUserAdaptersDir_HonorsSubtaskDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SUBTASK_DIR", dir)
+
+	got := UserAdaptersDir()
+	want := filepath.Join(dir, "adapters")
+	if got != want {
+		t.Errorf("UserAdaptersDir() = %q, want %q", got, want)
+	}
+}
+
 func TestLoadAdapter_EmptyUserDir(t *testing.T) {
 	cfg, err := LoadAdapter("", "claude")
 	if err != nil {
