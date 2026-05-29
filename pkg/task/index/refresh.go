@@ -661,6 +661,11 @@ func sigPart(sig, key string) string {
 	return ""
 }
 
+// TODO(follow-up): for merged/closed tasks this still NULLs git_lines_added/removed
+// on any TASK.md/state.json signature change, which can clobber the frozen merge
+// stats that buildRowFromDisk projects from history. The gitcache.go recompute path
+// no longer overwrites those with NULL, but this signature-driven invalidation is a
+// separate trigger — skip line-count nulling here for terminal tasks.
 func invalidateGitCache(ctx context.Context, tx *sql.Tx, names []string) error {
 	stmt, err := tx.PrepareContext(ctx, `
 UPDATE tasks SET

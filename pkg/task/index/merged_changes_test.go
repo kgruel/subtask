@@ -103,6 +103,45 @@ func TestIndex_MergedTaskChanges_ReopenAndMergeAgainUsesLatestCommit(t *testing.
 	require.Equal(t, 2, items[0].LinesRemoved)
 }
 
+func TestIndex_MergedTaskChanges_NoOpFinalizeKeepsFrozenStats(t *testing.T) {
+	// A no-op finalize records a task.merged event with an empty commit but
+	// frozen line counts captured at merge time. buildRowFromDisk projects those
+	// frozen stats; the git recompute must not clobber them with NULL just
+	// because ShowDiffStat returns ok=false for the empty commit.
+	env := testutil.NewTestEnv(t, 0)
+	ctx := context.Background()
+
+	_ = gitCommitFile(t, "work.txt", "one\ntwo\nthree\n", "setup work")
+
+	name := "merged/noop"
+	env.CreateTask(name, "No-op finalize", "main", "desc")
+
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	env.CreateTaskHistory(name, []history.Event{
+		{TS: now.Add(-2 * time.Minute), Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})},
+		{TS: now.Add(-1 * time.Minute), Type: "task.merged", Data: mustJSON(map[string]any{
+			"commit":          "",
+			"changes_added":   5,
+			"changes_removed": 3,
+		})},
+	})
+
+	idx, err := taskindex.OpenDefault()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+
+	require.NoError(t, idx.Refresh(ctx, taskindex.RefreshPolicy{
+		Git: taskindex.GitPolicy{Mode: taskindex.GitOpenOnly},
+	}))
+
+	items, err := idx.ListAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, name, items[0].Name)
+	require.Equal(t, 5, items[0].LinesAdded)
+	require.Equal(t, 3, items[0].LinesRemoved)
+}
+
 func TestIndex_MergedTaskChanges_MissingCommitShowsEmpty(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	ctx := context.Background()
