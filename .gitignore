@@ -31,3 +31,8 @@ TODO.md
 
 # Local-only dev tracking (issues, roadmap, working notes)
 /docs/dev/
+
+# Claude Code local state (.claude/commands/ is versioned; these are local-only)
+.claude/scheduled_tasks.lock
+.claude/skills/
+.claude/worktrees/
