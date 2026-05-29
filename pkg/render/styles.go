@@ -33,20 +33,12 @@ var (
 	styleStatusMerged  = lipgloss.NewStyle().Foreground(colorPurple)
 )
 
-// Box styles
-var (
-	styleBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorGray).
-			Padding(0, 1).
-			Margin(1, 0, 1, 1) // top, right, bottom, left
-
-	styleBoxTitle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBlue).
-			Padding(0, 1).
-			Margin(1, 0, 1, 1)
-)
+// Box style (used by TaskCard / tasklist / text renderers).
+var styleBox = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(colorGray).
+	Padding(0, 1).
+	Margin(1, 0, 1, 1) // top, right, bottom, left
 
 // Table header style - no foreground color so it adapts to light/dark terminals
 var styleTableHeader = lipgloss.NewStyle().Bold(true)

@@ -22,49 +22,6 @@ func routineSourceSuffix(source string) string {
 	}
 }
 
-// Box wraps content in a box (pretty mode) or returns as-is (plain mode).
-type Box struct {
-	Title   string
-	Content string
-}
-
-// RenderPlain returns the content as-is with optional title.
-func (b *Box) RenderPlain() string {
-	if b.Title != "" {
-		return fmt.Sprintf("%s\n%s", b.Title, b.Content)
-	}
-	return b.Content
-}
-
-// RenderPretty renders content in a styled box with optional title.
-func (b *Box) RenderPretty() string {
-	if b.Title != "" {
-		return styleBoxTitle.Render(b.Content) + "\n"
-	}
-	return styleBox.Render(b.Content) + "\n"
-}
-
-// Print renders and prints the box.
-func (b *Box) Print() {
-	if Pretty {
-		fmt.Print(b.RenderPretty())
-	} else {
-		fmt.Print(b.RenderPlain())
-	}
-}
-
-// PrintBox prints content optionally in a box.
-func PrintBox(content string) {
-	b := &Box{Content: content}
-	b.Print()
-}
-
-// PrintTitledBox prints content in a box with a title.
-func PrintTitledBox(title, content string) {
-	b := &Box{Title: title, Content: content}
-	b.Print()
-}
-
 // ProgressStep represents a step in PROGRESS.json.
 type ProgressStep struct {
 	Step string

@@ -122,10 +122,10 @@ func (t *TaskListTable) RenderPretty() string {
 		// Main row
 		cells := []string{
 			padRight(task.Name, widths[0]),
-			padRightDisplay(colorUnifiedStatus(task.Status), widths[1]),
+			padRight(colorUnifiedStatus(task.Status), widths[1]),
 			padRight(task.Stage, widths[2]),
-			padRightDisplay(formatProgressBar(task.Progress), widths[3]),
-			padRightDisplay(formatChangesForTask(task, true), widths[4]),
+			padRight(formatProgressBar(task.Progress), widths[3]),
+			padRight(formatChangesForTask(task, true), widths[4]),
 			padRight(task.LastActive, widths[5]),
 		}
 		lines = append(lines, strings.Join(cells, "  "))
@@ -263,12 +263,3 @@ func formatProgressBar(progress string) string {
 	return styleSuccess.Render(bar) + " " + progress
 }
 
-// padRightDisplay pads a string to the given display width (accounting for ANSI
-// escapes and wide runes via ansi.StringWidth).
-func padRightDisplay(s string, width int) string {
-	dw := ansi.StringWidth(s)
-	if dw >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-dw)
-}
