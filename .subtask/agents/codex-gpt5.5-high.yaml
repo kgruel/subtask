@@ -1,0 +1,4 @@
+description: Codex GPT-5.5 high reasoning. Deep cross-adapter review pass.
+adapter: codex
+model: gpt-5.5
+reasoning: high
