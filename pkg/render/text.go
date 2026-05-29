@@ -287,7 +287,7 @@ func Status(status string) string {
 		return styleStatusWorking.Render(status)
 	case "replied":
 		return styleStatusReplied.Render(status)
-	case "error", "blocked":
+	case "error", "blocked", "interrupted":
 		return styleStatusError.Render(status)
 	case "success":
 		return styleStatusWorking.Render(status)

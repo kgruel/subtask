@@ -147,38 +147,13 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 	return table.RenderPlain()
 }
 
+// userStatusText delegates to the canonical task.UserStatusText (the only
+// difference is the CLI's nowFunc() test hook and a "—" empty-fallback).
 func userStatusText(ts task.TaskStatus, ws task.WorkerStatus, startedAt time.Time, lastRunMS int, lastError string) string {
-	switch task.UserStatusFor(ts, ws) {
-	case task.UserStatusMerged:
-		return "✓ merged"
-	case task.UserStatusClosed:
-		return "closed"
-	case task.UserStatusRunning:
-		if !startedAt.IsZero() {
-			return fmt.Sprintf("working (%s)", render.FormatDuration(nowFunc().Sub(startedAt)))
-		}
-		return "working"
-	case task.UserStatusReplied:
-		if lastRunMS > 0 {
-			return fmt.Sprintf("replied (%s)", render.FormatDuration(time.Duration(lastRunMS)*time.Millisecond))
-		}
-		return "replied"
-	case task.UserStatusError:
-		if lastError == "interrupted" {
-			if lastRunMS > 0 {
-				return fmt.Sprintf("interrupted (%s)", render.FormatDuration(time.Duration(lastRunMS)*time.Millisecond))
-			}
-			return "interrupted"
-		}
-		if lastRunMS > 0 {
-			return fmt.Sprintf("error (%s)", render.FormatDuration(time.Duration(lastRunMS)*time.Millisecond))
-		}
-		return "error"
-	case task.UserStatusDraft:
-		return "draft"
-	default:
-		return "—"
+	if s := task.UserStatusText(ts, ws, startedAt, lastRunMS, lastError, nowFunc()); s != "" {
+		return s
 	}
+	return "—"
 }
 
 // formatTimeAgo formats a time as "Xm ago" or "Xs ago".

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kgruel/subtask/pkg/task"
 	zone "github.com/lrstanley/bubblezone"
 )
@@ -115,10 +116,9 @@ func renderDetailHeader(m model, leftPad string, contentWidth int) string {
 		nameWidth := lipgloss.Width(name)
 		availForTitle := maxLeftWidth - nameWidth - 2 // 2 spaces
 		if availForTitle > 3 && strings.TrimSpace(tk.Title) != "" {
-			truncTitle := tk.Title
-			if len(truncTitle) > availForTitle-3 {
-				truncTitle = truncTitle[:availForTitle-3] + "..."
-			}
+			// ansi.Truncate measures display width and appends the ellipsis only
+			// when it actually truncates (tail counts toward the budget).
+			truncTitle := ansi.Truncate(tk.Title, availForTitle, "…")
 			left = name + titleStyle.Render("  "+truncTitle)
 		} else {
 			left = name

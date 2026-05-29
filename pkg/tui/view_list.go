@@ -73,13 +73,13 @@ func renderListView(m model) string {
 	const numLeftCols = 4
 	widths := make([]int, numLeftCols)
 	for i := range widths {
-		widths[i] = len(listHeaders[i])
+		widths[i] = ansi.StringWidth(listHeaders[i])
 	}
 	for _, t := range tasks {
 		row := listRowDataLeft(t)
 		for i, cell := range row {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
+			if w := ansi.StringWidth(cell); w > widths[i] {
+				widths[i] = w
 			}
 		}
 	}
@@ -202,7 +202,7 @@ func buildHeaderRow(widths []int, totalWidth int) string {
 	// Helper: pad header text
 	pad := func(text string, width int) string {
 		styled := styleTableHeader.Render(text)
-		dw := displayWidth(styled)
+		dw := ansi.StringWidth(styled)
 		if dw >= width {
 			return styled
 		}
@@ -216,13 +216,13 @@ func buildHeaderRow(widths []int, totalWidth int) string {
 		pad("Changes", widths[3]),
 	}
 	leftPart := strings.Join(cells, "  ")
-	leftWidth := displayWidth(leftPart)
+	leftWidth := ansi.StringWidth(leftPart)
 
 	progressHeader := styleTableHeader.Render("Progress")
 	lastActiveHeader := styleTableHeader.Render("Activity")
 
-	progressWidth := displayWidth(progressHeader)
-	lastActiveWidth := displayWidth(lastActiveHeader)
+	progressWidth := ansi.StringWidth(progressHeader)
+	lastActiveWidth := ansi.StringWidth(lastActiveHeader)
 	gap := totalWidth - leftWidth - 2 - progressWidth - 2 - lastActiveWidth
 	if gap < 2 {
 		gap = 2
@@ -243,10 +243,7 @@ func renderSearchBoxWithBg(m model, maxWidth int, bg lipgloss.TerminalColor) str
 	prefix := styleDim.Background(bg).Render("/")
 
 	if m.searchActive {
-		value := m.searchInput.Value()
-		if len(value) > maxWidth-5 {
-			value = value[:maxWidth-5]
-		}
+		value := ansi.Truncate(m.searchInput.Value(), maxWidth-5, "")
 		cursor := "█"
 		return prefix + bgStyle.Render(" "+value+cursor)
 	}
@@ -276,9 +273,9 @@ func listRowDataLeft(t store.TaskListItem) []string {
 func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	leftCells := []string{
 		padRight(t.Name, widths[0]),
-		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRight(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
 		padRight(stageText(t), widths[2]),
-		padRightDisplay(changesTextStyled(t), widths[3]),
+		padRight(changesTextStyled(t), widths[3]),
 	}
 	leftPart := strings.Join(leftCells, "  ")
 
@@ -287,8 +284,8 @@ func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFra
 	lastActivePart := lastActiveText(t)
 
 	// Calculate gap between PROGRESS and LAST ACTIVE
-	leftWidth := displayWidth(leftPart)
-	progressWidth := displayWidth(progressPart)
+	leftWidth := ansi.StringWidth(leftPart)
+	progressWidth := ansi.StringWidth(progressPart)
 	lastActiveWidth := len(lastActivePart)
 
 	// Gap fills remaining space
@@ -304,9 +301,9 @@ func buildTaskRow(t store.TaskListItem, widths []int, totalWidth int, spinnerFra
 func buildTaskRowSelected(t store.TaskListItem, widths []int, totalWidth int, spinnerFrame int) string {
 	leftCells := []string{
 		styleSelectedTaskName.Render(padRight(t.Name, widths[0])),
-		padRightDisplay(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
+		padRight(unifiedStatusTextStyled(t.TaskStatus, t.WorkerStatus, t.StartedAt, t.LastRunDurationMS, t.LastError, spinnerFrame), widths[1]),
 		padRight(stageText(t), widths[2]),
-		padRightDisplay(changesTextStyled(t), widths[3]),
+		padRight(changesTextStyled(t), widths[3]),
 	}
 	leftPart := strings.Join(leftCells, "  ")
 
@@ -315,8 +312,8 @@ func buildTaskRowSelected(t store.TaskListItem, widths []int, totalWidth int, sp
 	lastActivePart := lastActiveText(t)
 
 	// Calculate gap between PROGRESS and LAST ACTIVE
-	leftWidth := displayWidth(leftPart)
-	progressWidth := displayWidth(progressPart)
+	leftWidth := ansi.StringWidth(leftPart)
+	progressWidth := ansi.StringWidth(progressPart)
 	lastActiveWidth := len(lastActivePart)
 
 	// Gap fills remaining space
@@ -463,39 +460,15 @@ func lastActiveText(t store.TaskListItem) string {
 	return formatTimeAgo(t.LastActive)
 }
 
+// padRight pads s with spaces to the given display width (cells), accounting
+// for ANSI escapes and wide runes via ansi.StringWidth (package mandate: use
+// ansi.StringWidth, never len()).
 func padRight(s string, width int) string {
-	if len(s) >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-len(s))
-}
-
-func padRightDisplay(s string, width int) string {
-	dw := displayWidth(s)
+	dw := ansi.StringWidth(s)
 	if dw >= width {
 		return s
 	}
 	return s + strings.Repeat(" ", width-dw)
-}
-
-func displayWidth(s string) int {
-	// Strip ANSI escape codes for width calculation
-	inEscape := false
-	width := 0
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if r == 'm' {
-				inEscape = false
-			}
-			continue
-		}
-		width++
-	}
-	return width
 }
 
 func center(width int, s string) string {
