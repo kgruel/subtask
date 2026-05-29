@@ -6,7 +6,6 @@
 package render
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/mattn/go-isatty"
@@ -25,26 +24,4 @@ func init() {
 	default:
 		Pretty = isatty.IsTerminal(os.Stdout.Fd())
 	}
-}
-
-// Output is the interface for types that can render themselves in both modes.
-// Implement this for custom output types that need different plain/pretty rendering.
-type Output interface {
-	RenderPlain() string
-	RenderPretty() string
-}
-
-// Render outputs an Output type using the appropriate mode.
-func Render(o Output) {
-	if Pretty {
-		fmt.Print(o.RenderPretty())
-	} else {
-		fmt.Print(o.RenderPlain())
-	}
-}
-
-// Renderln outputs an Output type with a trailing newline.
-func Renderln(o Output) {
-	Render(o)
-	fmt.Println()
 }
