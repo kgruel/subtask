@@ -129,40 +129,58 @@ func (p *ClaudeParser) ParseFile(path string, cb func(LogEntry)) (*SessionInfo, 
 			}
 		}
 
-		switch ev.Type {
-		case "user":
-			text := extractClaudeMessageText(ev.Message)
-			if text != "" {
-				cb(LogEntry{Time: ts, Kind: KindUserMessage, Summary: normalizeText(text)})
-			}
-			// toolUseResult is in the top-level event (not in Message) for some formats,
-			// but we keep this simple; most output is sufficiently covered by tool calls.
-
-		case "assistant":
-			parts := extractClaudeMessageParts(ev.Message)
-			for _, part := range parts {
-				switch part.Type {
-				case "text":
-					if part.Text != "" {
-						cb(LogEntry{Time: ts, Kind: KindAgentMessage, Summary: normalizeText(part.Text)})
-					}
-				case "tool_use":
-					summary := formatClaudeToolCall(part.Name, part.Input)
-					if summary == "" {
-						continue
-					}
-					cb(LogEntry{
-						Time:     ts,
-						Kind:     KindToolCall,
-						Summary:  summary,
-						ToolName: part.Name,
-					})
-				}
-			}
-		}
+		// Content events render identically in file and follow mode.
+		p.ParseLine(line, cb)
 	}
 
 	return info, scanner.Err()
+}
+
+// ParseLine parses a single Claude JSONL line and emits its content entries via
+// cb (user and assistant messages, including every tool_use part). It is
+// stateless and does NOT emit KindSessionStart or update SessionInfo — the
+// session-init block belongs to ParseFile only.
+func (p *ClaudeParser) ParseLine(line []byte, cb func(LogEntry)) {
+	if len(line) == 0 {
+		return
+	}
+	var ev claudeLogEvent
+	if err := json.Unmarshal(line, &ev); err != nil {
+		return
+	}
+	ts := parseTimestampLoose(ev.Timestamp)
+
+	switch ev.Type {
+	case "user":
+		text := extractClaudeMessageText(ev.Message)
+		if text != "" {
+			cb(LogEntry{Time: ts, Kind: KindUserMessage, Summary: normalizeText(text)})
+		}
+		// toolUseResult is in the top-level event (not in Message) for some formats,
+		// but we keep this simple; most output is sufficiently covered by tool calls.
+
+	case "assistant":
+		parts := extractClaudeMessageParts(ev.Message)
+		for _, part := range parts {
+			switch part.Type {
+			case "text":
+				if part.Text != "" {
+					cb(LogEntry{Time: ts, Kind: KindAgentMessage, Summary: normalizeText(part.Text)})
+				}
+			case "tool_use":
+				summary := formatClaudeToolCall(part.Name, part.Input)
+				if summary == "" {
+					continue
+				}
+				cb(LogEntry{
+					Time:     ts,
+					Kind:     KindToolCall,
+					Summary:  summary,
+					ToolName: part.Name,
+				})
+			}
+		}
+	}
 }
 
 func parseTimestampLoose(s string) time.Time {

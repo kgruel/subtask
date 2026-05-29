@@ -46,6 +46,13 @@ type Parser interface {
 	// Streams efficiently without loading everything into memory.
 	// Returns SessionInfo if found.
 	ParseFile(path string, cb func(LogEntry)) (*SessionInfo, error)
+
+	// ParseLine parses a single JSONL line and emits its content entries via
+	// the callback. It is stateless and does NOT emit KindSessionStart or
+	// update SessionInfo (session metadata is handled only by ParseFile), so
+	// follow mode can render streamed lines identically to file mode without
+	// reprinting the session header. A line may yield zero or more entries.
+	ParseLine(line []byte, cb func(LogEntry))
 }
 
 // Locator can find the session file for a given session ID.

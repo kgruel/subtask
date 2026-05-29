@@ -661,16 +661,20 @@ func sigPart(sig, key string) string {
 	return ""
 }
 
-// TODO(follow-up): for merged/closed tasks this still NULLs git_lines_added/removed
-// on any TASK.md/state.json signature change, which can clobber the frozen merge
-// stats that buildRowFromDisk projects from history. The gitcache.go recompute path
-// no longer overwrites those with NULL, but this signature-driven invalidation is a
-// separate trigger — skip line-count nulling here for terminal tasks.
+// invalidateGitCache clears cached git-derived columns for tasks whose
+// TASK.md/state.json signature changed, forcing a recompute by refreshGit. The
+// two frozen line-count columns are preserved for terminal (merged/closed)
+// tasks: for those, buildRowFromDisk projects git_lines_added/removed from
+// history.jsonl (the source of truth, #10), and the gitcache recompute path
+// cannot restore them for no-op finalizes (empty merge commit) or closed tasks
+// (no workspace) — so NULLing them here would lose the frozen stats
+// permanently. The upsert that restores them runs immediately before this in
+// the same transaction, so task_status already reflects the current status.
 func invalidateGitCache(ctx context.Context, tx *sql.Tx, names []string) error {
 	stmt, err := tx.PrepareContext(ctx, `
 UPDATE tasks SET
-	git_lines_added = NULL,
-	git_lines_removed = NULL,
+	git_lines_added = CASE WHEN task_status IN ('merged','closed') THEN git_lines_added ELSE NULL END,
+	git_lines_removed = CASE WHEN task_status IN ('merged','closed') THEN git_lines_removed ELSE NULL END,
 	git_commits_behind = NULL,
 	git_conflict_files_json = NULL,
 	git_integrated_reason = NULL,

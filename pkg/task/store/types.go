@@ -9,6 +9,14 @@ import (
 	"github.com/kgruel/subtask/pkg/workspace"
 )
 
+// Store is a read-oriented view over the task index. List and Get are
+// query-shaped but are NOT pure reads: on the read path, for open tasks whose
+// worker has started and is not currently running, they reconcile live git
+// state into history.jsonl by appending durable task.merged events (when the
+// branch tip is an ancestor of its base — an external merge) and task.commit
+// events (as the branch advances). These appends are idempotent, lock-guarded,
+// never lose work, and are gated so draft and running tasks are untouched.
+// Treat List and Get as observe-and-reconcile, not side-effect-free.
 type Store interface {
 	List(ctx context.Context, opts ListOptions) (ListResult, error)
 	Get(ctx context.Context, name string, opts GetOptions) (TaskView, error)

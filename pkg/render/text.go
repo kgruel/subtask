@@ -257,7 +257,11 @@ func diagramSigil(s DiagramStep) string {
 	}
 }
 
-// Status returns a styled status string.
+// Status is a general-purpose colorizer for already-rendered status-like tokens
+// (e.g. "commit"/"merged" log markers, review outcomes such as "success"/"blocked").
+// It is intentionally string-keyed and is NOT a task.UserStatus mapper — the task
+// list colors by enum via colorStatusByEnum (tasklist.go). The two have different
+// domains and are deliberately not unified.
 func Status(status string) string {
 	if !Pretty {
 		return status

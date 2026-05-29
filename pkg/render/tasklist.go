@@ -11,8 +11,13 @@ import (
 
 // TaskRow represents a task for display in the list.
 type TaskRow struct {
-	Name          string
-	Status        string
+	Name string
+	// Status is the display text (e.g. "working (3m)", "✓ merged").
+	Status string
+	// UserStatus is the task.UserStatus value ("draft"|"working"|"replied"|
+	// "error"|"merged"|"closed") that produced Status. Color is selected from
+	// this enum, not by re-parsing Status, so text and color cannot drift.
+	UserStatus    string
 	Stage         string
 	Progress      string // "X/Y" format
 	LastActive    string
@@ -122,7 +127,7 @@ func (t *TaskListTable) RenderPretty() string {
 		// Main row
 		cells := []string{
 			padRight(task.Name, widths[0]),
-			padRight(colorUnifiedStatus(task.Status), widths[1]),
+			padRight(colorStatusByEnum(task.UserStatus, task.Status), widths[1]),
 			padRight(task.Stage, widths[2]),
 			padRight(formatProgressBar(task.Progress), widths[3]),
 			padRight(formatChangesForTask(task, true), widths[4]),
@@ -207,25 +212,34 @@ func formatChangesForTask(task TaskRow, colored bool) string {
 	return changes
 }
 
-func colorUnifiedStatus(status string) string {
-	s := strings.TrimSpace(status)
-	switch {
-	case strings.HasPrefix(s, "working"):
-		return styleStatusWorking.Render(s)
-	case strings.HasPrefix(s, "running"):
-		return styleStatusWorking.Render(s)
-	case strings.HasPrefix(s, "replied"):
-		return styleStatusReplied.Render(s)
-	case strings.HasPrefix(s, "error"), strings.HasPrefix(s, "interrupted"):
-		return styleStatusError.Render(s)
-	case strings.Contains(s, "merged"):
-		return styleStatusMerged.Render(s)
-	case s == "closed":
-		return styleStatusClosed.Render(s)
-	case s == "—" || s == "-" || s == "":
-		return styleDim.Render("—")
+// colorStatusByEnum colors the display text by the carried UserStatus enum
+// value rather than re-parsing the rendered text. The enum is the same one that
+// produced the text (task.UserStatusFor), so color and text cannot drift. The
+// values mirror task.UserStatus; the producer passes string(task.UserStatusFor(...)).
+//
+// render.Status (text.go) is a separate, deliberately string-keyed colorizer for
+// non-task tokens (commit/merged log markers, review outcomes) and is not unified
+// here — it has a different domain.
+func colorStatusByEnum(userStatus, text string) string {
+	switch userStatus {
+	case "working":
+		return styleStatusWorking.Render(text)
+	case "replied":
+		return styleStatusReplied.Render(text)
+	case "error":
+		return styleStatusError.Render(text) // also covers "interrupted" (same enum)
+	case "merged":
+		return styleStatusMerged.Render(text)
+	case "closed":
+		return styleStatusClosed.Render(text)
+	case "draft":
+		return styleStatusDraft.Render(text)
 	default:
-		return styleDim.Render(s)
+		s := strings.TrimSpace(text)
+		if s == "" || s == "-" || s == "—" {
+			return styleDim.Render("—")
+		}
+		return styleDim.Render(text)
 	}
 }
 

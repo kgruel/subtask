@@ -19,7 +19,7 @@ type LogCmd struct {
 	Task     string `arg:"" help:"Task name"`
 	Events   bool   `help:"Show lifecycle events only"`
 	Messages bool   `help:"Show messages only"`
-	Since    string `help:"Show entries since duration or timestamp (e.g., '5m', '1h', '2024-01-01T10:00:00Z')"`
+	Since    string `help:"Show entries since duration or timestamp (e.g., '5m', '1h', '1d', '2024-01-01T10:00:00Z')"`
 }
 
 func (c *LogCmd) Run() error {

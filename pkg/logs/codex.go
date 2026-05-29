@@ -147,108 +147,131 @@ func (p *CodexParser) ParseFile(path string, cb func(LogEntry)) (*SessionInfo, e
 				}
 			}
 
-		case "response_item":
-			var item codexResponseItem
-			if err := json.Unmarshal(event.Payload, &item); err != nil {
-				continue
-			}
-
-			switch item.Type {
-			case "function_call":
-				summary := formatToolCall(item.Name, item.Arguments)
-				if summary == "" {
-					continue // Skip noisy/uninteresting tool calls
-				}
-				cb(LogEntry{
-					Time:       ts,
-					Kind:       KindToolCall,
-					Summary:    summary,
-					ToolName:   item.Name,
-					ToolCallID: item.CallID,
-				})
-
-			case "function_call_output":
-				summary, exitCode := formatToolOutput(item.Output)
-				cb(LogEntry{
-					Time:       ts,
-					Kind:       KindToolOutput,
-					Summary:    summary,
-					ToolCallID: item.CallID,
-					ExitCode:   exitCode,
-				})
-
-			case "message":
-				if item.Role == "user" || item.Role == "assistant" {
-					text := extractMessageText(item.Content)
-					if text != "" {
-						kind := KindUserMessage
-						if item.Role == "assistant" {
-							kind = KindAgentMessage
-						}
-						cb(LogEntry{
-							Time:    ts,
-							Kind:    kind,
-							Summary: normalizeText(text),
-						})
-					}
-				}
-
-			case "reasoning":
-				if item.Summary != "" {
-					cb(LogEntry{
-						Time:    ts,
-						Kind:    KindReasoning,
-						Summary: normalizeText(item.Summary),
-					})
-				}
-			}
-
-		case "event_msg":
-			var msg codexEventMsg
-			if err := json.Unmarshal(event.Payload, &msg); err != nil {
-				continue
-			}
-
-			switch msg.Type {
-			case "user_message":
-				if msg.Message != "" {
-					cb(LogEntry{
-						Time:    ts,
-						Kind:    KindUserMessage,
-						Summary: normalizeText(msg.Message),
-					})
-				}
-			case "agent_message":
-				if msg.Message != "" {
-					cb(LogEntry{
-						Time:    ts,
-						Kind:    KindAgentMessage,
-						Summary: normalizeText(msg.Message),
-					})
-				}
-			case "agent_reasoning":
-				if msg.Text != "" {
-					cb(LogEntry{
-						Time:    ts,
-						Kind:    KindReasoning,
-						Summary: normalizeText(msg.Text),
-					})
-				}
-			}
-
-		case "error":
-			var msg codexEventMsg
-			if err := json.Unmarshal(event.Payload, &msg); err == nil && msg.Message != "" {
-				cb(LogEntry{
-					Time:    ts,
-					Kind:    KindError,
-					Summary: msg.Message,
-				})
-			}
+		default:
+			// Content events (response_item, event_msg, error) render
+			// identically in file and follow mode.
+			p.ParseLine(line, cb)
 		}
 	}
 
 	return info, scanner.Err()
+}
+
+// ParseLine parses a single Codex JSONL line and emits its content entries via
+// cb. It handles response_item (function_call, function_call_output, message,
+// reasoning), event_msg (user/agent message, agent_reasoning), and error
+// events. session_meta and turn_context are intentionally NOT handled here —
+// they mutate SessionInfo / emit KindSessionStart and belong to ParseFile only.
+func (p *CodexParser) ParseLine(line []byte, cb func(LogEntry)) {
+	if len(line) == 0 {
+		return
+	}
+	var event codexEvent
+	if err := json.Unmarshal(line, &event); err != nil {
+		return
+	}
+	ts := parseTimestamp(event.Timestamp)
+
+	switch event.Type {
+	case "response_item":
+		var item codexResponseItem
+		if err := json.Unmarshal(event.Payload, &item); err != nil {
+			return
+		}
+
+		switch item.Type {
+		case "function_call":
+			summary := formatToolCall(item.Name, item.Arguments)
+			if summary == "" {
+				return // Skip noisy/uninteresting tool calls
+			}
+			cb(LogEntry{
+				Time:       ts,
+				Kind:       KindToolCall,
+				Summary:    summary,
+				ToolName:   item.Name,
+				ToolCallID: item.CallID,
+			})
+
+		case "function_call_output":
+			summary, exitCode := formatToolOutput(item.Output)
+			cb(LogEntry{
+				Time:       ts,
+				Kind:       KindToolOutput,
+				Summary:    summary,
+				ToolCallID: item.CallID,
+				ExitCode:   exitCode,
+			})
+
+		case "message":
+			if item.Role == "user" || item.Role == "assistant" {
+				text := extractMessageText(item.Content)
+				if text != "" {
+					kind := KindUserMessage
+					if item.Role == "assistant" {
+						kind = KindAgentMessage
+					}
+					cb(LogEntry{
+						Time:    ts,
+						Kind:    kind,
+						Summary: normalizeText(text),
+					})
+				}
+			}
+
+		case "reasoning":
+			if item.Summary != "" {
+				cb(LogEntry{
+					Time:    ts,
+					Kind:    KindReasoning,
+					Summary: normalizeText(item.Summary),
+				})
+			}
+		}
+
+	case "event_msg":
+		var msg codexEventMsg
+		if err := json.Unmarshal(event.Payload, &msg); err != nil {
+			return
+		}
+
+		switch msg.Type {
+		case "user_message":
+			if msg.Message != "" {
+				cb(LogEntry{
+					Time:    ts,
+					Kind:    KindUserMessage,
+					Summary: normalizeText(msg.Message),
+				})
+			}
+		case "agent_message":
+			if msg.Message != "" {
+				cb(LogEntry{
+					Time:    ts,
+					Kind:    KindAgentMessage,
+					Summary: normalizeText(msg.Message),
+				})
+			}
+		case "agent_reasoning":
+			if msg.Text != "" {
+				cb(LogEntry{
+					Time:    ts,
+					Kind:    KindReasoning,
+					Summary: normalizeText(msg.Text),
+				})
+			}
+		}
+
+	case "error":
+		var msg codexEventMsg
+		if err := json.Unmarshal(event.Payload, &msg); err == nil && msg.Message != "" {
+			cb(LogEntry{
+				Time:    ts,
+				Kind:    KindError,
+				Summary: msg.Message,
+			})
+		}
+	}
 }
 
 func parseTimestamp(s string) time.Time {

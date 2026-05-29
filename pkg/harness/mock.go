@@ -25,6 +25,9 @@ type MockHarness struct {
 	DuplicateResult string
 	DuplicateError  error
 
+	// Configuration for MigrateSession behavior
+	MigrateError error
+
 	// Call tracking for assertions
 	RunCalls       []RunCall
 	MigrateCalls   []MigrateCall
@@ -148,8 +151,9 @@ func (m *MockHarness) MigrateSession(sessionID, oldCwd, newCwd string) error {
 		NewCWD:    newCwd,
 		Timestamp: time.Now(),
 	})
+	err := m.MigrateError
 	m.mu.Unlock()
-	return nil
+	return err
 }
 
 // DuplicateSession implements Harness.DuplicateSession.
@@ -281,6 +285,14 @@ func (m *MockHarness) WithDuplicateError(err error) *MockHarness {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.DuplicateError = err
+	return m
+}
+
+// WithMigrateError configures MigrateSession to return an error.
+func (m *MockHarness) WithMigrateError(err error) *MockHarness {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MigrateError = err
 	return m
 }
 

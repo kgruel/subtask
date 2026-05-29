@@ -21,4 +21,6 @@ parse:
   reply_accumulate: true
   tool_call_match:
     type: "tool_execution_start"
+# none: session migration unimplemented — sessions are workspace-bound, so a task
+# revived into a moved workspace won't carry prior context (see docs/adding-an-adapter.md).
 session_handler: none

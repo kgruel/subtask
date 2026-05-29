@@ -235,17 +235,31 @@ func (c *SendCmd) Run() error {
 		return err
 	}
 
-	// If we continued a session and workspace changed, migrate it if supported.
+	// If we continued a session and the workspace changed, migrate it if the
+	// adapter supports it. For the claude handler migration is a MOVE, so a
+	// failure means the worker would resume against a stale/missing session. We
+	// do NOT hard-fail here: prepareWorkspaceAndState has already claimed
+	// SupervisorPID and appended worker.started, and a bare return would skip
+	// the worker-failure cleanup below, leaving the task stuck "working" until
+	// stale cleanup. Instead warn (the worker still runs, resuming a
+	// possibly-incomplete session) and append the "migrated" event only on
+	// actual success, so history.jsonl never asserts a migration that didn't
+	// happen.
 	if continueFrom != "" && prevWorkspace != "" && filepath.Clean(prevWorkspace) != filepath.Clean(wsPath) {
-		_ = history.Append(c.Task, history.Event{
-			Type: "worker.session",
-			Data: mustJSON(map[string]any{
-				"action":     "migrated",
-				"harness":    cfg.Adapter,
-				"session_id": continueFrom,
-			}),
-		})
-		_ = h.MigrateSession(continueFrom, prevWorkspace, wsPath)
+		if err := h.MigrateSession(continueFrom, prevWorkspace, wsPath); err != nil {
+			// The exact outcome depends on how far migration got (no session,
+			// or a partially-relocated one), so don't over-claim "no context".
+			c.warn(fmt.Sprintf("could not migrate %s session to the new workspace: %v\n  The worker will still resume, but its prior context may be missing or stale. If the run looks wrong, start a fresh task.", cfg.Adapter, err))
+		} else {
+			_ = history.Append(c.Task, history.Event{
+				Type: "worker.session",
+				Data: mustJSON(map[string]any{
+					"action":     "migrated",
+					"harness":    cfg.Adapter,
+					"session_id": continueFrom,
+				}),
+			})
+		}
 	}
 
 	// Build prompt. A failure here (e.g. missing agent file) must route
@@ -565,7 +579,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	// Hard guard: don't allow two concurrent sends on the same machine.
 	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
-		return "", "", "", nil, fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
+		return "", "", "", nil, errTaskWorking(c.Task)
 	}
 
 	// Test-only: deterministic barrier to coordinate concurrent send attempts.
@@ -607,7 +621,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			locked = &task.State{}
 		}
 		if locked.SupervisorPID != 0 && !locked.IsStale() {
-			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
+			return errTaskWorking(c.Task)
 		}
 		locked.SupervisorPID = claimedPID
 		locked.SupervisorPGID = task.SelfProcessGroupID()
@@ -732,7 +746,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			locked = &task.State{}
 		}
 		if locked.SupervisorPID != 0 && !locked.IsStale() && locked.SupervisorPID != os.Getpid() {
-			return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", c.Task, c.Task, c.Task)
+			return errTaskWorking(c.Task)
 		}
 		prevWorkspace = locked.Workspace
 
@@ -882,6 +896,22 @@ func (c *SendCmd) info(msg string) {
 		return
 	}
 	printInfo(msg)
+}
+
+func (c *SendCmd) warn(msg string) {
+	if c.Quiet {
+		return
+	}
+	printWarning(msg)
+}
+
+// errTaskWorking is the concurrency-guard error returned when a send is
+// attempted while another supervisor already holds the task. The three claim
+// checkpoints in prepareWorkspaceAndState share it so the interrupt-recovery
+// hint stays in one place. (stage.go and pkg/task/ops use deliberately shorter
+// variants — those are not folded in here.)
+func errTaskWorking(taskName string) error {
+	return fmt.Errorf("task %s is still working\n\nYou'll be notified when done, then you can send more context.\nTo correct a worker going the wrong direction:\n  subtask interrupt %s && subtask send %s \"...\"", taskName, taskName, taskName)
 }
 
 // readStdinIfAvailable reads from stdin only if data is piped (non-blocking).

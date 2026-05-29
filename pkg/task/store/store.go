@@ -23,6 +23,9 @@ func New() Store {
 	return &store{}
 }
 
+// List observes and reconciles git state into history (see the Store interface
+// doc): for started, non-running open tasks it may append durable task.merged /
+// task.commit events. Not a pure read.
 func (s *store) List(ctx context.Context, opts ListOptions) (ListResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -228,6 +231,10 @@ func (s *store) Get(ctx context.Context, name string, opts GetOptions) (TaskView
 	return s.getWithConfig(ctx, name, nil)
 }
 
+// getWithConfig backs Get and BuildView. Like List it is observe-and-reconcile,
+// not a pure read: for a started, non-running open task it may append a durable
+// task.merged event when an external ancestor-merge is detected, and task.commit
+// events as the branch advances (via computeHistoricalChanges).
 func (s *store) getWithConfig(ctx context.Context, name string, cfg *workspace.Config) (TaskView, error) {
 	if ctx == nil {
 		ctx = context.Background()

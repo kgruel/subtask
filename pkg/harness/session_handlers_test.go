@@ -7,14 +7,18 @@ import (
 )
 
 func TestSessionHandler_None_Migrate(t *testing.T) {
+	// "none" migration is unsupported: the handler is only invoked on a real
+	// workspace move, which these workspace-bound sessions cannot follow, so it
+	// returns an actionable error (mirroring the duplicate case) rather than
+	// silently claiming success.
 	err := migrateSessionByHandler("none", "sess-1", "/old", "/new")
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestSessionHandler_None_MigrateEmpty(t *testing.T) {
 	// Empty string should behave like "none".
 	err := migrateSessionByHandler("", "sess-1", "/old", "/new")
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestSessionHandler_None_Duplicate(t *testing.T) {

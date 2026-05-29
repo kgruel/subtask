@@ -169,14 +169,19 @@ Task status is what users care about. Worker status is operational detail. Works
 | `subtask draft <task>` | Create a task without running it |
 | `subtask send <task>` | Send a message (starts or resumes task; blocks until reply) |
 | `subtask reply <task>` | Print the most recent worker reply (from history) |
+| `subtask next <task>` | Show the state-aware next command for a task |
 | `subtask stage <task> <step>` | Advance routine step |
+| `subtask routines` | List available routines (canonical and project) |
+| `subtask agents` | List project agents |
 | `subtask list` | Show all tasks and workspaces |
 | `subtask show <task>` | Task details, progress, diff stats |
+| `subtask unread` | List open tasks with unread worker replies (exit 1 if none) |
 | `subtask diff <task>` | Show task diff |
 | `subtask merge <task> -m "..."` | Squash-merge into base branch, close |
 | `subtask close <task>` | Close without merging (`--abandon` discards changes) |
 | `subtask workspace <task>` | Print workspace path |
 | `subtask ask "..."` | Quick question (no task, runs in cwd) |
+| `subtask quickstart` | Show a state-aware onboarding cue (first-task flow or next-step pointers) |
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show conversation and lifecycle events |
 | `subtask trace <task>` | Debug worker runs (tool calls, errors) |

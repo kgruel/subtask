@@ -19,7 +19,15 @@ import (
 func migrateSessionByHandler(handler, sessionID, oldCwd, newCwd string) error {
 	switch handler {
 	case "none", "":
-		return nil
+		// "none" means session migration is unimplemented for this adapter: its
+		// sessions are bound to the original workspace path (see
+		// docs/adding-an-adapter.md), so they cannot follow a workspace move.
+		// This function is only called when the workspace actually changed, so
+		// reaching here means an unsupportable move — return an actionable error
+		// (mirroring duplicateSessionByHandler) so the caller warns and does not
+		// record a migration that didn't happen. Contrast "codex" below, whose
+		// sessions are global and genuinely need no move.
+		return fmt.Errorf("session migration is unimplemented for this adapter; its sessions are bound to the original workspace")
 	case "codex":
 		// Codex session IDs are global, no migration needed.
 		return nil

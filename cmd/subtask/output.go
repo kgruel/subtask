@@ -109,6 +109,7 @@ func RenderTaskList(tasks []TaskInfo, workspaces []workspace.Entry) string {
 		rows = append(rows, render.TaskRow{
 			Name:          t.Name,
 			Status:        status,
+			UserStatus:    string(task.UserStatusFor(t.TaskStatus, t.WorkerStatus)),
 			Stage:         stage,
 			Progress:      progress,
 			LinesAdded:    t.LinesAdded,

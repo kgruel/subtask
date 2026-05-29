@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -23,17 +22,16 @@ import (
 type LogsCmd struct {
 	TaskOrSession string `arg:"" help:"Task name or session ID"`
 	Limit         int    `short:"n" help:"Show only the last N entries" default:"0"`
-	Since         string `help:"Show entries since timestamp (e.g., '5m', '1h', '2024-01-01T10:00:00Z')"`
+	Since         string `help:"Show entries since duration or timestamp (e.g., '5m', '1h', '1d', '2024-01-01T10:00:00Z')"`
 	Follow        bool   `short:"f" help:"Follow log output (stream new entries)"`
 	Timestamps    bool   `short:"t" help:"Show timestamps"`
 	NoTrunc       bool   `help:"Don't truncate output"`
 }
 
 type harnessLogBackend struct {
-	name      string
-	parser    logs.Parser
-	locator   logs.Locator
-	parseLine func([]byte) *logs.LogEntry
+	name    string
+	parser  logs.Parser
+	locator logs.Locator
 }
 
 // Run executes the logs command.
@@ -44,8 +42,8 @@ func (c *LogsCmd) Run() error {
 	}
 
 	backends := []harnessLogBackend{
-		{name: "codex", parser: &logs.CodexParser{}, locator: &logs.CodexParser{}, parseLine: parseSingleLineCodex},
-		{name: "claude", parser: &logs.ClaudeParser{}, locator: &logs.ClaudeParser{}, parseLine: parseSingleLineClaude},
+		{name: "codex", parser: &logs.CodexParser{}, locator: &logs.CodexParser{}},
+		{name: "claude", parser: &logs.ClaudeParser{}, locator: &logs.ClaudeParser{}},
 	}
 
 	// Try to find session file - could be task name or session ID
@@ -180,7 +178,10 @@ func (c *LogsCmd) streamLogs(path string, backend harnessLogBackend, formatter *
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Match the largest parser's file-mode buffer (claude assistant lines can
+	// exceed 1MB — see ClaudeParser.ParseFile) so a large line never aborts the
+	// follow with ErrTooLong, keeping -f consistent with file mode.
+	scanner.Buffer(buf, 10*1024*1024)
 
 	for {
 		for scanner.Scan() {
@@ -189,17 +190,17 @@ func (c *LogsCmd) streamLogs(path string, backend harnessLogBackend, formatter *
 				continue
 			}
 
-			// Parse single line and emit
-			entry := backend.parseLine(line)
-			if entry != nil {
-				if !since.IsZero() && entry.Time.Before(since) {
-					continue
+			// Parse the new line via the canonical parser so streamed entries
+			// render identically to file mode. ParseLine omits the session
+			// header, so it is not reprinted on the tail.
+			backend.parser.ParseLine(line, func(e logs.LogEntry) {
+				if !since.IsZero() && e.Time.Before(since) {
+					return
 				}
-				formatted := formatter.Format(*entry)
-				if formatted != "" {
+				if formatted := formatter.Format(e); formatted != "" {
 					fmt.Println(formatted)
 				}
-			}
+			})
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -212,7 +213,7 @@ func (c *LogsCmd) streamLogs(path string, backend harnessLogBackend, formatter *
 		// Re-check file for new content
 		// Reset scanner to continue from current position
 		scanner = bufio.NewScanner(f)
-		scanner.Buffer(buf, 1024*1024)
+		scanner.Buffer(buf, 10*1024*1024)
 	}
 }
 
@@ -250,203 +251,6 @@ func parseSince(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("cannot parse %q as duration or timestamp", s)
-}
-
-// parseSingleLineCodex is a simplified parser for follow mode.
-// It duplicates some logic from CodexParser but for single-line streaming.
-func parseSingleLineCodex(line []byte) *logs.LogEntry {
-	// Quick JSON parse
-	type quickEvent struct {
-		Timestamp string `json:"timestamp"`
-		Type      string `json:"type"`
-	}
-	var event quickEvent
-	// Find timestamp and type without full parse
-	tsIdx := strings.Index(string(line), `"timestamp":"`)
-	typeIdx := strings.Index(string(line), `"type":"`)
-
-	if tsIdx == -1 || typeIdx == -1 {
-		return nil
-	}
-
-	// Extract timestamp
-	tsStart := tsIdx + 13
-	tsEnd := strings.Index(string(line[tsStart:]), `"`)
-	if tsEnd == -1 {
-		return nil
-	}
-	event.Timestamp = string(line[tsStart : tsStart+tsEnd])
-
-	// Extract type
-	typeStart := typeIdx + 8
-	typeEnd := strings.Index(string(line[typeStart:]), `"`)
-	if typeEnd == -1 {
-		return nil
-	}
-	event.Type = string(line[typeStart : typeStart+typeEnd])
-
-	ts, _ := time.Parse(time.RFC3339Nano, event.Timestamp)
-	if ts.IsZero() {
-		ts, _ = time.Parse(time.RFC3339, event.Timestamp)
-	}
-
-	// Handle based on type
-	switch event.Type {
-	case "event_msg":
-		// Look for agent_message or user_message
-		if strings.Contains(string(line), `"type":"agent_message"`) {
-			msgIdx := strings.Index(string(line), `"message":"`)
-			if msgIdx != -1 {
-				start := msgIdx + 11
-				end := findStringEnd(line[start:])
-				if end > 0 {
-					msg := string(line[start : start+end])
-					msg = unescapeJSON(msg)
-					return &logs.LogEntry{
-						Time:    ts,
-						Kind:    logs.KindAgentMessage,
-						Summary: truncate(msg, 200),
-					}
-				}
-			}
-		}
-		if strings.Contains(string(line), `"type":"user_message"`) {
-			msgIdx := strings.Index(string(line), `"message":"`)
-			if msgIdx != -1 {
-				start := msgIdx + 11
-				end := findStringEnd(line[start:])
-				if end > 0 {
-					msg := string(line[start : start+end])
-					msg = unescapeJSON(msg)
-					return &logs.LogEntry{
-						Time:    ts,
-						Kind:    logs.KindUserMessage,
-						Summary: truncate(msg, 200),
-					}
-				}
-			}
-		}
-		if strings.Contains(string(line), `"type":"agent_reasoning"`) {
-			textIdx := strings.Index(string(line), `"text":"`)
-			if textIdx != -1 {
-				start := textIdx + 8
-				end := findStringEnd(line[start:])
-				if end > 0 {
-					text := string(line[start : start+end])
-					text = unescapeJSON(text)
-					return &logs.LogEntry{
-						Time:    ts,
-						Kind:    logs.KindReasoning,
-						Summary: truncate(text, 150),
-					}
-				}
-			}
-		}
-
-	case "response_item":
-		if strings.Contains(string(line), `"type":"function_call"`) &&
-			!strings.Contains(string(line), `"type":"function_call_output"`) {
-			// Tool call
-			nameIdx := strings.Index(string(line), `"name":"`)
-			if nameIdx != -1 {
-				start := nameIdx + 8
-				end := findStringEnd(line[start:])
-				if end > 0 {
-					name := string(line[start : start+end])
-					return &logs.LogEntry{
-						Time:     ts,
-						Kind:     logs.KindToolCall,
-						Summary:  "→ " + name,
-						ToolName: name,
-					}
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// parseSingleLineClaude parses a single Claude session JSONL line (best-effort).
-func parseSingleLineClaude(line []byte) *logs.LogEntry {
-	type ev struct {
-		Type      string `json:"type"`
-		Timestamp string `json:"timestamp,omitempty"`
-		Message   struct {
-			Role    string          `json:"role,omitempty"`
-			Content json.RawMessage `json:"content,omitempty"`
-		} `json:"message,omitempty"`
-	}
-	var e ev
-	if err := json.Unmarshal(line, &e); err != nil {
-		return nil
-	}
-	ts, _ := time.Parse(time.RFC3339Nano, e.Timestamp)
-	if ts.IsZero() {
-		ts, _ = time.Parse(time.RFC3339, e.Timestamp)
-	}
-
-	switch e.Type {
-	case "user":
-		var s string
-		if err := json.Unmarshal(e.Message.Content, &s); err == nil && s != "" {
-			return &logs.LogEntry{Time: ts, Kind: logs.KindUserMessage, Summary: truncate(s, 200)}
-		}
-	case "assistant":
-		var parts []struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-			Name string `json:"name,omitempty"`
-		}
-		if err := json.Unmarshal(e.Message.Content, &parts); err == nil {
-			for _, p := range parts {
-				if p.Type == "text" && p.Text != "" {
-					return &logs.LogEntry{Time: ts, Kind: logs.KindAgentMessage, Summary: truncate(p.Text, 200)}
-				}
-				if p.Type == "tool_use" && p.Name != "" {
-					return &logs.LogEntry{Time: ts, Kind: logs.KindToolCall, Summary: "→ " + p.Name, ToolName: p.Name}
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// findStringEnd finds the end of a JSON string (handling escapes).
-func findStringEnd(b []byte) int {
-	escaped := false
-	for i, c := range b {
-		if escaped {
-			escaped = false
-			continue
-		}
-		if c == '\\' {
-			escaped = true
-			continue
-		}
-		if c == '"' {
-			return i
-		}
-	}
-	return -1
-}
-
-// unescapeJSON handles basic JSON string unescaping.
-func unescapeJSON(s string) string {
-	s = strings.ReplaceAll(s, `\"`, `"`)
-	s = strings.ReplaceAll(s, `\\`, `\`)
-	s = strings.ReplaceAll(s, `\n`, " ")
-	s = strings.ReplaceAll(s, `\t`, " ")
-	return s
-}
-
-// truncate truncates a string to max length.
-func truncate(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-3] + "..."
 }
 
 // resolveSession resolves a task name or session ID to a session file path.
