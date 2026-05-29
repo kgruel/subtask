@@ -11,7 +11,7 @@ import (
 
 	"github.com/kgruel/subtask/pkg/harness"
 	"github.com/kgruel/subtask/pkg/task"
-	"github.com/kgruel/subtask/pkg/task/gather"
+	"github.com/kgruel/subtask/pkg/task/store"
 	"github.com/kgruel/subtask/pkg/testutil"
 )
 
@@ -138,7 +138,7 @@ steps:
 }
 
 // TestShow_RoutineRendersProgression verifies the P2 fix for `subtask
-// show` on routine tasks: gather.Detail loads the routine, and show
+// show` on routine tasks: store.Get loads the routine, and show
 // renders the routine name + step progression.
 func TestShow_RoutineRendersProgression(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
@@ -174,9 +174,9 @@ steps:
 	}).Run())
 
 	// Detail-level check: routine is loaded.
-	detail, err := gather.Detail(context.Background(), taskName)
+	detail, err := store.New().Get(context.Background(), taskName, store.GetOptions{})
 	require.NoError(t, err)
-	require.NotNil(t, detail.Routine, "gather.Detail must load the routine when t.Routine is set")
+	require.NotNil(t, detail.Routine, "store.Get must load the routine when t.Routine is set")
 	require.Equal(t, "show", detail.Routine.Name)
 	require.Equal(t, "plan", detail.Stage, "draft should initialize stage to entry step")
 
