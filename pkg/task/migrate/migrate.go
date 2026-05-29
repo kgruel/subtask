@@ -28,30 +28,46 @@ type legacyState struct {
 }
 
 func EnsureSchema(taskName string) error {
-	t, err := task.Load(taskName)
-	if err != nil {
+	// A quick unlocked check avoids taking the lock on the common path where
+	// the task is already current. The authoritative read-decide-write happens
+	// inside the lock below to close the TOCTOU.
+	if t, err := task.Load(taskName); err != nil {
 		return err
-	}
-	if t.Schema >= CurrentSchema {
+	} else if t.Schema >= CurrentSchema {
 		return nil
 	}
 
-	// If history already exists, prefer it and just bump schema.
-	if st, err := os.Stat(task.HistoryPath(taskName)); err == nil && st.Size() > 0 {
+	return task.WithLock(taskName, func() error {
+		// Re-load and re-stat inside the lock so the migration decision is made
+		// against state that cannot change underneath us. Otherwise a concurrent
+		// writer (e.g. AppendLocked from `send`) could create live history after
+		// our stat but before WriteAll truncates it.
+		t, err := task.Load(taskName)
+		if err != nil {
+			return err
+		}
+		if t.Schema >= CurrentSchema {
+			return nil
+		}
+
+		// If history already exists, prefer it and just bump schema.
+		if st, err := os.Stat(task.HistoryPath(taskName)); err == nil && st.Size() > 0 {
+			t.Schema = CurrentSchema
+			return t.Save()
+		}
+
+		events, err := buildSchema1History(taskName, t)
+		if err != nil {
+			return err
+		}
+		// WriteAllLocked (not WriteAll) because WithLock is not re-entrant.
+		if err := history.WriteAllLocked(taskName, events); err != nil {
+			return err
+		}
+
 		t.Schema = CurrentSchema
 		return t.Save()
-	}
-
-	events, err := buildSchema1History(taskName, t)
-	if err != nil {
-		return err
-	}
-	if err := history.WriteAll(taskName, events); err != nil {
-		return err
-	}
-
-	t.Schema = CurrentSchema
-	return t.Save()
+	})
 }
 
 func buildSchema1History(taskName string, t *task.Task) ([]history.Event, error) {
