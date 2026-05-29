@@ -45,12 +45,13 @@ func SelectReleaseAssets(rel Release, goos, goarch string) (archive Asset, check
 		}
 	}
 
-	// Last resort: accept any archive type if naming differs.
+	// Last resort: accept any archive type if naming differs. Only formats
+	// ExtractSubtaskBinary can unpack (.zip/.tar.gz/.tgz) — a bare .gz would
+	// select here then fail extraction, so it's deliberately omitted.
 	fallbackSuffixes := []string{
 		fmt.Sprintf("_%s_%s.zip", goos, goarch),
 		fmt.Sprintf("_%s_%s.tar.gz", goos, goarch),
 		fmt.Sprintf("_%s_%s.tgz", goos, goarch),
-		fmt.Sprintf("_%s_%s.gz", goos, goarch),
 	}
 	for _, suf := range fallbackSuffixes {
 		for _, a := range rel.Assets {
