@@ -76,6 +76,35 @@ prompt:
 	require.Contains(t, err.Error(), "model")
 }
 
+func TestParseAgent_InvalidReasoning(t *testing.T) {
+	data := []byte(`adapter: codex
+model: gpt-5.5
+reasoning: ultrahigh
+`)
+	_, err := parseAgent(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reasoning")
+	require.Contains(t, err.Error(), "ultrahigh")
+}
+
+func TestParseAgent_ValidReasoning(t *testing.T) {
+	for _, level := range []string{"low", "medium", "high", "xhigh"} {
+		data := []byte("adapter: codex\nmodel: gpt-5.5\nreasoning: " + level + "\n")
+		a, err := parseAgent(data)
+		require.NoError(t, err)
+		require.Equal(t, level, a.Reasoning)
+	}
+}
+
+func TestParseAgent_EmptyReasoningAllowed(t *testing.T) {
+	data := []byte(`adapter: codex
+model: gpt-5.5
+`)
+	a, err := parseAgent(data)
+	require.NoError(t, err)
+	require.Empty(t, a.Reasoning)
+}
+
 func TestParseAgent_PromptText(t *testing.T) {
 	data := []byte(`adapter: claude
 model: opus

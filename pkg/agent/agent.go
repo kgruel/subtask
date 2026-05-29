@@ -210,6 +210,11 @@ func parseAgent(data []byte) (*Agent, error) {
 	a.Provider = strings.TrimSpace(raw.Provider)
 	a.Model = strings.TrimSpace(raw.Model)
 	a.Reasoning = strings.TrimSpace(raw.Reasoning)
+	if a.Reasoning != "" {
+		if err := workspace.ValidateReasoningLevel(a.Reasoning); err != nil {
+			return nil, fmt.Errorf("reasoning: %w", err)
+		}
+	}
 
 	// prompt: is optional. Absent = bare-dispatch agent (no role prompt).
 	// Present but empty = error. Present with exactly one source = OK.
