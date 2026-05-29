@@ -45,10 +45,10 @@ func TestDetail_AgentFieldSurvivesIndexProjection(t *testing.T) {
 			TS:   time.Now().UTC(),
 			Type: "task.opened",
 			Data: mustJSON(t, map[string]any{
-				"reason":       "draft",
-				"base_branch":  "main",
-				"base_ref":     "main",
-				"base_commit":  baseCommit,
+				"reason":      "draft",
+				"base_branch": "main",
+				"base_ref":    "main",
+				"base_commit": baseCommit,
 			}),
 		},
 	}

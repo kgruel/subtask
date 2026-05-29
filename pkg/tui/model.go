@@ -191,17 +191,17 @@ type model struct {
 	detailErr      error
 
 	// viewports (one per tab; diff uses split-pane viewport)
-	vpOverview      viewport.Model
-	vpConversation  viewport.Model
-	vpArtifactList  viewport.Model
-	vpArtifactView  viewport.Model
-	vpConflicts     viewport.Model
+	vpOverview     viewport.Model
+	vpConversation viewport.Model
+	vpArtifactList viewport.Model
+	vpArtifactView viewport.Model
+	vpConflicts    viewport.Model
 
 	// artifacts tab data
-	artifactsTaskName      string
-	artifacts              []task.ArtifactInfo
-	artifactsErr           error
-	artifactSelected       int
+	artifactsTaskName     string
+	artifacts             []task.ArtifactInfo
+	artifactsErr          error
+	artifactSelected      int
 	artifactViewMode      artifactMode
 	artifactContent       map[string]string
 	artifactContentOrder  []string
@@ -283,16 +283,16 @@ func newModel() model {
 	}
 
 	m := model{
-		mode:                viewList,
-		tab:                 tabOverview,
-		conversationFollow:  true,
-		diffDocCache:        make(map[string]*diffparse.Document),
-		diffSideBySide:      false,
-		searchInput:         ti,
-		subtaskSpawner:      newSubtaskSpawner(subtaskBinary),
-		artifactContent: make(map[string]string),
-		artifactBinary:  make(map[string]bool),
-		artifactMissing: make(map[string]bool),
+		mode:               viewList,
+		tab:                tabOverview,
+		conversationFollow: true,
+		diffDocCache:       make(map[string]*diffparse.Document),
+		diffSideBySide:     false,
+		searchInput:        ti,
+		subtaskSpawner:     newSubtaskSpawner(subtaskBinary),
+		artifactContent:    make(map[string]string),
+		artifactBinary:     make(map[string]bool),
+		artifactMissing:    make(map[string]bool),
 	}
 	di := textinput.New()
 	di.Placeholder = "filter files..."

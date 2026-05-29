@@ -125,7 +125,7 @@ ORDER BY last_history_ns DESC, name ASC;
 	return i.queryList(ctx, q)
 }
 
-// ListOpenOnly returns tasks with task_status = 'open' or task_status = ''.
+// ListOpenOnly returns tasks with task_status = 'open' or task_status = ”.
 // The empty-string case covers draft tasks whose history file hasn't recorded
 // a task.opened event yet. Allowlist (not blocklist) so future terminal
 // statuses don't silently appear in the default list.

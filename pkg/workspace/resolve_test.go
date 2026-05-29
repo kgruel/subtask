@@ -91,7 +91,7 @@ func TestResolve_AgentOnlyFillsEmptyFlags(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "codex", r.Adapter)
-	require.Equal(t, "o3", r.Model)      // agent's model is empty, falls through to snapshot
+	require.Equal(t, "o3", r.Model) // agent's model is empty, falls through to snapshot
 	require.Equal(t, "medium", r.Reasoning)
 }
 

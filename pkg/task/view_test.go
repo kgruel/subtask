@@ -88,9 +88,9 @@ func TestLoadReviewSummary(t *testing.T) {
 
 func TestAgentView_Label(t *testing.T) {
 	tests := []struct {
-		name    string
-		agent   AgentView
-		want    string
+		name  string
+		agent AgentView
+		want  string
 	}{
 		{
 			name: "named with adapter and model",
@@ -132,7 +132,7 @@ func TestAgentView_Label(t *testing.T) {
 			want: "sonnet (no named agent)",
 		},
 		{
-			name: "all empty",
+			name:  "all empty",
 			agent: AgentView{},
 			want:  "Worker",
 		},

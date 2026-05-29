@@ -18,13 +18,13 @@ import (
 // config file. Legacy keys (harness, options) are still accepted for migration;
 // anything else is surfaced as a warning so stale keys don't accumulate silently.
 var knownConfigKeys = map[string]struct{}{
-	"adapter":       {},
-	"provider":      {},
-	"model":         {},
-	"reasoning":     {},
+	"adapter":        {},
+	"provider":       {},
+	"model":          {},
+	"reasoning":      {},
 	"max_workspaces": {},
-	"harness":       {}, // legacy
-	"options":       {}, // legacy
+	"harness":        {}, // legacy
+	"options":        {}, // legacy
 }
 
 // warnUnknownKeysOnce ensures the project config unknown-key warning fires at

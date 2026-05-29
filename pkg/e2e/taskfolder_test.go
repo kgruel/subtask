@@ -215,7 +215,6 @@ func TestBuildPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "Implement as described.")
 }
 
-
 // TestTaskFolderSymlink tests that task folder is accessible in worktree.
 func TestTaskFolderSymlink(t *testing.T) {
 	env := testutil.NewTestEnv(t, 1)
