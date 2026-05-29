@@ -22,12 +22,12 @@ func (c *MergeCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if res.AlreadyClosed {
-		if res.AlreadyMerged {
-			fmt.Printf("Task %s is already merged.\n", c.Task)
-		} else {
-			fmt.Printf("Task %s is already closed (not merged).\n", c.Task)
-		}
+	// MergeTask returns exactly one of these for a no-op finalize; gate on
+	// AlreadyMerged first so re-merging an already-merged task isn't silent.
+	if res.AlreadyMerged {
+		fmt.Printf("Task %s is already merged.\n", c.Task)
+	} else if res.AlreadyClosed {
+		fmt.Printf("Task %s is already closed (not merged).\n", c.Task)
 	}
 	return nil
 }

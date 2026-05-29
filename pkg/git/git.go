@@ -669,7 +669,9 @@ func RebaseOnto(dir, target string) error {
 		if conflicts != "" {
 			return fmt.Errorf("%s", conflicts)
 		}
-		return fmt.Errorf("rebase failed (no conflict details available)")
+		// No CONFLICT lines (localized git, dirty tree, hook failure, unknown
+		// ref): pass git's own output through rather than swallowing it.
+		return fmt.Errorf("rebase failed: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
 }
