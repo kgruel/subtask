@@ -591,4 +591,3 @@ func TestReviewSummary_EmptyDir(t *testing.T) {
 	rs := task.LoadReviewSummary(taskName)
 	assert.True(t, rs == nil || rs.Count == 0, "empty reviews dir should report no summary or Count==0")
 }
-

@@ -379,4 +379,3 @@ func PrintWorkerResultWithStage(taskName string, reply string, toolCalls int, ch
 	render.Section("History")
 	render.SectionContent(filepath.ToSlash(task.HistoryPath(taskName)) + "\n\nView:\n  subtask log " + taskName)
 }
-

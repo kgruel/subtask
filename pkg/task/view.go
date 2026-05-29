@@ -22,7 +22,7 @@ type View struct {
 	StatusText   string // pre-resolved via UserStatusText
 	Error        string
 
-	Agent AgentView
+	Agent   AgentView
 	Routine *RoutineView // nil when not routine-driven
 
 	Changes       ChangesView

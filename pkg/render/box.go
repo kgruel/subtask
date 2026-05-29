@@ -91,16 +91,16 @@ type TaskCard struct {
 	Routine       string
 	RoutineSource string // "canonical", "shadow", or "project" — drives suffix display
 	Stage         string // Formatted progression string
-	TaskDir         string // Task directory path (e.g., .subtask/tasks/fix--foo)
-	Files           []string
-	LinesAdded      int // Git diff stats
-	LinesRemoved    int
-	ChangesStatus   string // "", "applied", "missing"
-	ChangesError    string
-	CommitCount     int
-	CommitError     string
-	ShowCommits     bool
-	ConflictFiles   []string
+	TaskDir       string // Task directory path (e.g., .subtask/tasks/fix--foo)
+	Files         []string
+	LinesAdded    int // Git diff stats
+	LinesRemoved  int
+	ChangesStatus string // "", "applied", "missing"
+	ChangesError  string
+	CommitCount   int
+	CommitError   string
+	ShowCommits   bool
+	ConflictFiles []string
 
 	ReviewCount    int
 	LastReviewTS   time.Time
@@ -320,7 +320,6 @@ func TaskCardFromView(v *task.View, verbose bool) *TaskCard {
 
 	return card
 }
-
 
 // RenderPretty renders the task card with styling and box.
 func (c *TaskCard) RenderPretty() string {

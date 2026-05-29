@@ -10,11 +10,11 @@ import (
 
 func TestTaskCard_RenderPlain_AgentField(t *testing.T) {
 	card := &TaskCard{
-		Name:       "fix/foo",
-		Title:      "Fix foo",
-		Branch:     "fix/foo",
-		BaseBranch: "main",
-		Agent:      "planner",
+		Name:         "fix/foo",
+		Title:        "Fix foo",
+		Branch:       "fix/foo",
+		BaseBranch:   "main",
+		Agent:        "planner",
 		AgentIsNamed: true,
 	}
 	out := card.RenderPlain()
@@ -76,11 +76,11 @@ func TestTaskCard_RenderPlain_RoutineCanonical(t *testing.T) {
 func TestTaskCard_RenderPretty_AgentField(t *testing.T) {
 	Pretty = false // use plain-mode rendering; pretty requires a terminal
 	card := &TaskCard{
-		Name:       "fix/foo",
-		Title:      "Fix foo",
-		Branch:     "fix/foo",
-		BaseBranch: "main",
-		Agent:      "reviewer",
+		Name:         "fix/foo",
+		Title:        "Fix foo",
+		Branch:       "fix/foo",
+		BaseBranch:   "main",
+		Agent:        "reviewer",
 		AgentIsNamed: true,
 	}
 	out := card.RenderPlain()
@@ -103,10 +103,10 @@ func TestTaskCard_RenderPretty_RoutineShadow(t *testing.T) {
 
 func TestTaskCardFromView_Identity(t *testing.T) {
 	tests := []struct {
-		name     string
-		view     *task.View
-		want     string
-		isNamed  bool
+		name    string
+		view    *task.View
+		want    string
+		isNamed bool
 	}{
 		{
 			name: "named agent with adapter and model",
