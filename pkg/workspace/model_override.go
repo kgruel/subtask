@@ -21,14 +21,6 @@ func ValidateReasoningLevel(reasoning string) error {
 	return fmt.Errorf("invalid reasoning %q\n\nAllowed: %s", reasoning, strings.Join(validReasoningLevels, ", "))
 }
 
-func ValidateReasoningFlag(adapterName, reasoning string) error {
-	reasoning = strings.TrimSpace(reasoning)
-	if reasoning == "" {
-		return nil
-	}
-	return ValidateReasoningLevel(reasoning)
-}
-
 func ResolveAdapter(cfg *Config, t *task.Task, override string) string {
 	if strings.TrimSpace(override) != "" {
 		return strings.TrimSpace(override)
@@ -81,40 +73,27 @@ func ResolveReasoning(cfg *Config, t *task.Task, override string) string {
 	return ""
 }
 
-func ConfigWithModelReasoning(cfg *Config, model, reasoning string) *Config {
-	return ConfigWithOverrides(cfg, "", "", model, reasoning)
-}
-
+// ConfigWithOverrides returns a copy of cfg with each non-empty override
+// applied. Empty overrides preserve the existing value (set-or-preserve),
+// matching ApplyAgentSpec's overlay semantics. Callers pass already-resolved
+// bundles, so an empty field means "no override here", never "clear it".
 func ConfigWithOverrides(cfg *Config, adapter, provider, model, reasoning string) *Config {
 	if cfg == nil {
 		return nil
 	}
 	cp := *cfg
 
-	adapter = strings.TrimSpace(adapter)
-	if adapter != "" {
+	if adapter = strings.TrimSpace(adapter); adapter != "" {
 		cp.Adapter = adapter
 	}
-
-	provider = strings.TrimSpace(provider)
-	if provider != "" {
+	if provider = strings.TrimSpace(provider); provider != "" {
 		cp.Provider = provider
-	} else {
-		cp.Provider = ""
 	}
-
-	model = strings.TrimSpace(model)
-	if model != "" {
+	if model = strings.TrimSpace(model); model != "" {
 		cp.Model = model
-	} else {
-		cp.Model = ""
 	}
-
-	reasoning = strings.TrimSpace(reasoning)
-	if reasoning != "" {
+	if reasoning = strings.TrimSpace(reasoning); reasoning != "" {
 		cp.Reasoning = reasoning
-	} else {
-		cp.Reasoning = ""
 	}
 
 	return &cp

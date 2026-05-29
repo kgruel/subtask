@@ -37,23 +37,28 @@ func TestValidateReasoningLevel(t *testing.T) {
 	require.Error(t, workspace.ValidateReasoningLevel("nope"))
 }
 
-func TestValidateReasoningFlag_AnyAdapter(t *testing.T) {
-	// Reasoning is adapter-agnostic; validation only checks the level value.
-	require.NoError(t, workspace.ValidateReasoningFlag("claude", "high"))
-	require.NoError(t, workspace.ValidateReasoningFlag("pi", "medium"))
-	require.NoError(t, workspace.ValidateReasoningFlag("codex", "low"))
-	require.Error(t, workspace.ValidateReasoningFlag("claude", "nope"))
-}
-
-func TestConfigWithModelReasoning_DoesNotMutateOriginal(t *testing.T) {
+func TestConfigWithOverrides_OverlayAndNoMutation(t *testing.T) {
 	cfg := &workspace.Config{
-		Adapter: "codex",
-		Model:   "old",
+		Adapter:   "codex",
+		Provider:  "openai",
+		Model:     "old",
+		Reasoning: "high",
 	}
 
-	out := workspace.ConfigWithModelReasoning(cfg, "new", "high")
-	require.Equal(t, "old", cfg.Model)
+	// Non-empty overrides apply; empty overrides PRESERVE the existing value
+	// (set-or-preserve), and the original is never mutated.
+	out := workspace.ConfigWithOverrides(cfg, "", "", "new", "")
+	require.Equal(t, "old", cfg.Model, "original must not be mutated")
 
-	require.Equal(t, "new", out.Model)
-	require.Equal(t, "high", out.Reasoning)
+	require.Equal(t, "codex", out.Adapter, "empty adapter preserves")
+	require.Equal(t, "openai", out.Provider, "empty provider preserves, does not clear")
+	require.Equal(t, "new", out.Model, "non-empty model overrides")
+	require.Equal(t, "high", out.Reasoning, "empty reasoning preserves, does not clear")
+
+	// A full override replaces every field.
+	full := workspace.ConfigWithOverrides(cfg, "claude", "anthropic", "opus", "medium")
+	require.Equal(t, "claude", full.Adapter)
+	require.Equal(t, "anthropic", full.Provider)
+	require.Equal(t, "opus", full.Model)
+	require.Equal(t, "medium", full.Reasoning)
 }

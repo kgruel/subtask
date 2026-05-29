@@ -61,7 +61,7 @@ func Resolve(cfg *Config, t *task.Task, o ResolveOverrides) (Resolved, error) {
 		Reasoning: ResolveReasoning(cfg, t, reasoningFlag),
 	}
 
-	if err := ValidateReasoningFlag(r.Adapter, r.Reasoning); err != nil {
+	if err := ValidateReasoningLevel(r.Reasoning); err != nil {
 		return Resolved{}, err
 	}
 
