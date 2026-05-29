@@ -76,7 +76,7 @@ func (t *Task) Save() error {
 		}
 	}
 
-	return os.WriteFile(Path(t.Name), buf.Bytes(), 0644)
+	return writeBytesAtomic(Path(t.Name), buf.Bytes())
 }
 
 // Load reads a task from .subtask/tasks/<name>/TASK.md.
