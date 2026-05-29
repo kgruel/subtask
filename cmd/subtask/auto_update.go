@@ -22,12 +22,17 @@ func runAutoUpdate() {
 	if !(len(os.Args) > 1 && os.Args[1] == "install") {
 		homeDir, err := homedir.Dir()
 		if err == nil && homeDir != "" {
-			res, err := install.AutoUpdateIfInstalled(homeDir)
-			if err == nil && res.UpdatedSkill {
+			res, err := install.AutoUpdateIfInstalled(homeDir, version)
+			if err == nil {
 				// Stderr, not stdout: this is meta-status that fires before the
 				// user's command runs. It must never contaminate stdout consumed
 				// by pipes, hooks, or `subtask reply` / `subtask unread`.
-				fmt.Fprintln(os.Stderr, "✓ Updated skill to latest version")
+				if res.UpdatedSkill {
+					fmt.Fprintln(os.Stderr, "✓ Updated skill to latest version")
+				}
+				if res.UpdatedPlugin {
+					fmt.Fprintln(os.Stderr, "✓ Updated plugin to latest version")
+				}
 			}
 		}
 	}
