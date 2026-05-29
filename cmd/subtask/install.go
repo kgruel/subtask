@@ -28,6 +28,11 @@ type InstallCmd struct {
 	SkillOnly     bool   `help:"Install the skill only; skip writing the plugin. The marketplace path remains available for manual plugin install: /plugin marketplace add github:kgruel/subtask && /plugin install subtask@subtask"`
 }
 
+// anyConfigFlagSet reports whether the user passed any config-shaping flag.
+func (c *InstallCmd) anyConfigFlagSet() bool {
+	return c.Adapter != "" || c.Provider != "" || c.Model != "" || c.Reasoning != "" || c.MaxWorkspaces != 0
+}
+
 func (c *InstallCmd) Run() error {
 	if c.Guide {
 		printSetupGuide()
@@ -142,6 +147,12 @@ func (c *InstallCmd) Run() error {
 			printSuccess("Configured subtask")
 			printConfigDetails(cfg, "user", task.ConfigPath())
 		}
+	} else if c.anyConfigFlagSet() {
+		// Config already exists but the user passed config-shaping flags. Don't
+		// silently swallow them (design principle #7 — name the recovery).
+		printWarning("subtask is already configured; --adapter/--provider/--model/--reasoning/--max-workspaces were ignored.")
+		fmt.Println("  To change configuration: subtask config            # edit global defaults")
+		fmt.Println("                           subtask config --project  # edit project overrides")
 	} else if !updated {
 		// Skill was already up to date and config exists - let user know how to reconfigure.
 		fmt.Println()
