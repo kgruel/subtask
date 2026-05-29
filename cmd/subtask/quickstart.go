@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/kgruel/subtask/pkg/task"
-	"github.com/kgruel/subtask/pkg/task/gather"
+	"github.com/kgruel/subtask/pkg/task/store"
 )
 
 // QuickstartCmd implements 'subtask quickstart'.
@@ -19,18 +19,21 @@ func (c *QuickstartCmd) Run() error {
 		return fmt.Errorf("not in a subtask-initialized project. cd to a git project with Subtask installed, or run subtask install first")
 	}
 
-	data, err := gather.List(context.Background(), gather.ListOptions{All: true})
+	// Use the shared store.List so quickstart's open-count matches `subtask list`
+	// exactly (store does write-on-read ancestor-merge detection that the old
+	// gather layer lacked).
+	data, err := store.New().List(context.Background(), store.ListOptions{All: true})
 	if err != nil {
 		return err
 	}
-	if c.First || len(data.Items) == 0 {
+	if c.First || len(data.Tasks) == 0 {
 		fmt.Print(firstTaskQuickstart())
 		return nil
 	}
 
 	openCount := 0
 	unreadCount := 0
-	for _, it := range data.Items {
+	for _, it := range data.Tasks {
 		if it.TaskStatus != task.TaskStatusOpen {
 			continue
 		}
@@ -41,7 +44,7 @@ func (c *QuickstartCmd) Run() error {
 		}
 	}
 
-	fmt.Print(existingTasksQuickstart(openCount, len(data.Items), unreadCount))
+	fmt.Print(existingTasksQuickstart(openCount, len(data.Tasks), unreadCount))
 	return nil
 }
 

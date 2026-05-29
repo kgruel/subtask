@@ -236,7 +236,7 @@ The plugin directory carries a `.subtask-binary-installed` marker so `subtask un
 ├── cmd/subtask/             # CLI commands and main.go entry point
 ├── pkg/                     # importable packages
 │   ├── task/                # Task/State structs, paths, locking, progress
-│   │   ├── gather/          # shared data layer (used by CLI and TUI)
+│   │   ├── store/           # shared read/list/view layer over the index (used by CLI and TUI)
 │   │   ├── history/         # history.jsonl: append, read, tail
 │   │   ├── index/           # SQLite index for fast list/TUI queries
 │   │   ├── migrate/         # schema migrations (legacy → current)
