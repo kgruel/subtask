@@ -241,10 +241,16 @@ WHERE name = ?;
 
 		for _, r := range results {
 			updateErr := r.updateBase || r.updateConflicts
+			// Only overwrite frozen/cached line counts when we actually computed
+			// new ones. A merged/closed task whose merge commit is absent (e.g. a
+			// no-op finalize records commit "") yields ok=false from ShowDiffStat,
+			// leaving these nil; clobbering the disk-projected stats with NULL would
+			// lose the frozen counts.
+			updateStats := r.updateBase && r.linesAdded != nil && r.linesRemoved != nil
 			if _, err := stmt.ExecContext(ctx,
-				boolToInt(r.updateBase),
+				boolToInt(updateStats),
 				nullableInt(r.linesAdded),
-				boolToInt(r.updateBase),
+				boolToInt(updateStats),
 				nullableInt(r.linesRemoved),
 				boolToInt(r.updateBase),
 				nullableStringPtr(r.baseRef),
