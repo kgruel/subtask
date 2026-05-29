@@ -134,10 +134,7 @@ func renderChangesSearchBox(m model, maxWidth int, bg lipgloss.TerminalColor) st
 	}
 	bgStyle := lipgloss.NewStyle().Background(bg)
 	prefix := styleDim.Background(bg).Render("/")
-	value := m.diffSearchInput.Value()
-	if len(value) > maxWidth-5 {
-		value = value[:maxWidth-5]
-	}
+	value := ansi.Truncate(m.diffSearchInput.Value(), maxWidth-5, "")
 	cursor := ""
 	if m.diffSearchActive {
 		cursor = "█"

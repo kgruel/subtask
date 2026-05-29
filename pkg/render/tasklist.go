@@ -88,7 +88,7 @@ func (t *TaskListTable) RenderPretty() string {
 		}
 		for i, cell := range row {
 			// For progress bar and changes, use display width not byte length
-			cellWidth := displayWidth(cell)
+			cellWidth := ansi.StringWidth(cell)
 			if i < len(widths) && cellWidth > widths[i] {
 				widths[i] = cellWidth
 			}
@@ -207,10 +207,6 @@ func formatChangesForTask(task TaskRow, colored bool) string {
 	return changes
 }
 
-func colorTaskStatus(status string) string {
-	return colorUnifiedStatus(status)
-}
-
 func colorUnifiedStatus(status string) string {
 	s := strings.TrimSpace(status)
 	switch {
@@ -220,7 +216,7 @@ func colorUnifiedStatus(status string) string {
 		return styleStatusWorking.Render(s)
 	case strings.HasPrefix(s, "replied"):
 		return styleStatusReplied.Render(s)
-	case strings.HasPrefix(s, "error"):
+	case strings.HasPrefix(s, "error"), strings.HasPrefix(s, "interrupted"):
 		return styleStatusError.Render(s)
 	case strings.Contains(s, "merged"):
 		return styleStatusMerged.Render(s)
@@ -267,30 +263,10 @@ func formatProgressBar(progress string) string {
 	return styleSuccess.Render(bar) + " " + progress
 }
 
-// displayWidth returns the visible width of a string (ignoring ANSI codes).
-func displayWidth(s string) int {
-	// Strip ANSI escape codes for width calculation
-	inEscape := false
-	width := 0
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if r == 'm' {
-				inEscape = false
-			}
-			continue
-		}
-		width++
-	}
-	return width
-}
-
-// padRightDisplay pads a string to the given display width (accounting for ANSI).
+// padRightDisplay pads a string to the given display width (accounting for ANSI
+// escapes and wide runes via ansi.StringWidth).
 func padRightDisplay(s string, width int) string {
-	dw := displayWidth(s)
+	dw := ansi.StringWidth(s)
 	if dw >= width {
 		return s
 	}
