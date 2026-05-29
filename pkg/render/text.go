@@ -122,12 +122,6 @@ func (kv *KeyValueList) Print() {
 	}
 }
 
-// PrintKV is a convenience function to print key-value pairs.
-func PrintKV(pairs ...KV) {
-	kv := &KeyValueList{Pairs: pairs}
-	kv.Print()
-}
-
 // Divider prints a horizontal divider line.
 func Divider() {
 	if Pretty {
