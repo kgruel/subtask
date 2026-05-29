@@ -51,8 +51,15 @@ NOW=$(date +%s)
 THRESHOLD_SEC=$(( THRESHOLD_MIN * 60 ))
 
 # Portable mtime in epoch seconds.
+#
+# GNU form (--format) MUST come first: on Linux `stat -f` means --file-system
+# and *succeeds* (exit 0) printing garbage that starts with "File:", so the
+# BSD-first ordering never falls through and MTIME ends up non-numeric —
+# breaking the later $(( NOW - MTIME )) arithmetic ("File: unbound variable"
+# under set -u). The GNU long option fails cleanly on macOS BSD stat, so
+# GNU-first is correct on both platforms.
 file_mtime() {
-  stat -f '%m' "$1" 2>/dev/null || stat --format='%Y' "$1" 2>/dev/null || echo 0
+  stat --format='%Y' "$1" 2>/dev/null || stat -f '%m' "$1" 2>/dev/null || echo 0
 }
 
 # Convert an ISO8601 timestamp (from history.jsonl) to epoch seconds.
