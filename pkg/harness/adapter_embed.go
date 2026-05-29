@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kgruel/subtask/pkg/task"
 )
 
 //go:embed adapters/*.yaml
@@ -102,15 +104,5 @@ func CLINameForAdapter(userDir, adapterName string) string {
 
 // UserAdaptersDir returns the conventional path for user adapter overrides.
 func UserAdaptersDir() string {
-	return filepath.Join(globalDir(), "adapters")
-}
-
-// globalDir returns the subtask global directory. This duplicates task.GlobalDir()
-// to avoid a circular import (harness must not import task for this helper).
-func globalDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".subtask")
+	return filepath.Join(task.GlobalDir(), "adapters")
 }
