@@ -14,6 +14,33 @@ type DiffFileStat struct {
 	Status  string // from `git diff --name-status` (e.g. A/M/D/R/C/T/U)
 }
 
+// resolveRenamePath collapses the rename/copy syntax that `git diff --numstat`
+// emits in the path field down to the NEW path, matching how parseNameStatus
+// keys renames. Non-rename paths are returned unchanged.
+//
+//	brace form: "pre/{old => new}/post" -> "pre/new/post"
+//	            "{old => new}"           -> "new"
+//	plain form: "old => new"            -> "new"
+func resolveRenamePath(path string) string {
+	if open := strings.Index(path, "{"); open != -1 {
+		if closeIdx := strings.Index(path[open:], "}"); closeIdx != -1 {
+			closeIdx += open
+			inner := path[open+1 : closeIdx]
+			if arrow := strings.Index(inner, " => "); arrow != -1 {
+				newPart := inner[arrow+len(" => "):]
+				resolved := path[:open] + newPart + path[closeIdx+1:]
+				// Collapse the doubled separator from a degenerate "{old => }".
+				return strings.ReplaceAll(resolved, "//", "/")
+			}
+		}
+		return path
+	}
+	if arrow := strings.Index(path, " => "); arrow != -1 {
+		return path[arrow+len(" => "):]
+	}
+	return path
+}
+
 func parseNumstat(out string) []DiffFileStat {
 	if out == "" {
 		return nil
@@ -29,7 +56,7 @@ func parseNumstat(out string) []DiffFileStat {
 			continue
 		}
 
-		s := DiffFileStat{Path: parts[2]}
+		s := DiffFileStat{Path: resolveRenamePath(parts[2])}
 		if parts[0] == "-" || parts[1] == "-" {
 			s.Binary = true
 			stats = append(stats, s)
