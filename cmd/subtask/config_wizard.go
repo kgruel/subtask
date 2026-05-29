@@ -122,7 +122,7 @@ func validateConfigValues(values configValues) error {
 		return fmt.Errorf("max workspaces must be >= 0, got %d", values.MaxWorkspaces)
 	}
 
-	return workspace.ValidateReasoningFlag(adapterName, strings.TrimSpace(values.Reasoning))
+	return workspace.ValidateReasoningLevel(strings.TrimSpace(values.Reasoning))
 }
 
 // buildConfig creates a workspace.Config from resolved values.
