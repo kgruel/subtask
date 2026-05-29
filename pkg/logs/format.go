@@ -165,8 +165,9 @@ func (f *Formatter) formatTime(t time.Time) string {
 		}
 	}
 
-	// Full timestamp
-	return t.Format("15:04:05")
+	// Cross-day (or no reference start): include the date so entries in
+	// long-running / resumed sessions aren't ambiguous.
+	return t.Format("2006-01-02 15:04:05")
 }
 
 // FormatSessionHeader formats session info as a header.
