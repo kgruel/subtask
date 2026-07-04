@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kgruel/subtask/pkg/task"
+	"github.com/kgruel/subtask/pkg/task/history"
 	"github.com/kgruel/subtask/pkg/testutil"
 )
 
@@ -359,4 +361,312 @@ func TestBuildPrompt_AgentLoadFailurePropagates(t *testing.T) {
 	_, err := BuildPrompt(tk, "/tmp/ws", false, "", "Implement.", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), ".subtask/agents/ghost.yaml")
+}
+
+// --- 3a: consumes: → ## Inputs ------------------------------------------------
+
+func writeRoutine(t *testing.T, env *testutil.TestEnv, name, body string) {
+	t.Helper()
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, name+".yaml"), []byte(body), 0o644))
+}
+
+func TestBuildPrompt_ConsumesInjectsInputs(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	writeRoutine(t, env, "consumes", `name: consumes
+steps:
+  - id: impl
+    consumes: [PLAN.md, notes/spec.md]
+    worker_instructions: Implement per PLAN.md.
+  - id: done
+    kind: terminal
+`)
+
+	tk := &task.Task{
+		Name:        "rt/consumes-unit",
+		Title:       "Consumes inputs",
+		BaseBranch:  "main",
+		Routine:     "consumes",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+	// PLAN.md exists; notes/spec.md deliberately absent (missing-marked).
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(tk.Name), "PLAN.md"), []byte("# Plan\n"), 0o644))
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Go.", nil)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "## Inputs")
+	require.Contains(t, got, ".subtask/tasks/rt--consumes-unit/PLAN.md")
+	require.Contains(t, got, "notes/spec.md (missing — expected input not found)")
+
+	// Ordering: ## Stage < ## Inputs < separator.
+	stageIdx := strings.Index(got, "## Stage")
+	inputsIdx := strings.Index(got, "## Inputs")
+	sepIdx := strings.Index(got, "--------------------")
+	require.Greater(t, inputsIdx, stageIdx, "## Inputs must follow ## Stage")
+	require.Greater(t, sepIdx, inputsIdx, "## Inputs must precede the separator")
+}
+
+func TestBuildPrompt_NoInputsWhenNoConsumes(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	writeRoutine(t, env, "noConsume", `name: noConsume
+steps:
+  - id: impl
+    worker_instructions: Just do it.
+  - id: done
+    kind: terminal
+`)
+
+	tk := &task.Task{
+		Name:       "rt/no-consume",
+		Title:      "No consume",
+		BaseBranch: "main",
+		Routine:    "noConsume",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Go.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Inputs")
+}
+
+func TestBuildPrompt_NoInputsForNonRoutine(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	tk := &task.Task{
+		Name:        "prompt/plain-no-inputs",
+		Title:       "Plain",
+		BaseBranch:  "main",
+		Description: "Plain task.",
+	}
+	require.NoError(t, tk.Save())
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "", "Go.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Inputs")
+}
+
+func TestGolden_BuildPrompt_Consumes(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	writeRoutine(t, env, "consumesg", `name: consumesg
+steps:
+  - id: impl
+    consumes: [PLAN.md, notes/spec.md]
+    worker_instructions: Implement per PLAN.md.
+  - id: done
+    kind: terminal
+`)
+
+	tk := &task.Task{
+		Name:        "rt/consumes",
+		Title:       "Consumes golden",
+		BaseBranch:  "main",
+		Routine:     "consumesg",
+		Description: "Per-task description.",
+	}
+	require.NoError(t, tk.Save())
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(tk.Name), "PLAN.md"), []byte("# Plan\n"), 0o644))
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Go.", nil)
+	require.NoError(t, err)
+	testutil.AssertGolden(t, "testdata/prompt/consumes.txt", got)
+}
+
+func TestBuildPrompt_ConsumesWithoutStageBlock(t *testing.T) {
+	// A regular step may declare consumes: with neither worker_instructions
+	// nor worker_context (dispatched via `stage <task> <step> "<prompt>"` or a
+	// direct `send` — auto-advance can't reach it since that requires
+	// agent:/worker_instructions:). ## Inputs is keyed on len(consumes) > 0
+	// alone, independent of ## Stage, so it must still render even though
+	// ## Stage: (which requires wi != "" || wc != "") does not.
+	env := testutil.NewTestEnv(t, 0)
+	writeRoutine(t, env, "consumesNoStage", `name: consumesNoStage
+steps:
+  - id: impl
+    consumes: [PLAN.md]
+  - id: done
+    kind: terminal
+`)
+
+	tk := &task.Task{
+		Name:       "rt/consumes-no-stage",
+		Title:      "Consumes without stage block",
+		BaseBranch: "main",
+		Routine:    "consumesNoStage",
+	}
+	require.NoError(t, tk.Save())
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(tk.Name), "PLAN.md"), []byte("# Plan\n"), 0o644))
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Go.", nil)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "## Inputs")
+	require.NotContains(t, got, "## Stage:")
+}
+
+func TestBuildPrompt_ConsumesDirectoryEntry(t *testing.T) {
+	// A consumes: entry that resolves to a directory (not a file) renders
+	// present, annotated `(directory)` — read semantics are left to the worker.
+	env := testutil.NewTestEnv(t, 0)
+	writeRoutine(t, env, "consumesDir", `name: consumesDir
+steps:
+  - id: impl
+    consumes: [notes]
+    worker_instructions: Read the notes directory.
+  - id: done
+    kind: terminal
+`)
+
+	tk := &task.Task{
+		Name:       "rt/consumes-dir",
+		Title:      "Consumes directory entry",
+		BaseBranch: "main",
+		Routine:    "consumesDir",
+	}
+	require.NoError(t, tk.Save())
+	require.NoError(t, os.MkdirAll(filepath.Join(task.Dir(tk.Name), "notes"), 0o755))
+
+	got, err := BuildPrompt(tk, "/tmp/ws", false, "impl", "Go.", nil)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "## Inputs")
+	require.Contains(t, got, ".subtask/tasks/rt--consumes-dir/notes (directory)")
+}
+
+// --- 3b: ## Parent Context ----------------------------------------------------
+
+func TestBuildPrompt_ParentContextInjected(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+
+	parent := &task.Task{
+		Name:        "parent/x",
+		Title:       "Parent",
+		BaseBranch:  "main",
+		Description: "Parent work.",
+	}
+	require.NoError(t, parent.Save())
+	pdir := task.Dir(parent.Name)
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, "PLAN.md"), []byte("# Plan\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, "PROGRESS.json"), []byte("[]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(pdir, "reviews"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, "reviews", "r.md"), []byte("# Review\n"), 0o644))
+	data, _ := json.Marshal(map[string]any{"name": "review", "path": "reviews/r.md", "kind": "review"})
+	require.NoError(t, history.Append(parent.Name, history.Event{Type: "artifact.produced", Data: data}))
+
+	child := &task.Task{
+		Name:        "child/y",
+		Title:       "Child",
+		BaseBranch:  "main",
+		FollowUp:    "parent/x",
+		Description: "Child work.",
+	}
+	require.NoError(t, child.Save())
+
+	got, err := BuildPrompt(child, "/tmp/ws", false, "", "Go.", nil)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "## Parent Context")
+	require.Contains(t, got, "follow-up from parent/x")
+	require.Contains(t, got, "TASK.md:")
+	require.Contains(t, got, "PLAN.md:")
+	require.Contains(t, got, "PROGRESS.json:")
+	require.Contains(t, got, "reviews/r.md")
+
+	// Every listed artifact path is absolute (into the lead repo).
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(line, "- ") && strings.Contains(line, ".subtask/tasks/parent--x/") {
+			require.Contains(t, line, env.RootDir, "parent artifact path must be absolute: %q", line)
+		}
+	}
+
+	// Ordering: ## Description < ## Parent Context.
+	descIdx := strings.Index(got, "## Description")
+	pcIdx := strings.Index(got, "## Parent Context")
+	require.Greater(t, pcIdx, descIdx, "## Parent Context must follow ## Description")
+}
+
+func TestBuildPrompt_NoParentContextWhenParentMissing(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	child := &task.Task{
+		Name:        "child/ghost",
+		Title:       "Child",
+		BaseBranch:  "main",
+		FollowUp:    "ghost/x", // no such parent folder
+		Description: "Child work.",
+	}
+	require.NoError(t, child.Save())
+
+	got, err := BuildPrompt(child, "/tmp/ws", false, "", "Go.", nil)
+	require.NoError(t, err)
+	require.NotContains(t, got, "## Parent Context",
+		"a follow-up to a nonexistent parent must render no ## Parent Context (this is what keeps the context_* goldens valid)")
+}
+
+func TestBuildPrompt_ParentContextSkipsMissingFiles(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	parent := &task.Task{
+		Name:       "parent/only-task",
+		Title:      "Parent",
+		BaseBranch: "main",
+	}
+	require.NoError(t, parent.Save()) // only TASK.md on disk, no PLAN/PROGRESS
+
+	child := &task.Task{
+		Name:       "child/z",
+		Title:      "Child",
+		BaseBranch: "main",
+		FollowUp:   "parent/only-task",
+	}
+	require.NoError(t, child.Save())
+
+	got, err := BuildPrompt(child, "/tmp/ws", false, "", "Go.", nil)
+	require.NoError(t, err)
+	require.Contains(t, got, "## Parent Context")
+	require.Contains(t, got, "TASK.md:")
+	require.NotContains(t, got, "PLAN.md:")
+	require.NotContains(t, got, "PROGRESS.json:")
+}
+
+func TestBuildPrompt_ParentContextDedupesProgressJSON(t *testing.T) {
+	// If a step's produces: is literally "PROGRESS.json" (already emitted as
+	// an artifact.produced event) and the file exists on disk, the
+	// task.Artifacts() loop in renderParentContext already lists it — the
+	// explicit PROGRESS.json fallback append must be skipped so it isn't
+	// listed twice.
+	_ = testutil.NewTestEnv(t, 0)
+
+	parent := &task.Task{
+		Name:       "parent/dedup",
+		Title:      "Parent dedup",
+		BaseBranch: "main",
+	}
+	require.NoError(t, parent.Save())
+	pdir := task.Dir(parent.Name)
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, "PROGRESS.json"), []byte("[]\n"), 0o644))
+	data, _ := json.Marshal(map[string]any{"name": "PROGRESS.json", "path": "PROGRESS.json", "kind": "impl"})
+	require.NoError(t, history.Append(parent.Name, history.Event{Type: "artifact.produced", Data: data}))
+
+	child := &task.Task{
+		Name:       "child/dedup",
+		Title:      "Child",
+		BaseBranch: "main",
+		FollowUp:   "parent/dedup",
+	}
+	require.NoError(t, child.Save())
+
+	got, err := BuildPrompt(child, "/tmp/ws", false, "", "Go.", nil)
+	require.NoError(t, err)
+	require.Contains(t, got, "## Parent Context")
+
+	var progressLines int
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(line, "- ") && strings.Contains(line, "PROGRESS.json") {
+			progressLines++
+		}
+	}
+	require.Equal(t, 1, progressLines, "PROGRESS.json must appear as exactly one line in ## Parent Context, got %d:\n%s", progressLines, got)
 }

@@ -48,8 +48,17 @@ func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error)
 		}
 	}
 
+	// No resolvable session. If followUp is a real task, the raw-session
+	// fallback above did not fire (it only fires when task.Load fails), so this
+	// is a never-dispatched parent used purely as an artifact container. That is
+	// valid artifacts-first continuity: there is no session to resume, but its
+	// TASK.md/PLAN.md/PROGRESS.json/produces files are injected as ## Parent
+	// Context by BuildPrompt. Return an artifact-only seed rather than failing.
 	if strings.TrimSpace(seed.FromSessionID) == "" {
-		return nil, fmt.Errorf("follow-up %q has no session to continue\n\nTip: Pass a session ID directly, or draft a new task with background context in the description.", followUp)
+		if _, err := task.Load(followUp); err != nil {
+			return nil, fmt.Errorf("follow-up %q has no session to continue\n\nTip: Pass a session ID directly, or draft a new task with background context in the description.", followUp)
+		}
+		return seed, nil // real task, never sent → artifact-only continuity
 	}
 
 	// Enforce adapter compatibility when known.

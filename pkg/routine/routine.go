@@ -93,8 +93,14 @@ type Step struct {
 	// pkg/agent.LoadByName at send/BuildPrompt time).
 	Agent string `yaml:"agent,omitempty"`
 
-	// Consumes / Produces are inert metadata for downstream tooling.
-	// Produces is a single filename; a step can produce at most one artifact for v1.
+	// Consumes lists artifacts (relative to the task folder) that this step
+	// reads as inputs. BuildPrompt renders them into a `## Inputs` block so the
+	// worker knows exactly which files to read. Produces is a single filename a
+	// step writes; it drives branch predicates (see runner.pickNextStep).
+	// consumes[] on a regular step is validated for path shape at load
+	// (validateArtifactPath); produces likewise. Only regular (Kind=="") steps
+	// may declare either — terminal and gate steps reject both at load, because
+	// neither dispatches a worker prompt for the list to feed.
 	Consumes []string `yaml:"consumes,omitempty"`
 	Produces string   `yaml:"produces,omitempty"`
 
@@ -526,6 +532,12 @@ func validateSteps(steps []Step) error {
 			// routine author doesn't get a silent no-op.
 			if strings.TrimSpace(s.WorkerInstructions) != "" || strings.TrimSpace(s.WorkerContext) != "" {
 				return fmt.Errorf("step %q: gate steps cannot declare worker_instructions: or worker_context: (gates don't dispatch)", s.ID)
+			}
+			// consumes: renders into the worker prompt (## Inputs), exactly like
+			// worker_instructions. Gates don't dispatch, so a consumes list on a
+			// gate is a silent no-op — reject it, mirroring the terminal block.
+			if len(s.Consumes) > 0 {
+				return fmt.Errorf("step %q: gate steps cannot declare consumes: (gates don't dispatch)", s.ID)
 			}
 		}
 

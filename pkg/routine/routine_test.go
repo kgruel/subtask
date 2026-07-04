@@ -598,6 +598,45 @@ steps:
 	require.Contains(t, err.Error(), "absolute")
 }
 
+func TestParseRoutine_RejectsConsumesOnGate(t *testing.T) {
+	// consumes: renders into the worker prompt now, so a gate (which never
+	// dispatches) declaring it is a silent no-op — rejected like
+	// worker_instructions. Mirrors TestParseRoutine_RejectsWorkerInstructionsOnGate.
+	data := []byte(`name: bad
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: review
+    kind: gate
+    consumes: [PLAN.md]
+    options:
+      - { name: ok, next: done }
+  - id: done
+    kind: terminal
+`)
+	_, err := parseRoutine(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "review")
+	require.Contains(t, err.Error(), "consumes")
+}
+
+func TestParseRoutine_ConsumesOnRegularStepAllowed(t *testing.T) {
+	// Guard against over-broad rejection: a regular step declaring consumes
+	// must still load clean (the gate/terminal rejection is kind-scoped).
+	data := []byte(`name: ok
+steps:
+  - id: impl
+    consumes: [PLAN.md, notes/spec.md]
+    worker_instructions: Implement per PLAN.md.
+  - id: done
+    kind: terminal
+`)
+	r, err := parseRoutine(data)
+	require.NoError(t, err)
+	require.Equal(t, []string{"PLAN.md", "notes/spec.md"}, r.GetStep("impl").Consumes)
+}
+
 // ---- LoadByName: path/name traversal & file existence -----------------------
 
 func TestLoadByName_RejectsTraversalInName(t *testing.T) {

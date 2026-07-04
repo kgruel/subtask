@@ -113,6 +113,13 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		rt = r
 	}
 
+	// The active routine step drives per-step blocks (agent, stage, inputs).
+	// Resolved once: the stamped stage, or the routine's entry step on first send.
+	activeStep := stage
+	if rt != nil && activeStep == "" {
+		activeStep = rt.EntryStep()
+	}
+
 	if rt != nil {
 		// `## Project` from routine.default_prompt.
 		body, err := rt.ResolveDefaultPromptText()
@@ -136,10 +143,6 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 	// is not a fallback for routine tasks.
 	agentName := ""
 	if rt != nil {
-		activeStep := stage
-		if activeStep == "" {
-			activeStep = rt.EntryStep()
-		}
 		if s := rt.GetStep(activeStep); s != nil {
 			agentName = s.Agent
 		}
@@ -170,14 +173,18 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		sb.WriteString("\n")
 	}
 
+	// Follow-up parent artifacts: durable, artifacts-first background for a
+	// child seeded from a merged/closed (or never-dispatched) parent whose
+	// session can't be duplicated. Renders nothing when there is no parent or
+	// no readable parent files, so non-follow-up prompts stay byte-identical.
+	if pc := renderParentContext(t.FollowUp); pc != "" {
+		sb.WriteString(pc)
+	}
+
 	// Routine per-step worker_instructions / worker_context, when in a
 	// routine task. Mirrors the workflow stage block below but reads
 	// from the current routine step.
 	if rt != nil {
-		activeStep := stage
-		if activeStep == "" {
-			activeStep = rt.EntryStep()
-		}
 		if s := rt.GetStep(activeStep); s != nil {
 			wi := strings.TrimSpace(s.WorkerInstructions)
 			wc := strings.TrimSpace(s.WorkerContext)
@@ -198,8 +205,113 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 		}
 	}
 
+	// Routine per-step consumes: → `## Inputs`. Keyed on len(consumes) > 0
+	// alone (independent of `## Stage`); load-time validation guarantees only
+	// regular steps carry a consumes list, so terminal/gate steps render none.
+	if rt != nil {
+		if s := rt.GetStep(activeStep); s != nil {
+			if in := renderConsumedInputs(taskDir, task.Dir(t.Name), s.Consumes); in != "" {
+				sb.WriteString(in)
+			}
+		}
+	}
+
 	// Separator and prompt
 	sb.WriteString("\n--------------------\n\n")
 	sb.WriteString(prompt)
 	return sb.String(), nil
+}
+
+// renderConsumedInputs lists the active step's consumes: artifacts as
+// workspace-relative paths (the form the worker can open through the task-folder
+// symlink), existence-checked. Missing entries are marked so the worker knows an
+// expected input is absent. taskDirSlash is BuildPrompt's already-computed
+// filepath.ToSlash(task.Dir(t.Name)); nativeTaskDir is task.Dir(t.Name). Paths
+// are trusted to be task-relative and non-escaping — validateArtifactPath
+// enforced that at routine load, so no re-validation happens here.
+func renderConsumedInputs(taskDirSlash, nativeTaskDir string, consumes []string) string {
+	if len(consumes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Inputs\n")
+	b.WriteString("Artifacts this step consumes (read them before starting):\n")
+	any := false
+	for _, rel := range consumes {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			continue
+		}
+		disp := taskDirSlash + "/" + filepath.ToSlash(rel)
+		abs := filepath.Join(nativeTaskDir, filepath.FromSlash(rel))
+		switch fi, err := os.Stat(abs); {
+		case err == nil && fi.IsDir():
+			fmt.Fprintf(&b, "- %s (directory)\n", disp)
+		case err == nil:
+			fmt.Fprintf(&b, "- %s\n", disp)
+		default:
+			fmt.Fprintf(&b, "- %s (missing — expected input not found)\n", disp)
+		}
+		any = true
+	}
+	if !any {
+		return ""
+	}
+	return b.String()
+}
+
+// renderParentContext lists a follow-up parent's readable artifacts as absolute
+// paths so a child seeded from a merged/closed parent (whose session can't be
+// duplicated) still gets durable, artifacts-first background. Returns "" when
+// parent is empty or has no readable files (which keeps non-parent prompts and
+// parent-less follow-up goldens byte-identical).
+func renderParentContext(parent string) string {
+	parent = strings.TrimSpace(parent)
+	if parent == "" {
+		return ""
+	}
+	absDir := task.DirAbs(parent)
+
+	type ref struct{ label, abs string }
+	var refs []ref
+	seen := make(map[string]struct{}) // keyed by slash relpath, dedups the explicit PROGRESS.json append
+
+	arts, _ := task.Artifacts(parent) // best-effort; nil on error
+	for _, a := range arts {
+		if a.Missing {
+			continue
+		}
+		rel := filepath.ToSlash(a.Path)
+		seen[rel] = struct{}{}
+		label := a.Name
+		if label == "" {
+			label = a.Path
+		}
+		refs = append(refs, ref{label: label, abs: filepath.Join(absDir, filepath.FromSlash(a.Path))})
+	}
+	// PROGRESS.json is not returned by task.Artifacts (its well-known set is only
+	// TASK.md/PLAN.md); include it if present. Skip when a step's produces: is
+	// literally "PROGRESS.json" (already emitted above) so it isn't listed twice.
+	if _, dup := seen["PROGRESS.json"]; !dup {
+		if progAbs := filepath.Join(absDir, "PROGRESS.json"); fileExists(progAbs) {
+			refs = append(refs, ref{label: "PROGRESS.json", abs: progAbs})
+		}
+	}
+	if len(refs) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## Parent Context\n")
+	fmt.Fprintf(&b, "This task is a follow-up from %s. Read these files for background (absolute paths, read-only):\n", parent)
+	for _, r := range refs {
+		fmt.Fprintf(&b, "- %s: %s\n", r.label, filepath.ToSlash(r.abs))
+	}
+	return b.String()
+}
+
+// fileExists reports whether path is an existing non-directory file.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }

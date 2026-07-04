@@ -37,7 +37,7 @@ There's an intermittent panic in pool.go under high concurrency.
 EOF
 ```
 
-`subtask draft` also accepts `--follow-up <task>` to carry conversation context forward from a prior task (useful for chained work; rarely needed).
+`subtask draft` also accepts `--follow-up <task>` to carry context forward from a prior task (useful for chained work; rarely needed). When the parent's session can still be resumed, the conversation continues. When it can't — the parent was merged/closed, or was never dispatched and has no session at all — the child instead gets the parent's artifacts (TASK.md/PLAN.md/PROGRESS.json and any produced files) injected as a read-only `## Parent Context` block. Under `send --detach` (or `-q`), the "conversation can't be resumed" warning lands in the task's supervisor log, not the terminal — check `subtask log` or the supervisor log if a detached follow-up of a merged parent behaves as if it lost context.
 
 **Project routines** live at `.subtask/routines/<name>.yaml` and override or extend the canonical set. List what's available with `subtask routines` (`--json` for tooling). Minimal shape:
 
@@ -67,6 +67,7 @@ A few fields worth knowing:
 - **`default_prompt.text`** — project-wide brief that rides on every worker prompt for this routine. Use for regen recipes, commit conventions, "fix the cause not the test." The canonical routines ship a PROGRESS.json brief; your project's override replaces it.
 - **`notify: false`** on a step suppresses the unread-reply nudge for replies in that step. Use for mechanical bookkeeping transitions (committing, snapshot regeneration) where worker replies aren't worth your attention.
 - **`worker_instructions:`** on a step (or `agent:` on the step, or a positional prompt to `subtask stage`) makes `subtask stage <task> <step>` auto-dispatch to the worker. Without any of those triggers, `stage` is passive — `send` next.
+- **`consumes:` / `produces:`** name a step's artifact inputs and output, both relative to the task folder. `consumes:` (a list) renders a `## Inputs` block into the worker prompt listing each path (existence-checked; missing ones are marked), so the worker knows exactly which files to read first. `produces:` (a single filename) is the artifact a step writes; it drives `branches:` predicates. Both are valid only on regular steps — gate and terminal steps reject them.
 
 Unknown step or routine YAML keys fail loud at load — trust the error rather than guessing the schema.
 

@@ -763,6 +763,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	// Follow-up: seed session from a previous task/session (before marking running).
 	var followUpSeed *followUpSeed
+	var followUpArtifactOnly bool // claude parent session unrecoverable (merged/closed) → artifact-only continuity
 	if (st == nil || strings.TrimSpace(st.SessionID) == "") && strings.TrimSpace(t.FollowUp) != "" {
 		seed, err := resolveFollowUpSeed(cfg.Adapter, t.FollowUp)
 		if err != nil {
@@ -794,36 +795,52 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		if strings.TrimSpace(locked.SessionID) == "" && followUpSeed != nil && strings.TrimSpace(followUpSeed.FromSessionID) != "" {
 			newSessionID := ""
 			if cfg.Adapter != "opencode" {
-				dup, err := h.DuplicateSession(followUpSeed.FromSessionID, followUpSeed.FromWorkspace, wsPath)
-				if err == nil && strings.TrimSpace(dup) != "" {
+				dup, derr := h.DuplicateSession(followUpSeed.FromSessionID, followUpSeed.FromWorkspace, wsPath)
+				if derr == nil && strings.TrimSpace(dup) != "" {
 					newSessionID = strings.TrimSpace(dup)
 				} else if cfg.Adapter == "claude" {
-					// Claude sessions are stored under a cwd-specific project directory; without
-					// duplication we can't safely resume from a follow-up task.
-					if err == nil {
-						err = fmt.Errorf("duplicate session returned empty session ID")
+					if strings.TrimSpace(followUpSeed.FromWorkspace) == "" {
+						// Parent workspace is gone (merged/closed) → claude's
+						// cwd-keyed session files can't be duplicated. Start the
+						// child on a fresh session; BuildPrompt's "## Parent
+						// Context" block carries the parent's artifacts forward
+						// (artifacts-first continuity). Warn after the lock.
+						followUpArtifactOnly = true
+					} else {
+						// Live parent, but duplication failed for another reason
+						// (missing/corrupt session file, unresolved projects root,
+						// I/O error). Unexpected and actionable — do NOT silently
+						// degrade it with a false "merged/closed" cause; keep the
+						// hard failure so diagnosability isn't lost.
+						if derr == nil {
+							derr = fmt.Errorf("duplicate session returned empty session ID")
+						}
+						return fmt.Errorf("failed to duplicate follow-up session from %q: %w\n\nTip: run without --follow-up to start a fresh session.", t.FollowUp, derr)
 					}
-					return fmt.Errorf("failed to duplicate follow-up session from %q: %w\n\nTip: run without --follow-up to start a fresh session.", t.FollowUp, err)
 				}
 			}
-			if strings.TrimSpace(newSessionID) == "" {
-				// Fallback: continue the original session (may modify the original conversation).
+			// Non-claude adapters continue the original session as before (codex
+			// sessions are global; opencode skips duplication). Claude never
+			// continues-original: it needs the parent workspace's session files,
+			// which is exactly what's missing here.
+			if strings.TrimSpace(newSessionID) == "" && cfg.Adapter != "claude" {
 				newSessionID = strings.TrimSpace(followUpSeed.FromSessionID)
 			}
-
-			locked.SessionID = newSessionID
-			locked.Adapter = cfg.Adapter
-			_ = history.AppendLocked(c.Task, history.Event{
-				Type: "worker.session",
-				Data: mustJSON(map[string]any{
-					"action":       "follow_up",
-					"harness":      cfg.Adapter,
-					"session_id":   newSessionID,
-					"from_task":    t.FollowUp,
-					"from_session": followUpSeed.FromSessionID,
-				}),
-				TS: now,
-			})
+			if strings.TrimSpace(newSessionID) != "" {
+				locked.SessionID = newSessionID
+				locked.Adapter = cfg.Adapter
+				_ = history.AppendLocked(c.Task, history.Event{
+					Type: "worker.session",
+					Data: mustJSON(map[string]any{
+						"action":       "follow_up",
+						"harness":      cfg.Adapter,
+						"session_id":   newSessionID,
+						"from_task":    t.FollowUp,
+						"from_session": followUpSeed.FromSessionID,
+					}),
+					TS: now,
+				})
+			}
 		}
 		if err := locked.Save(c.Task); err != nil {
 			return err
@@ -856,6 +873,13 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	})
 	if err != nil {
 		return "", "", "", nil, err
+	}
+
+	if followUpArtifactOnly {
+		c.warn(fmt.Sprintf(
+			"follow-up %q was merged/closed; its %s conversation can't be resumed.\n"+
+				"  Continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
+			t.FollowUp, cfg.Adapter))
 	}
 
 	return wsPath, prevWorkspace, continueFrom, repoStatus, nil

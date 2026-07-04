@@ -279,6 +279,13 @@ func Dir(name string) string {
 	return filepath.Join(TasksDir(), EscapeName(name))
 }
 
+// DirAbs returns the absolute path to a task folder, independent of cwd:
+// <git-root>/.subtask/tasks/<escaped-name>. Used to hand a follow-up child
+// readable paths into its parent's (lead-repo) task folder.
+func DirAbs(name string) string {
+	return filepath.Join(ProjectDirAbs(), "tasks", EscapeName(name))
+}
+
 // Path returns the TASK.md path.
 func Path(name string) string {
 	return filepath.Join(Dir(name), "TASK.md")
