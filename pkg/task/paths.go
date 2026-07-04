@@ -289,6 +289,22 @@ func StatePath(name string) string {
 	return filepath.Join(InternalDir(), EscapeName(name), "state.json")
 }
 
+// DetachPromptPattern is the os.CreateTemp pattern (and filepath.Glob pattern)
+// for a detached-supervisor prompt file staged under a task's internal dir.
+const DetachPromptPattern = "detach-prompt-*.txt"
+
+// DetachDir returns a task's runtime internal directory — where state.json,
+// op.lock, the supervisor log, and any detached-supervisor prompt files live.
+func DetachDir(name string) string {
+	return filepath.Join(InternalDir(), EscapeName(name))
+}
+
+// SupervisorLogPath returns the detached-supervisor log path for a task
+// (child stdout+stderr for a `send --detach` run).
+func SupervisorLogPath(name string) string {
+	return filepath.Join(DetachDir(name), "supervisor.log")
+}
+
 // HistoryPath returns the history.jsonl path.
 func HistoryPath(name string) string {
 	return filepath.Join(Dir(name), "history.jsonl")

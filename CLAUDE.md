@@ -167,7 +167,7 @@ Task status is what users care about. Worker status is operational detail. Works
 | `subtask status` | Show installation status |
 | `subtask config` | Edit user defaults or project overrides |
 | `subtask draft <task>` | Create a task without running it |
-| `subtask send <task>` | Send a message (starts or resumes task; blocks until reply) |
+| `subtask send <task>` | Send a message (starts or resumes task; blocks until reply). `--detach` returns once a detached supervisor claims the task; retrieve the reply with `subtask reply` after `subtask wait` |
 | `subtask reply <task>` | Print the most recent worker reply (from history) |
 | `subtask next <task>` | Show the state-aware next command for a task |
 | `subtask stage <task> <step>` | Advance routine step |

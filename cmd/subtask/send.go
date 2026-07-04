@@ -42,6 +42,17 @@ type SendCmd struct {
 	// Only affects the first send (when the task branch does not yet exist).
 	PinnedBase bool `name:"pinned-base" help:"On first send, branch from the draft-time base commit instead of current base-branch HEAD"`
 
+	// Detach dispatches the supervision run in a detached background process
+	// and returns as soon as that process has claimed the task. Retrieve the
+	// reply with `subtask reply <task>` after `subtask wait <task>`.
+	Detach bool `help:"Dispatch in a detached supervisor process; return once it has claimed the task. Retrieve the reply with 'subtask reply <task>' after 'subtask wait <task>'."`
+
+	// DetachChild (hidden) is set by the parent when it re-execs itself; its
+	// value is the prompt temp-file path. Its presence means "I am the detached
+	// supervisor child": read the prompt from that file (not arg/stdin) and
+	// stamp detached:true on worker.started. Never set by a human.
+	DetachChild string `name:"detach-child" hidden:"" help:"internal: detached-supervisor prompt-file path"`
+
 	// Internal: injected harness for testing
 	testHarness harness.Harness
 
@@ -51,6 +62,12 @@ type SendCmd struct {
 	// keeps re-entering the same step), so the recursion is NOT bounded
 	// by step count in general. Cap with autoDispatchCap.
 	dispatchDepth int
+
+	// detached marks a run whose supervisor is a detached child. Set once in
+	// resolvePrompt when DetachChild is present, stamped on worker.started as
+	// provenance (no behavioral reads), and propagated across the auto-advance
+	// recursion so every round of a detached chain carries it.
+	detached bool
 }
 
 // autoDispatchCap bounds the number of routine auto-advance rounds that
@@ -68,12 +85,15 @@ func (c *SendCmd) WithHarness(h harness.Harness) *SendCmd {
 
 // Run executes the send command.
 func (c *SendCmd) Run() error {
-	prompt := strings.TrimSpace(c.Prompt)
-	if prompt == "" {
-		prompt = readStdinIfAvailable()
+	// Defense-in-depth: the child is spawned with --detach-child and never
+	// --detach, so this combination is unreachable in normal operation.
+	if c.Detach && c.DetachChild != "" {
+		return fmt.Errorf("internal: --detach and --detach-child are mutually exclusive")
 	}
-	if prompt == "" {
-		return fmt.Errorf("prompt is required\n\nProvide a prompt as argument or via stdin (heredoc/pipe)")
+
+	prompt, err := c.resolvePrompt()
+	if err != nil {
+		return err
 	}
 
 	// Requirements: git + global config (config may be migrated on first access).
@@ -92,6 +112,14 @@ func (c *SendCmd) Run() error {
 	if err != nil {
 		return fmt.Errorf("task %q not found\n\nCreate it first:\n  subtask draft %s --base-branch <branch> --title \"...\"",
 			c.Task, c.Task)
+	}
+
+	// The parent re-execs this same command as a detached child that runs the
+	// byte-identical foreground body below and does its own claiming. The parent
+	// only spawns, confirms the claim, and returns — so every state/staleness/
+	// interrupt consumer keys off the child's real PID with no new state field.
+	if c.Detach {
+		return c.runDetachParent(prompt)
 	}
 
 	// Best-effort cleanup for stale supervisor PIDs.
@@ -516,12 +544,16 @@ func (c *SendCmd) Run() error {
 			// later routine step's agent binding (or the task's
 			// adapter snapshot) wins over a one-shot CLI override.
 			// PinnedBase only affects first send, so it's irrelevant
-			// for the auto-advance path (branch already exists).
+			// for the auto-advance path (branch already exists). detached
+			// rides the whole chain so every round stamps its provenance;
+			// Detach/DetachChild deliberately do not, so the chain never
+			// re-detaches and runs entirely under one child PID.
 			next := &SendCmd{
 				Task:        c.Task,
 				Prompt:      adv.DispatchPrompt,
 				Quiet:       c.Quiet,
 				testHarness: c.testHarness,
+				detached:    c.detached,
 			}
 			next.dispatchDepth = c.dispatchDepth + 1
 			return next.Run()
@@ -804,14 +836,18 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			Content: prompt,
 			TS:      now,
 		})
+		startedData := map[string]any{
+			"run_id":       runID,
+			"prompt_bytes": len([]byte(prompt)),
+			"agent":        runAgent,
+		}
+		if c.detached {
+			startedData["detached"] = true
+		}
 		_ = history.AppendLocked(c.Task, history.Event{
 			Type: "worker.started",
-			Data: mustJSON(map[string]any{
-				"run_id":       runID,
-				"prompt_bytes": len([]byte(prompt)),
-				"agent":        runAgent,
-			}),
-			TS: now,
+			Data: mustJSON(startedData),
+			TS:   now,
 		})
 		logging.Info("worker", fmt.Sprintf("task=%s started run=%s", c.Task, runID))
 

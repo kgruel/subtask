@@ -167,4 +167,34 @@ func CleanupStaleTasks() {
 			return lockedState.Save(name)
 		})
 	}
+	sweepOrphanedDetachPrompts(tasks)
+}
+
+// detachPromptMaxAge bounds how long an orphaned detached-supervisor prompt
+// file may linger before the opportunistic sweep removes it. Generous so a
+// slow-to-read child never has its prompt swept out from under it.
+const detachPromptMaxAge = time.Hour
+
+// sweepOrphanedDetachPrompts removes detached-supervisor prompt files older
+// than detachPromptMaxAge for tasks with no live claim. A `send --detach`
+// parent that died mid-handshake before its child read the file would
+// otherwise leak it indefinitely. Best-effort: all errors are ignored.
+func sweepOrphanedDetachPrompts(tasks []string) {
+	for _, name := range tasks {
+		if state, err := LoadState(name); err == nil && state != nil && state.SupervisorPID != 0 && !state.IsStale() {
+			// A live claim: the child may still be about to read its prompt.
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(DetachDir(name), DetachPromptPattern))
+		if err != nil {
+			continue
+		}
+		for _, p := range matches {
+			info, statErr := os.Stat(p)
+			if statErr != nil || time.Since(info.ModTime()) < detachPromptMaxAge {
+				continue
+			}
+			_ = os.Remove(p)
+		}
+	}
 }
