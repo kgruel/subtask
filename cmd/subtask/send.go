@@ -537,7 +537,9 @@ func (c *SendCmd) Run() error {
 			// a runaway loop where the produced artifact keeps satisfying
 			// the loopback predicate.
 			if c.dispatchDepth+1 >= autoDispatchCap {
-				return fmt.Errorf("auto-advance dispatch limit reached (%d rounds in a single send) — routine may be stuck in a loop; inspect the produced artifact and re-run `subtask send %s` to continue if intentional, or fix the loopback condition", autoDispatchCap, c.Task)
+				capErr := fmt.Errorf("auto-advance dispatch limit reached (%d rounds in a single send) — routine may be stuck in a loop; inspect the produced artifact and re-run `subtask send %s` to continue if intentional, or fix the loopback condition", autoDispatchCap, c.Task)
+				c.recordAutoAdvanceFailure(capErr)
+				return capErr
 			}
 			// Propagate user-set output mode across the recursion. Quiet
 			// is the only field of c that carries past a single round
