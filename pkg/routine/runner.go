@@ -132,11 +132,49 @@ func HandleAutoAdvance(taskName string, r *Routine, currentStepID string, ts tim
 	}
 
 	res := AdvanceResult{NextStep: next.ID}
-	if next.Kind == "" && (next.Agent != "" || strings.TrimSpace(next.WorkerInstructions) != "") {
+	if stepDispatches(next) {
 		res.Dispatch = true
 		res.DispatchPrompt = fmt.Sprintf("Proceed with the %s step.", next.ID)
 	}
 	return res, nil
+}
+
+// stepDispatches reports whether landing on step s starts a fresh worker
+// round: a regular (non-gate/terminal) step carrying either an agent or
+// worker_instructions. Shared by HandleAutoAdvance (the real transition) and
+// WouldAutoDispatch (the read-only predicate) so the dispatch condition
+// cannot drift between them.
+func stepDispatches(s *Step) bool {
+	return s != nil && s.Kind == "" && (s.Agent != "" || strings.TrimSpace(s.WorkerInstructions) != "")
+}
+
+// WouldAutoDispatch reports whether HandleAutoAdvance would dispatch a new
+// worker round from currentStepID, WITHOUT performing the transition. It
+// mirrors HandleAutoAdvance's decision (advance:auto, non-terminal, a
+// dispatchable next step) but skips every side effect (ApplyStageTransition,
+// history.Append). Read-only: the only I/O is pickNextStep reading a produces
+// artifact off disk. Used by `subtask wait` to close the auto-advance race
+// window (a replied task mid-routine is not "done").
+//
+// The final dispatch check is shared with HandleAutoAdvance via stepDispatches;
+// the advance/terminal guard and next-step resolution below mirror
+// HandleAutoAdvance's steps 2–3 and must stay in lockstep with them.
+func WouldAutoDispatch(taskName string, r *Routine, currentStepID string) (bool, error) {
+	if r == nil {
+		return false, nil
+	}
+	current := r.GetStep(currentStepID)
+	if current == nil || current.Advance != "auto" || current.Kind == KindTerminal {
+		return false, nil
+	}
+	nextID, err := pickNextStep(taskName, r, current)
+	if err != nil {
+		return false, err
+	}
+	if nextID == "" {
+		return false, nil
+	}
+	return stepDispatches(r.GetStep(nextID)), nil
 }
 
 // pickNextStep evaluates branches if any, else declaration order.

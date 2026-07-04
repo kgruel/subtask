@@ -34,6 +34,7 @@ type CLI struct {
 	Reply      ReplyCmd      `cmd:"" help:"Print the most recent worker reply for a task"`
 	Next       NextCmd       `cmd:"" help:"Show the state-aware next command for a task"`
 	Unread     UnreadCmd     `cmd:"" help:"List open tasks with unread worker replies (exit 1 if none)"`
+	Wait       WaitCmd       `cmd:"" help:"Block until named tasks finish (completion barrier)"`
 	Diff       DiffCmd       `cmd:"" help:"Show task diff"`
 	Close      CloseCmd      `cmd:"" help:"Close a task and free workspace"`
 	Merge      MergeCmd      `cmd:"" help:"Merge task into base branch (marks as merged)"`

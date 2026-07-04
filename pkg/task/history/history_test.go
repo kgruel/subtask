@@ -31,3 +31,47 @@ func TestTailPathToleratesEventAgent(t *testing.T) {
 		t.Fatalf("last ts = %s", tail.LastTS)
 	}
 }
+
+// TestTail_LastRunStage proves the stamp-vs-current divergence pendingAutoAdvance
+// relies on: after a routine auto-advance, LastRunStage still names the step the
+// reply belongs to while Stage has moved on to the next step.
+func TestTail_LastRunStage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	lines := `{"ts":"2026-01-01T00:00:00Z","type":"worker.finished","data":{"run_id":"r1","outcome":"replied","stage":"impl"}}` + "\n" +
+		`{"ts":"2026-01-01T00:00:01Z","type":"stage.changed","data":{"from":"impl","to":"review"}}` + "\n"
+	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
+		t.Fatalf("write history: %v", err)
+	}
+
+	tail, err := TailPath(path)
+	if err != nil {
+		t.Fatalf("TailPath: %v", err)
+	}
+	if tail.LastRunStage != "impl" {
+		t.Fatalf("LastRunStage = %q, want impl", tail.LastRunStage)
+	}
+	if tail.Stage != "review" {
+		t.Fatalf("Stage = %q, want review", tail.Stage)
+	}
+}
+
+// TestTail_LastRunStageLegacyEmpty: a worker.finished with no stage field
+// (pre-stamp history) leaves LastRunStage empty so callers fall back cleanly.
+func TestTail_LastRunStageLegacyEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	line := `{"ts":"2026-01-01T00:00:00Z","type":"worker.finished","data":{"run_id":"r1","outcome":"replied"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatalf("write history: %v", err)
+	}
+
+	tail, err := TailPath(path)
+	if err != nil {
+		t.Fatalf("TailPath: %v", err)
+	}
+	if tail.LastRunStage != "" {
+		t.Fatalf("LastRunStage = %q, want empty", tail.LastRunStage)
+	}
+	if tail.LastRunOutcome != "replied" {
+		t.Fatalf("LastRunOutcome = %q, want replied", tail.LastRunOutcome)
+	}
+}

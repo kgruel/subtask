@@ -453,3 +453,96 @@ func TestReadArtifactBool_NoFrontmatter(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, v)
 }
+
+// dispatch2 is a fixture whose advance:auto step's declaration-order successor
+// is a regular step carrying worker_instructions (so it dispatches).
+const dispatch2 = `name: dispatch2
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: impl
+    worker_instructions: implement it
+  - id: done
+    kind: terminal
+`
+
+// TestWouldAutoDispatch covers the read-only predicate wait uses to close the
+// auto-advance race window. It must agree with HandleAutoAdvance's dispatch
+// decision without performing any transition.
+func TestWouldAutoDispatch(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+
+	t.Run("auto step with dispatchable regular next", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/true")
+		got, err := WouldAutoDispatch("wad/true", helperRoutine(t, dispatch2), "plan")
+		require.NoError(t, err)
+		require.True(t, got)
+	})
+
+	t.Run("non-auto current step", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/nonauto")
+		got, err := WouldAutoDispatch("wad/nonauto", helperRoutine(t, dispatch2), "impl")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("terminal current step", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/term")
+		got, err := WouldAutoDispatch("wad/term", helperRoutine(t, dispatch2), "done")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("missing current step", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/missing")
+		got, err := WouldAutoDispatch("wad/missing", helperRoutine(t, dispatch2), "nope")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("next is a gate", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/gate")
+		got, err := WouldAutoDispatch("wad/gate", helperRoutine(t, gateStop), "plan")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("next is a terminal", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/nextterm")
+		got, err := WouldAutoDispatch("wad/nextterm", helperRoutine(t, linearTwoStep), "plan")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("next regular without agent or instructions", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/plain")
+		got, err := WouldAutoDispatch("wad/plain", helperRoutine(t, plainStep), "explore")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("nil routine", func(t *testing.T) {
+		got, err := WouldAutoDispatch("wad/nilr", nil, "plan")
+		require.NoError(t, err)
+		require.False(t, got)
+	})
+
+	t.Run("branch-selected next follows the branch", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/branch")
+		helperWriteArtifact(t, "wad/branch", "PLAN.md",
+			map[string]any{"needs_rework": true}, "")
+		got, err := WouldAutoDispatch("wad/branch", helperRoutine(t, branchLoopback), "plan")
+		require.NoError(t, err)
+		require.True(t, got, "branch loops back to the agent step, which dispatches")
+	})
+
+	t.Run("malformed produces frontmatter propagates the error", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/malformed")
+		require.NoError(t, os.WriteFile(
+			filepath.Join(task.Dir("wad/malformed"), "PLAN.md"),
+			[]byte("---\nneeds_rework: true"), 0o644))
+		_, err := WouldAutoDispatch("wad/malformed", helperRoutine(t, branchLoopback), "plan")
+		require.Error(t, err)
+	})
+}

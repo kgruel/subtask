@@ -176,6 +176,7 @@ Task status is what users care about. Worker status is operational detail. Works
 | `subtask list` | Show all tasks and workspaces |
 | `subtask show <task>` | Task details, progress, diff stats |
 | `subtask unread` | List open tasks with unread worker replies (exit 1 if none) |
+| `subtask wait <task>...` | Block until named tasks finish (completion barrier) |
 | `subtask diff <task>` | Show task diff |
 | `subtask merge <task> -m "..."` | Squash-merge into base branch, close |
 | `subtask close <task>` | Close without merging (`--abandon` discards changes) |

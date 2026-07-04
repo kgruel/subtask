@@ -57,7 +57,7 @@ func formatNextCue(taskName string, t *task.Task, v *task.View, tail history.Tai
 		}
 	case task.UserStatusRunning:
 		fmt.Fprintf(&b, "Worker running%s.\n\n", statusSuffix(v.StatusText, "working"))
-		fmt.Fprintf(&b, "Next command:\n  subtask interrupt %s\n\nOr wait for the worker reply.\n", taskName)
+		fmt.Fprintf(&b, "Next commands:\n  subtask wait %s\n  subtask interrupt %s\n\nOr wait for the worker reply.\n", taskName, taskName)
 	case task.UserStatusReplied:
 		unread, err := taskHasUnreadReply(taskName)
 		if err == nil && unread {

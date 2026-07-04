@@ -192,6 +192,12 @@ type TailInfo struct {
 	LastRunDurationMS int
 	LastRunToolCalls  int
 	LastRunOutcome    string
+	// LastRunStage is the stage stamped on the most recent worker.finished
+	// event. This is the stage the reply BELONGS to, which can differ from
+	// Stage: routine auto-advance appends stage.changed after worker.finished,
+	// moving Stage to the next step. `subtask wait` reads this to decide
+	// whether the replied step would auto-dispatch another round.
+	LastRunStage string
 
 	RunningSince time.Time
 	RunningRunID string
@@ -382,11 +388,13 @@ func TailPath(path string) (TailInfo, error) {
 					DurationMS int    `json:"duration_ms"`
 					ToolCalls  int    `json:"tool_calls"`
 					Outcome    string `json:"outcome"`
+					Stage      string `json:"stage"`
 				}
 				_ = json.Unmarshal(ev.Data, &d)
 				info.LastRunDurationMS = d.DurationMS
 				info.LastRunToolCalls = d.ToolCalls
 				info.LastRunOutcome = strings.TrimSpace(d.Outcome)
+				info.LastRunStage = strings.TrimSpace(d.Stage)
 			}
 		case "worker.started":
 			if info.RunningSince.IsZero() {

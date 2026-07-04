@@ -80,6 +80,7 @@ func existingTasksQuickstart(openCount, totalCount, unreadCount int) string {
 	b.WriteString("  subtask list              - see all open tasks\n")
 	b.WriteString("  subtask list -a           - include merged/closed\n")
 	b.WriteString("  subtask unread            - open tasks waiting on your read\n")
+	b.WriteString("  subtask wait <task>...    - block until named tasks finish\n")
 	b.WriteString("  subtask next <task>       - state-aware next-step cue for a specific task\n\n")
 	b.WriteString("First-task guide: subtask quickstart --first\n")
 	return b.String()
