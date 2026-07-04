@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -33,7 +34,10 @@ func draftTask(t *testing.T, binPath, root, name string) {
 	require.NoError(t, err, "draft %s failed: %s", name, out)
 }
 
-var dispatchedPIDRe = regexp.MustCompile(`detached supervisor, pid (\d+)`)
+var (
+	dispatchedPIDRe = regexp.MustCompile(`detached supervisor, pid (\d+)`)
+	timeoutPIDRe    = regexp.MustCompile(`still running \(pid (\d+)\)`)
+)
 
 func parseDispatchedPID(t *testing.T, out string) int {
 	t.Helper()
@@ -42,6 +46,42 @@ func parseDispatchedPID(t *testing.T, out string) int {
 	pid, err := strconv.Atoi(m[1])
 	require.NoError(t, err)
 	return pid
+}
+
+// waitForSupervisorExit blocks until the detached supervisor process is gone.
+// `subtask wait` returns at the final worker.finished, which can precede the
+// child's own exit (state clear, log flush) by a beat — draining only via wait
+// lets t.TempDir cleanup race the child's last writes under the fake HOME.
+func waitForSupervisorExit(t *testing.T, out string) {
+	t.Helper()
+	m := dispatchedPIDRe.FindStringSubmatch(out)
+	if m == nil {
+		m = timeoutPIDRe.FindStringSubmatch(out)
+	}
+	if m == nil {
+		return
+	}
+	pid, err := strconv.Atoi(m[1])
+	if err != nil {
+		return
+	}
+	waitForSupervisorExitPID(t, pid)
+}
+
+func waitForSupervisorExitPID(t *testing.T, pid int) {
+	t.Helper()
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Signal(syscall.Signal(0)) != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Logf("detached supervisor pid %d still alive after drain deadline", pid)
 }
 
 // TestDetachCLI_FullRoundTrip proves the end-to-end contract: send --detach
@@ -70,6 +110,7 @@ func TestDetachCLI_FullRoundTrip(t *testing.T) {
 	got := string(out)
 	assert.Contains(t, got, "Dispatched "+taskName)
 	childPID := parseDispatchedPID(t, got)
+	defer waitForSupervisorExitPID(t, childPID)
 	assert.NotEqual(t, cmd.Process.Pid, childPID, "the detached child is a distinct process from the launching CLI")
 
 	// supervisor.log lands under the internal dir, never the repo.
@@ -173,6 +214,7 @@ func TestDetachCLI_HandshakeBarrier_DispatchMeansClaimed(t *testing.T) {
 	waitCmd.Dir = root
 	waitCmd.Env = append(os.Environ(), "SUBTASK_TEST_WAIT_INTERVAL_MS=50")
 	_, _ = waitCmd.CombinedOutput()
+	waitForSupervisorExit(t, outBuf.String())
 }
 
 // TestDetachCLI_HandshakeTimeout_NoKill proves the T1 policy: when the child
@@ -221,6 +263,7 @@ func TestDetachCLI_HandshakeTimeout_NoKill(t *testing.T) {
 	wout, werr := waitCmd.CombinedOutput()
 	require.NoError(t, werr, "the un-killed child should complete: %s", wout)
 	assert.Contains(t, string(wout), taskName+"\treplied")
+	waitForSupervisorExit(t, string(out))
 }
 
 // TestDetachCLI_DoubleDispatch_FlockRace proves the concurrency guard at the
@@ -270,11 +313,12 @@ func TestDetachCLI_DoubleDispatch_FlockRace(t *testing.T) {
 	}
 
 	winners, losers := 0, 0
-	var loserOut string
+	var loserOut, winnerOut string
 	for range 2 {
 		r := <-results
 		if r.err == nil {
 			winners++
+			winnerOut = r.out
 			assert.Contains(t, r.out, "Dispatched "+taskName, "the winner confirms dispatch")
 		} else {
 			losers++
@@ -290,6 +334,7 @@ func TestDetachCLI_DoubleDispatch_FlockRace(t *testing.T) {
 	waitCmd.Dir = root
 	waitCmd.Env = append(os.Environ(), "SUBTASK_TEST_WAIT_INTERVAL_MS=50")
 	_, _ = waitCmd.CombinedOutput()
+	waitForSupervisorExit(t, winnerOut)
 
 	// Exactly one worker.started was recorded — the loser never began a run.
 	histPath := filepath.Join(root, ".subtask", "tasks", task.EscapeName(taskName), "history.jsonl")
@@ -391,6 +436,7 @@ func TestDetachCLI_InterruptDuringRun(t *testing.T) {
 	require.True(t, hasHistoryEvent(events, "worker.finished", func(data map[string]any) bool {
 		return data["outcome"] == "error" && strings.Contains(strings.ToLower(toString(data["error"])), "interrupted")
 	}), "expected worker.finished error=interrupted")
+	waitForSupervisorExit(t, outBuf.String())
 }
 
 // TestDetachCLI_Composition_AutoAdvanceChainOneChild covers the spec §12
@@ -449,6 +495,7 @@ func TestDetachCLI_Composition_AutoAdvanceChainOneChild(t *testing.T) {
 	waitCmd.Env = append(os.Environ(), "SUBTASK_TEST_WAIT_INTERVAL_MS=50")
 	wout, werr := waitCmd.CombinedOutput()
 	require.NoError(t, werr, "wait should settle the chain: %s", wout)
+	waitForSupervisorExit(t, string(out))
 
 	histPath := filepath.Join(root, ".subtask", "tasks", task.EscapeName(taskName), "history.jsonl")
 	histBytes, err := os.ReadFile(histPath)
