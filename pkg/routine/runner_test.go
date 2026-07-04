@@ -467,6 +467,20 @@ steps:
     kind: terminal
 `
 
+// dispatchGhostAgent is a fixture whose advance:auto step's successor binds an
+// agent that does not resolve — the dispatch condition holds but the agent load
+// fails, so WouldAutoDispatch must surface the error (matching HandleAutoAdvance).
+const dispatchGhostAgent = `name: dispatchghost
+steps:
+  - id: plan
+    agent: planner
+    advance: auto
+  - id: impl
+    agent: ghost-agent
+  - id: done
+    kind: terminal
+`
+
 // TestWouldAutoDispatch covers the read-only predicate wait uses to close the
 // auto-advance race window. It must agree with HandleAutoAdvance's dispatch
 // decision without performing any transition.
@@ -530,6 +544,9 @@ func TestWouldAutoDispatch(t *testing.T) {
 
 	t.Run("branch-selected next follows the branch", func(t *testing.T) {
 		helperCreateTask(t, env, "wad/branch")
+		// The loopback lands on the agent step, so its agent must resolve for
+		// the dispatch predicate to hold (mirrors HandleAutoAdvance's gate).
+		mkAgent(t, env, "planner", "claude", "m")
 		helperWriteArtifact(t, "wad/branch", "PLAN.md",
 			map[string]any{"needs_rework": true}, "")
 		got, err := WouldAutoDispatch("wad/branch", helperRoutine(t, branchLoopback), "plan")
@@ -543,6 +560,16 @@ func TestWouldAutoDispatch(t *testing.T) {
 			filepath.Join(task.Dir("wad/malformed"), "PLAN.md"),
 			[]byte("---\nneeds_rework: true"), 0o644))
 		_, err := WouldAutoDispatch("wad/malformed", helperRoutine(t, branchLoopback), "plan")
+		require.Error(t, err)
+	})
+
+	// A dispatchable next step whose agent cannot be loaded must surface the
+	// error, matching HandleAutoAdvance's ResolveStepAgent gate — otherwise wait
+	// would hold the task "pending" for the whole guard window and mislabel it
+	// "supervisor died mid-advance".
+	t.Run("next binds an unloadable agent propagates the error", func(t *testing.T) {
+		helperCreateTask(t, env, "wad/ghost")
+		_, err := WouldAutoDispatch("wad/ghost", helperRoutine(t, dispatchGhostAgent), "plan")
 		require.Error(t, err)
 	})
 }

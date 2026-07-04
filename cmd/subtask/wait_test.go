@@ -148,7 +148,7 @@ func TestWait_NOne_OverRepliedAndDraft_Exit0(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, code, "n=1 met by the replied task even though the other is a draft")
 	assert.Contains(t, stdout, replied+"\treplied")
-	assert.Contains(t, stderr, "is a draft")
+	assert.Contains(t, stderr, "has no started run yet")
 }
 
 func TestWait_DraftWithTimeout_Exit3_WarnsOnce(t *testing.T) {
@@ -164,7 +164,7 @@ func TestWait_DraftWithTimeout_Exit3_WarnsOnce(t *testing.T) {
 	code, err, stdout, stderr := runWaitCapture(t, &WaitCmd{Tasks: []string{name}, Timeout: 40 * time.Millisecond})
 	require.NoError(t, err)
 	assert.Equal(t, 3, code)
-	assert.Equal(t, 1, strings.Count(stderr, "is a draft"), "draft warning must be emitted exactly once")
+	assert.Equal(t, 1, strings.Count(stderr, "has no started run yet"), "draft warning must be emitted exactly once")
 	assert.Contains(t, stdout, name+"\tdraft", "timeout finalize prints current status")
 }
 
@@ -370,6 +370,72 @@ steps:
 		})},
 	})
 	env.CreateTaskState(name, &task.State{SupervisorPID: 0})
+}
+
+// pendingBadArtifactSeed drafts a task on a routine whose advance:auto step
+// reads a produces artifact to pick its branch, then writes that artifact with
+// malformed (unterminated) frontmatter and seeds a replied history stamped at
+// the auto step. The auto-advance DECISION errors — the supervisor's own
+// advance would have failed the same way — so wait must surface it, not treat
+// the reply as clean.
+func pendingBadArtifactSeed(t *testing.T, env *testutil.TestEnv, name string) {
+	t.Helper()
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "advbad.yaml"), []byte(
+		`name: advbad
+steps:
+  - id: work
+    advance: auto
+    produces: PLAN.md
+    worker_instructions: do the work
+    branches:
+      - to: work
+        when: artifact.field
+        field: needs_rework
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	require.NoError(t, (&DraftCmd{
+		Task:        name,
+		Title:       "bad artifact",
+		Description: "auto-advance reads a malformed artifact",
+		Base:        "main",
+		Routine:     "advbad",
+	}).Run())
+
+	// Unterminated frontmatter → readArtifactBool (thus WouldAutoDispatch) errors.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(task.Dir(name), "PLAN.md"),
+		[]byte("---\nneeds_rework: true"), 0o644))
+
+	env.CreateTaskHistory(name, []history.Event{
+		{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "first-send", "base_branch": "main"})},
+		{Type: "message", Role: "worker", Content: "ok"},
+		{Type: "worker.finished", Data: mustJSON(map[string]any{
+			"run_id": "r1", "outcome": "replied", "stage": "work",
+		})},
+	})
+	env.CreateTaskState(name, &task.State{SupervisorPID: 0})
+}
+
+// Trap A error variant: a replied task whose routine auto-advance decision
+// FAILS (malformed produces frontmatter) must report complete-with-error
+// (exit 2) with the new label, not a clean replied (exit 0). Swallowing the
+// error would let wait report success while the supervisor's advance actually
+// broke.
+func TestWait_PendingAutoAdvance_DecisionError_Exit2(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	name := "fix/advbad"
+	pendingBadArtifactSeed(t, env, name)
+
+	code, err, stdout, _ := runWaitCapture(t, &WaitCmd{Tasks: []string{name}, Any: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, code, "a failed auto-advance decision is complete-with-error, not a clean reply")
+	assert.Contains(t, stdout, name+"\terror (auto-advance failed)")
 }
 
 // Trap A: a replied task mid auto-advance (PID==0) must NOT be reported

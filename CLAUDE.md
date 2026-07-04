@@ -49,7 +49,7 @@ If a feature adds complexity for the user, it's probably wrong. If it confuses t
 2. **Git-native** — Branches for isolation, worktrees for parallelism, standard merge workflow.
 3. **File-based collaboration** — Task folder shared between lead and worker. PLAN.md for plans, PROGRESS.json for tracking. Files persist; sessions don't.
 4. **Workspace opacity** — Lead never picks workspaces. Subtask assigns them. Isolation is git-level only: separate worktrees, separate branches. Runtime resources (ports, services, databases) are project-managed and shared by default — projects are responsible for any per-worker offsetting.
-5. **Context preservation** — Task folders are the portable, syncable unit. history.jsonl and `--follow-up` ensure nothing is lost when sessions crash. Copy anywhere, full context. Internal state and caches are local and rebuildable. When a follow-up parent's session can't be resumed (merged/closed, or never dispatched), `--follow-up` falls back to injecting the parent's artifacts as a read-only `## Parent Context` block rather than failing.
+5. **Context preservation** — Task folders are the portable, syncable unit. history.jsonl and `--follow-up` ensure nothing is lost when sessions crash. Copy anywhere, full context. Internal state and caches are local and rebuildable. `--follow-up` always injects the parent's artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) as a read-only `## Parent Context` block; session resumption is layered on additively when the parent's session can be resumed. When it can't (merged/closed, never dispatched, or a different adapter), the artifacts alone carry continuity forward rather than the follow-up failing.
 6. **Progress visibility** — Tool counts, timing, and PROGRESS.json let lead track workers without interrupting them.
 7. **Errors at subtask's own boundaries are actionable** — Where subtask can name the recovery — an adapter override path, an install command, a config field, a workspace state — the error says so rather than relaying raw upstream stderr. Pass-through is fine when subtask has nothing specific to add (e.g., raw git or harness errors).
 8. **Destructive operations require explicit intent** — Anything that loses work (`close --abandon`, force-resets, overwrites) needs a flag or confirmation. Defaults preserve.
@@ -199,7 +199,8 @@ Task status is what users care about. Worker status is operational detail. Works
 ├── config.json                              # global defaults (from install/config)
 ├── workspaces/<escaped-git-root>--<id>/     # worktrees (created on demand)
 └── projects/<escaped-git-root>/             # per-project runtime state (machine-local)
-    ├── internal/                            # session IDs, workspace assignments, locks
+    ├── internal/                            # session IDs, workspace assignments, locks,
+    │                                        #   detached-supervisor logs + prompt staging
     └── index.db                             # SQLite cache (rebuildable)
 
 <repo>/.subtask/

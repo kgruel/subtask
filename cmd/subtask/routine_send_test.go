@@ -335,3 +335,72 @@ steps:
 	})
 
 }
+
+// TestSend_AutoAdvanceDecisionError_StampsLastError is the item-A regression:
+// when post-reply auto-advance fails (here HandleAutoAdvance errors on a
+// malformed produces artifact), the failure must be recorded durably in
+// state.LastError — not merely returned. Otherwise the just-committed
+// worker.finished(outcome=replied) plus the cleared LastError leave the failure
+// invisible to wait/show/list/unread: under --detach it would only reach the
+// supervisor log, and under -q it would be swallowed entirely.
+func TestSend_AutoAdvanceDecisionError_StampsLastError(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	// Routine whose advance:auto step reads a produces artifact to pick its
+	// loopback branch. A malformed artifact makes pickNextStep (thus
+	// HandleAutoAdvance) error after the worker's reply is committed.
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(routinesDir, "advbad.yaml"), []byte(
+		`name: advbad
+steps:
+  - id: work
+    agent: planner
+    produces: PLAN.md
+    advance: auto
+    branches:
+      - to: work
+        when: artifact.field
+        field: needs_rework
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	agentsDir := filepath.Join(env.RootDir, ".subtask", "agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "planner.yaml"), []byte(
+		"adapter: builtin-mock\nmodel: m\nprompt:\n  text: |\n    You are the planner.\n"), 0o644))
+
+	taskName := "adv/baddecision"
+	require.NoError(t, (&DraftCmd{
+		Task:        taskName,
+		Title:       "Auto-advance decision error",
+		Description: "malformed produces artifact makes HandleAutoAdvance error",
+		Base:        "main",
+		Routine:     "advbad",
+	}).Run())
+
+	// Unterminated frontmatter → readArtifactBool (thus HandleAutoAdvance) errors.
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(taskName), "PLAN.md"),
+		[]byte("---\nneeds_rework: true"), 0o644))
+
+	mock := harness.NewMockHarness().WithResult("ok", "sess-adv")
+	err := (&SendCmd{Task: taskName, Prompt: "Go"}).WithHarness(mock).Run()
+	require.Error(t, err, "a failed auto-advance decision must surface as an error")
+	require.Contains(t, err.Error(), "unclosed YAML frontmatter")
+
+	// Item A: the failure is durably recorded so detached/quiet callers see it.
+	st, loadErr := task.LoadState(taskName)
+	require.NoError(t, loadErr)
+	require.NotNil(t, st)
+	require.Contains(t, st.LastError, "auto-advance failed:")
+	require.Equal(t, 0, st.SupervisorPID, "the supervisor claim must be cleared")
+
+	// wait must exit 2 via the LastError row — independent of the auto-advance
+	// classifier, which remains belt-and-braces.
+	code, waitErr, stdout, _ := runWaitCapture(t, &WaitCmd{Tasks: []string{taskName}, Any: true})
+	require.NoError(t, waitErr)
+	require.Equal(t, 2, code, "a durably-recorded auto-advance failure is complete-with-error")
+	require.Contains(t, stdout, taskName+"\terror")
+}

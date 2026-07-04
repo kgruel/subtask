@@ -24,13 +24,15 @@ const (
 	// stale, so no reap can ever fire for this crash-in-window case; the streak
 	// is the only signal wait has.
 	//
-	// Set to 15 (~30s at the 2s production interval), not a handful, because a
-	// legitimate agent-swap auto-advance can hold the PID==0 window for several
-	// seconds: a cross-adapter transition clears the session, rebuilds the
-	// prompt (BuildPrompt), cold-starts the new adapter, and runs a pre-claim
-	// CleanupStaleTasks that is O(tasks). A false complete-with-error on a
-	// healthy routine is worse than slow detection of a genuinely dead
-	// supervisor, and 30s matches the detach handshake budget rationale.
+	// Set to 15 (~30s at the 2s production interval), not a handful, because the
+	// PID==0 window between one round clearing its claim and the next round
+	// re-claiming spans that next round's PRE-claim work: preflightProject (a
+	// git shell-out), migrate.EnsureSchema, and CleanupStaleTasks (O(tasks),
+	// one liveness syscall per task). Adapter cold-start and BuildPrompt run
+	// AFTER the re-claim, so they are NOT in this window. This is the same
+	// pre-claim cost that justifies the 30s detach handshake budget. A false
+	// complete-with-error on a healthy routine is worse than slow detection of
+	// a genuinely dead supervisor.
 	pendingAdvanceGuardPolls = 15
 	defaultWaitPollInterval  = 2 * time.Second
 )
@@ -178,7 +180,7 @@ func (c *WaitCmd) run() (int, error) {
 
 			if o.Draft && !warnedDraft[name] {
 				c.clearProgress()
-				fmt.Fprintf(os.Stderr, "note: task %q is a draft (never dispatched); waiting — it completes once sent\n", name)
+				fmt.Fprintf(os.Stderr, "note: task %q has no started run yet (never dispatched, or a dispatched supervisor has not claimed); waiting\n", name)
 				warnedDraft[name] = true
 			}
 
@@ -257,11 +259,21 @@ func classify(name string) taskOutcome {
 		o.Label, o.Complete, o.Errored = "error (supervisor died)", true, true
 	case (st != nil && st.LastError != "") || tail.LastRunOutcome == "error":
 		o.Label, o.Complete, o.Errored = "error (worker failed)", true, true
-	case tail.LastRunOutcome == "replied" && pendingAutoAdvance(name, tail):
-		// The replied step would auto-dispatch another round; not done yet.
-		o.Label, o.Pending = "working", true
 	case tail.LastRunOutcome == "replied":
-		o.Label, o.Complete = "replied", true
+		// A replied step under a routine may auto-dispatch another round (not
+		// done yet), or the auto-advance decision itself may fail (e.g. malformed
+		// produces-artifact frontmatter). Distinguish the three: an errored
+		// decision is a real failure the supervisor hit — surface it as
+		// complete-with-error rather than masking it as a clean reply; a pending
+		// dispatch holds the task as working; otherwise the reply stands.
+		switch pending, err := pendingAutoAdvance(name, tail); {
+		case err != nil:
+			o.Label, o.Complete, o.Errored = "error (auto-advance failed)", true, true
+		case pending:
+			o.Label, o.Pending = "working", true
+		default:
+			o.Label, o.Complete = "replied", true
+		}
 	case tail.LastRunOutcome == "" && tail.RunningRunID != "":
 		// Started, never finished, PID already 0: only reachable if state.json
 		// was externally zeroed without a worker.finished. Defensive.
@@ -273,18 +285,25 @@ func classify(name string) taskOutcome {
 }
 
 // pendingAutoAdvance reports whether a routine auto-dispatch is imminent for
-// the reply just observed. Evaluated against the stage stamped on the most
-// recent worker.finished (tail.LastRunStage), not tail.Stage — auto-advance
-// moves tail.Stage to the next step after appending worker.finished, so
-// tail.Stage would already point past the step the reply belongs to.
-func pendingAutoAdvance(name string, tail history.TailInfo) bool {
+// the reply just observed, and surfaces any error the auto-advance decision
+// hit. Evaluated against the stage stamped on the most recent worker.finished
+// (tail.LastRunStage), not tail.Stage — auto-advance moves tail.Stage to the
+// next step after appending worker.finished, so tail.Stage would already point
+// past the step the reply belongs to.
+//
+// A returned error means the auto-advance decision could not be made (e.g. the
+// produces artifact has malformed frontmatter): the supervisor's own advance
+// would have failed the same way, so classify reports it as an error rather
+// than a clean reply. A corrupt/undefined routine is NOT an error here — the
+// reply simply stands (nothing to advance).
+func pendingAutoAdvance(name string, tail history.TailInfo) (bool, error) {
 	t, _ := task.Load(name)
 	if t == nil || t.Routine == "" {
-		return false
+		return false, nil
 	}
 	r, err := routine.LoadByName(t.Routine)
 	if err != nil || r == nil {
-		return false // corrupt/undefined routine → not pending; the reply stands
+		return false, nil // corrupt/undefined routine → not pending; the reply stands
 	}
 	stage := tail.LastRunStage
 	if stage == "" {
@@ -293,11 +312,7 @@ func pendingAutoAdvance(name string, tail history.TailInfo) bool {
 	if stage == "" {
 		stage = r.EntryStep()
 	}
-	would, err := routine.WouldAutoDispatch(name, r, stage)
-	if err != nil {
-		return false // malformed produces-artifact → let the run stand as replied
-	}
-	return would
+	return routine.WouldAutoDispatch(name, r, stage)
 }
 
 // resolveThreshold collapses --all/--any/-n into a single "return when K

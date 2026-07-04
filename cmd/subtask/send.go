@@ -523,6 +523,7 @@ func (c *SendCmd) Run() error {
 		}
 		adv, advErr := routine.HandleAutoAdvance(c.Task, r, currentStep, finished)
 		if advErr != nil {
+			c.recordAutoAdvanceFailure(advErr)
 			return advErr
 		}
 		if adv.NextStep != "" && !adv.Dispatch {
@@ -556,7 +557,11 @@ func (c *SendCmd) Run() error {
 				detached:    c.detached,
 			}
 			next.dispatchDepth = c.dispatchDepth + 1
-			return next.Run()
+			if err := next.Run(); err != nil {
+				c.recordAutoAdvanceFailure(err)
+				return err
+			}
+			return nil
 		}
 	}
 
@@ -574,6 +579,29 @@ func (c *SendCmd) Run() error {
 
 	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, displayStage, resolvedWorkerLabel)
 	return nil
+}
+
+// recordAutoAdvanceFailure durably stamps a post-reply auto-advance failure
+// onto state.LastError so wait/show/list/unread can see it. By the time this
+// fires, the just-finished round's worker.finished(outcome=replied) is already
+// committed and state.LastError already cleared, so a failed auto-advance
+// decision (HandleAutoAdvance error) or a failed recursive dispatch (next.Run
+// error) would otherwise leave no durable trace: under --detach the error only
+// reaches the supervisor log, and under -q it is swallowed entirely. Guarded on
+// SupervisorPID==0 so a newer re-claimed run's live state is never clobbered.
+func (c *SendCmd) recordAutoAdvanceFailure(err error) {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		msg = "unknown error"
+	}
+	_ = task.WithLock(c.Task, func() error {
+		st, _ := task.LoadState(c.Task)
+		if st == nil || st.SupervisorPID != 0 {
+			return nil
+		}
+		st.LastError = "auto-advance failed: " + msg
+		return st.Save(c.Task)
+	})
 }
 
 func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harness, t *task.Task, tail history.TailInfo, prompt, runID string, runAgent history.EventAgent) (wsPath, prevWorkspace, continueFrom string, repoStatus *harness.RepoStatus, err error) {
@@ -763,13 +791,25 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	// Follow-up: seed session from a previous task/session (before marking running).
 	var followUpSeed *followUpSeed
-	var followUpArtifactOnly bool // claude parent session unrecoverable (merged/closed) → artifact-only continuity
+	// followUpArtifactOnly marks a follow-up that degraded to artifact-only
+	// continuity: either a merged/closed claude parent whose session can't be
+	// duplicated (set in the dup block below), or a merged/closed parent whose
+	// session harness is incompatible with this adapter (set here, from the
+	// seed). Both drive the continuity-downgrade warn and the worker.started
+	// provenance stamp.
+	var followUpArtifactOnly bool
 	if (st == nil || strings.TrimSpace(st.SessionID) == "") && strings.TrimSpace(t.FollowUp) != "" {
 		seed, err := resolveFollowUpSeed(cfg.Adapter, t.FollowUp)
 		if err != nil {
 			return "", "", "", nil, err
 		}
 		followUpSeed = seed
+		// resolveFollowUpSeed already cleared the session for a cross-adapter
+		// merged/closed parent; flag the degrade so the warn + provenance fire
+		// even though the dup block below is skipped (empty session).
+		if seed != nil && strings.TrimSpace(seed.IncompatibleParentHarness) != "" {
+			followUpArtifactOnly = true
+		}
 	}
 
 	// Set running state and append start events.
@@ -861,6 +901,12 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		if c.detached {
 			startedData["detached"] = true
 		}
+		// Provenance for the continuity downgrade: the warn is invisible under
+		// -q and lands in supervisor.log under --detach, so stamp it on the
+		// event too (additive field, no behavioral reads — mirrors "detached").
+		if followUpArtifactOnly {
+			startedData["follow_up_artifact_only"] = true
+		}
 		_ = history.AppendLocked(c.Task, history.Event{
 			Type: "worker.started",
 			Data: mustJSON(startedData),
@@ -876,10 +922,16 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 	}
 
 	if followUpArtifactOnly {
-		c.warn(fmt.Sprintf(
-			"follow-up %q was merged/closed; its %s conversation can't be resumed.\n"+
-				"  Continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
-			t.FollowUp, cfg.Adapter))
+		if followUpSeed != nil && strings.TrimSpace(followUpSeed.IncompatibleParentHarness) != "" {
+			c.warn(fmt.Sprintf(
+				"follow-up %q: parent session is %s, this task runs %s; continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
+				t.FollowUp, followUpSeed.IncompatibleParentHarness, cfg.Adapter))
+		} else {
+			c.warn(fmt.Sprintf(
+				"follow-up %q was merged/closed; its %s conversation can't be resumed.\n"+
+					"  Continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
+				t.FollowUp, cfg.Adapter))
+		}
 	}
 
 	return wsPath, prevWorkspace, continueFrom, repoStatus, nil

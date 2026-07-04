@@ -264,7 +264,7 @@ func (c *SendCmd) printDispatched(childPID int) error {
 	if c.Quiet {
 		return nil
 	}
-	render.Info(fmt.Sprintf("Dispatched %s (detached supervisor, pid %d).\nRetrieve the reply once it finishes:\n  subtask wait %s && subtask reply %s",
+	render.Info(fmt.Sprintf("Dispatched %s (detached supervisor, pid %d).\nRetrieve the reply once it finishes:\n  subtask wait %s; subtask reply %s",
 		c.Task, childPID, c.Task, c.Task))
 	return nil
 }

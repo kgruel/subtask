@@ -13,6 +13,15 @@ type followUpSeed struct {
 	FromSessionID string
 	FromWorkspace string
 	FromHarness   string
+
+	// IncompatibleParentHarness, when non-empty, records that the seed degraded
+	// to artifact-only continuity because the parent's session harness differs
+	// from the target adapter AND the parent workspace is gone (merged/closed).
+	// It names the parent's original harness so send.go can warn about the
+	// mismatch. FromSessionID/FromHarness are cleared in this case so no session
+	// resume is attempted; ## Parent Context (keyed on t.FollowUp) carries
+	// continuity forward.
+	IncompatibleParentHarness string
 }
 
 func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error) {
@@ -63,6 +72,23 @@ func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error)
 
 	// Enforce adapter compatibility when known.
 	if strings.TrimSpace(seed.FromHarness) != "" && strings.TrimSpace(projectAdapter) != "" && seed.FromHarness != projectAdapter {
+		// Parent workspace is gone (merged/closed): the session can't be resumed
+		// across adapters anyway, so degrade to artifact-only continuity rather
+		// than hard-failing. Record the parent's original harness (for send.go's
+		// mismatch warning) and clear the session so no cross-adapter resume is
+		// attempted; ## Parent Context carries continuity forward. This keeps the
+		// documented cross-family aggregation flow (e.g. claude parent → codex
+		// child) working once the parent is merged.
+		if strings.TrimSpace(seed.FromWorkspace) == "" {
+			seed.IncompatibleParentHarness = seed.FromHarness
+			seed.FromSessionID = ""
+			seed.FromHarness = ""
+			return seed, nil
+		}
+		// A LIVE parent (workspace intact) with incompatible adapters keeps the
+		// hard error: the session physically exists and could be resumed if the
+		// adapters matched, so surfacing the mismatch is more diagnosable than a
+		// silent degrade.
 		return nil, fmt.Errorf("follow-up %q was last run with adapter %q, but this project is configured for %q\n\n"+
 			"Sessions are not compatible across adapters.\n"+
 			"Tip: run without --follow-up to start a fresh session.",

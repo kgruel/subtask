@@ -157,8 +157,9 @@ func stepDispatches(s *Step) bool {
 // window (a replied task mid-routine is not "done").
 //
 // The final dispatch check is shared with HandleAutoAdvance via stepDispatches;
-// the advance/terminal guard and next-step resolution below mirror
-// HandleAutoAdvance's steps 2–3 and must stay in lockstep with them.
+// the advance/terminal guard, next-step resolution, and agent-resolvability
+// gate below mirror HandleAutoAdvance's steps 2–4 and must stay in lockstep
+// with them.
 func WouldAutoDispatch(taskName string, r *Routine, currentStepID string) (bool, error) {
 	if r == nil {
 		return false, nil
@@ -174,7 +175,22 @@ func WouldAutoDispatch(taskName string, r *Routine, currentStepID string) (bool,
 	if nextID == "" {
 		return false, nil
 	}
-	return stepDispatches(r.GetStep(nextID)), nil
+	next := r.GetStep(nextID)
+	if !stepDispatches(next) {
+		return false, nil
+	}
+	// Mirror HandleAutoAdvance's ResolveStepAgent gate: a dispatchable next
+	// step binding an unloadable agent makes the real advance error, so the
+	// read-only predicate must surface the same error rather than reporting a
+	// dispatch that can never happen. Otherwise wait would hold the task
+	// "pending" for the full guard window and mislabel it "supervisor died
+	// mid-advance" instead of reporting the auto-advance failure promptly.
+	if next.Agent != "" {
+		if _, _, err := ResolveStepAgent(next); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // pickNextStep evaluates branches if any, else declaration order.
