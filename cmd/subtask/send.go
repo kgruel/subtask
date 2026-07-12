@@ -483,15 +483,20 @@ func (c *SendCmd) Run() error {
 		TS: finished,
 	})
 
-	// Clear running fields after history is written, before printing output.
+	// Commit the run's session/error outcome after history is written, before
+	// printing output. The supervisor claim (SupervisorPID/PGID/StartedAt) is
+	// deliberately NOT cleared here: the auto-advance decision and the next
+	// round's pre-claim work (preflight, migrate, stale cleanup) run in this
+	// same process, and holding the claim across that window is what lets
+	// `wait` (and list/show) distinguish a live advancing supervisor (live
+	// PID) from one that died mid-advance (stale PID). Every non-dispatch
+	// exit below releases the claim; a dispatched round re-claims under this
+	// same PID inside next.Run().
 	_ = task.WithLock(c.Task, func() error {
 		st, _ := task.LoadState(c.Task)
 		if st == nil {
 			st = &task.State{}
 		}
-		st.SupervisorPID = 0
-		st.SupervisorPGID = 0
-		st.StartedAt = time.Time{}
 		st.LastError = ""
 		if nextSessionID != "" {
 			st.SessionID = nextSessionID
@@ -515,6 +520,7 @@ func (c *SendCmd) Run() error {
 	if t.Routine != "" {
 		r, rErr := routine.LoadByName(t.Routine)
 		if rErr != nil {
+			c.releaseSupervisorClaim()
 			return rErr
 		}
 		currentStep := tail.Stage
@@ -559,6 +565,9 @@ func (c *SendCmd) Run() error {
 				detached:    c.detached,
 			}
 			next.dispatchDepth = c.dispatchDepth + 1
+			// The recursive round re-claims under this same PID (the claim
+			// guards exempt os.Getpid()) and releases on its own exit paths,
+			// so no release here on either branch.
 			if err := next.Run(); err != nil {
 				c.recordAutoAdvanceFailure(err)
 				return err
@@ -566,6 +575,10 @@ func (c *SendCmd) Run() error {
 			return nil
 		}
 	}
+
+	// No dispatch happened (no routine, or the advance landed on a gate or
+	// terminal): the advance window is over, release the held claim.
+	c.releaseSupervisorClaim()
 
 	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
 
@@ -583,14 +596,33 @@ func (c *SendCmd) Run() error {
 	return nil
 }
 
+// releaseSupervisorClaim zeroes SupervisorPID/PGID/StartedAt, but only when
+// the claim is this process's own — a claim held by any other PID (a newer
+// run, live or not) is never clobbered. This is the counterpart of holding
+// the claim across the post-reply auto-advance window: every exit from that
+// window that does not dispatch another round must release.
+func (c *SendCmd) releaseSupervisorClaim() {
+	_ = task.WithLock(c.Task, func() error {
+		st, _ := task.LoadState(c.Task)
+		if st == nil || st.SupervisorPID != os.Getpid() {
+			return nil
+		}
+		st.SupervisorPID = 0
+		st.SupervisorPGID = 0
+		st.StartedAt = time.Time{}
+		return st.Save(c.Task)
+	})
+}
+
 // recordAutoAdvanceFailure durably stamps a post-reply auto-advance failure
 // onto state.LastError so wait/show/list/unread can see it. By the time this
 // fires, the just-finished round's worker.finished(outcome=replied) is already
 // committed and state.LastError already cleared, so a failed auto-advance
 // decision (HandleAutoAdvance error) or a failed recursive dispatch (next.Run
 // error) would otherwise leave no durable trace: under --detach the error only
-// reaches the supervisor log, and under -q it is swallowed entirely. Guarded on
-// SupervisorPID==0 so a newer re-claimed run's live state is never clobbered.
+// reaches the supervisor log, and under -q it is swallowed entirely. Releases
+// this process's own advance-window claim in the same locked write; any other
+// live claim (a newer run) is never clobbered.
 func (c *SendCmd) recordAutoAdvanceFailure(err error) {
 	msg := strings.TrimSpace(err.Error())
 	if msg == "" {
@@ -598,8 +630,18 @@ func (c *SendCmd) recordAutoAdvanceFailure(err error) {
 	}
 	_ = task.WithLock(c.Task, func() error {
 		st, _ := task.LoadState(c.Task)
-		if st == nil || st.SupervisorPID != 0 {
+		if st == nil {
 			return nil
+		}
+		switch st.SupervisorPID {
+		case os.Getpid():
+			st.SupervisorPID = 0
+			st.SupervisorPGID = 0
+			st.StartedAt = time.Time{}
+		case 0:
+			// already released (e.g. a failed recursive dispatch cleared it)
+		default:
+			return nil // a different claim owns the state; never clobber
 		}
 		st.LastError = "auto-advance failed: " + msg
 		return st.Save(c.Task)
@@ -639,8 +681,10 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		}
 	}
 
-	// Hard guard: don't allow two concurrent sends on the same machine.
-	if st != nil && st.SupervisorPID != 0 && !st.IsStale() {
+	// Hard guard: don't allow two concurrent sends on the same machine. Our
+	// own PID is exempt: an auto-advance round holds the claim across the
+	// advance window and re-claims here in the same process.
+	if st != nil && st.SupervisorPID != 0 && st.SupervisorPID != os.Getpid() && !st.IsStale() {
 		return "", "", "", nil, errTaskWorking(c.Task)
 	}
 
@@ -682,7 +726,7 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 		if locked == nil {
 			locked = &task.State{}
 		}
-		if locked.SupervisorPID != 0 && !locked.IsStale() {
+		if locked.SupervisorPID != 0 && locked.SupervisorPID != claimedPID && !locked.IsStale() {
 			return errTaskWorking(c.Task)
 		}
 		locked.SupervisorPID = claimedPID

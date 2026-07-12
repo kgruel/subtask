@@ -24,15 +24,14 @@ const (
 	// stale, so no reap can ever fire for this crash-in-window case; the streak
 	// is the only signal wait has.
 	//
-	// Set to 15 (~30s at the 2s production interval), not a handful, because the
-	// PID==0 window between one round clearing its claim and the next round
-	// re-claiming spans that next round's PRE-claim work: preflightProject (a
-	// git shell-out), migrate.EnsureSchema, and CleanupStaleTasks (O(tasks),
-	// one liveness syscall per task). Adapter cold-start and BuildPrompt run
-	// AFTER the re-claim, so they are NOT in this window. This is the same
-	// pre-claim cost that justifies the 30s detach handshake budget. A false
-	// complete-with-error on a healthy routine is worse than slow detection of
-	// a genuinely dead supervisor.
+	// This is a legacy backstop, not the primary death signal. A current
+	// supervisor holds its SupervisorPID claim across the whole advance window
+	// (send.go), so a live advance classifies as "working" via the live-PID
+	// branch and a dead one as stale-PID error — the streak can no longer
+	// false-positive on a slow healthy advance. PID==0 + pending is only
+	// reachable from states written by pre-claim-holding supervisors (or
+	// external state edits), where slow detection is acceptable; hence a
+	// generous 15 polls (~30s at the 2s production interval).
 	pendingAdvanceGuardPolls = 15
 	defaultWaitPollInterval  = 2 * time.Second
 )
@@ -187,10 +186,11 @@ func (c *WaitCmd) run() (int, error) {
 			if o.Pending {
 				pendingStreak[name]++
 				if pendingStreak[name] >= pendingAdvanceGuardPolls {
-					// Supervisor cleared SupervisorPID (send.go clear) then died
-					// before the recursive re-claim. PID==0 is never stale, so no
-					// reap can ever fire — the streak is the only way to conclude
-					// the supervisor is gone.
+					// Pending with no claim held: only reachable from a
+					// pre-claim-holding supervisor's state (current ones keep
+					// SupervisorPID across the advance window). PID==0 is never
+					// stale, so no reap can ever fire — the streak is the only
+					// way to conclude the supervisor is gone.
 					o.Label = "error (supervisor died mid-advance)"
 					o.Complete = true
 					o.Errored = true
