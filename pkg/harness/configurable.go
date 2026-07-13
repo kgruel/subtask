@@ -100,9 +100,9 @@ func (a *ConfigurableAdapter) Run(ctx context.Context, cwd, prompt, continueFrom
 	if cmdErr != nil && result.Error == "" {
 		result.Error = strings.TrimSpace(stderrBuf.String())
 		if result.Error == "" {
-			result.Error = cmdErr.Error()
+			return result, fmt.Errorf("%s failed: %w", a.config.Name, cmdErr)
 		}
-		return result, fmt.Errorf("%s failed: %w", a.config.Name, cmdErr)
+		return result, fmt.Errorf("%s failed: %s", a.config.Name, result.Error)
 	}
 	if result.Error != "" {
 		return result, fmt.Errorf("%s error: %s", a.config.Name, result.Error)
