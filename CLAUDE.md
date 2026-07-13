@@ -91,7 +91,7 @@ Worker backend that executes prompts. Built-in adapters: `codex`, `claude`, `ope
 
 ### Routines
 
-A **routine** is a named sequence of steps that structures how a task moves from start to finish. Routines replace the legacy workflow system.
+A **routine** is a named sequence of steps that structures how a task moves from start to finish. Routines replace the legacy workflow system. `subtask stage` only operates on tasks drafted with `--routine`; a task drafted with `--agent` (or with neither) has no routine and `stage` errors on it.
 
 **Canonical routines** (built-in, no config needed):
 - `default`: `doing → review → ready` — plain execution, lead reviews diff

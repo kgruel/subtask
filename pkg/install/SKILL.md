@@ -19,7 +19,7 @@ Two primitives drive the system. **Routines** shape the workflow (a named sequen
 
 ## Routines
 
-A routine is a named sequence of steps. Each step's `instructions:` field prints when you run `subtask stage`, telling you what to do next — so **this SKILL does not duplicate per-step instructions**; the routine YAML does.
+A routine is a named sequence of steps. Each step's `instructions:` field prints when you run `subtask stage`, telling you what to do next — so **this SKILL does not duplicate per-step instructions**; the routine YAML does. `subtask stage` only works on tasks drafted with `--routine`; a task drafted with `--agent` (or with neither flag) has no routine and `stage` errors on it.
 
 **Canonical routines** (built-in, no config needed):
 
