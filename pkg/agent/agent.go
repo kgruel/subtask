@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/kgruel/subtask/internal/relpath"
 	"github.com/kgruel/subtask/pkg/task"
 	"github.com/kgruel/subtask/pkg/workspace"
 )
@@ -97,34 +98,12 @@ func pathFor(name string) string {
 	return filepath.Join(AgentsDir(), name+".yaml")
 }
 
-// resolvePromptFile validates a prompt.file path against traversal and
-// returns its absolute location under .subtask/. The path must:
-//   - not be absolute (would bypass the .subtask/ anchor entirely);
-//   - resolve, after Clean, to a location contained inside
-//     <repo>/.subtask/ (no `..` escape).
-//
-// Returning an absolute, contained path means callers can read it
-// without re-validating. We deliberately do NOT resolve symlinks here —
-// if a user drops a symlink inside .subtask/prompts/ pointing outside,
-// that's already a trust boundary they crossed by writing into their
-// own repo. The check defends against malicious YAML reaching files
-// the YAML author shouldn't be able to point at on its own.
+// resolvePromptFile validates a prompt.file path and returns its absolute
+// location under .subtask/. See internal/relpath for the shape rules — routine's
+// default_prompt.file and produces:/consumes: share them, so the trust boundary
+// stays consistent across every YAML path subtask reads.
 func resolvePromptFile(rel string) (string, error) {
-	if rel == "" {
-		return "", fmt.Errorf("prompt.file: empty path")
-	}
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("prompt.file %q must be relative to .subtask/, not absolute", rel)
-	}
-	cleaned := filepath.Clean(rel)
-	// Anchor at .subtask/ and verify the join stays inside it.
-	base := task.ProjectDirAbs()
-	abs := filepath.Clean(filepath.Join(base, cleaned))
-	relBack, err := filepath.Rel(base, abs)
-	if err != nil || relBack == ".." || strings.HasPrefix(relBack, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("prompt.file %q must stay inside .subtask/ (no `..` traversal)", rel)
-	}
-	return abs, nil
+	return relpath.ResolveUnder(task.ProjectDirAbs(), rel, "prompt.file", ".subtask/")
 }
 
 // LoadByName reads, parses, and validates an agent.
