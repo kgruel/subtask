@@ -1,4 +1,4 @@
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-07-15
 
 ### Added
 - `subtask wait <task>...` blocks until named tasks finish (completion barrier), so a lead can fan out several `send --detach` calls and rejoin without polling.

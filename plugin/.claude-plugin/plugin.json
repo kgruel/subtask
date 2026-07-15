@@ -1,6 +1,6 @@
 {
   "name": "subtask",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Parallel task orchestration for AI coding agents - dispatch work to Claude/Codex/OpenCode/Gemini/Pi workers in isolated git workspaces",
   "repository": "https://github.com/kgruel/subtask",
   "license": "MIT",
