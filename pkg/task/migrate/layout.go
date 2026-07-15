@@ -43,7 +43,7 @@ func EnsureLayout(repoRoot string) error {
 	layoutOnce.done[repoRoot] = struct{}{}
 	layoutOnce.mu.Unlock()
 
-	destProject := filepath.Join(task.ProjectsDir(), task.EscapePath(repoRoot))
+	destProject := task.RuntimeProjectDir(repoRoot)
 	if err := os.MkdirAll(destProject, 0o755); err != nil {
 		return fmt.Errorf("subtask: failed to prepare runtime dir at %s: %w", destProject, err)
 	}

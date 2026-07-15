@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/pathesc"
 	"github.com/kgruel/subtask/pkg/git"
 	"github.com/kgruel/subtask/pkg/subtaskerr"
 )
@@ -247,7 +248,7 @@ func ProjectConfigPath() string {
 func InternalDir() string {
 	root, err := GitRootAbs()
 	if err == nil && root != "" {
-		return filepath.Join(runtimeProjectDirAbs(root), "internal")
+		return filepath.Join(RuntimeProjectDir(root), "internal")
 	}
 	return filepath.Join(ProjectDir(), "internal")
 }
@@ -259,7 +260,7 @@ func InternalDir() string {
 func IndexPath() string {
 	root, err := GitRootAbs()
 	if err == nil && root != "" {
-		return filepath.Join(runtimeProjectDirAbs(root), "index.db")
+		return filepath.Join(RuntimeProjectDir(root), "index.db")
 	}
 	return filepath.Join(ProjectDir(), "index.db")
 }
@@ -322,28 +323,35 @@ func ReviewsDir(name string) string {
 	return filepath.Join(Dir(name), "reviews")
 }
 
-// EscapePath converts a path to a safe directory name.
-// It resolves symlinks first to ensure consistency across different cwd resolutions.
+// EscapePath converts a path to a safe directory name, capped at
+// pathesc.MaxLen. See internal/pathesc for the convention and why it is capped.
 func EscapePath(p string) string {
-	// Resolve symlinks to get consistent paths (e.g., /var -> /private/var on macOS)
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		p = resolved
+	return pathesc.Escape(p)
+}
+
+// RuntimeProjectDir returns ~/.subtask/projects/<escaped-git-root>, the runtime
+// state directory for a repo.
+//
+// This is the only way to name that directory — the migration paths resolve it
+// too, and a migrate lock or done-marker written beside a *different* directory
+// than the state it guards would race and re-migrate on every run.
+//
+// A root whose escaped name predates the length cap still has its state under
+// the old, uncapped name; that directory holds workspace assignments and session
+// IDs, so silently moving to the capped name would strand live tasks. Prefer an
+// existing legacy directory and only name new ones with the cap. Roots that fit
+// under the cap escape identically either way and never reach the stat.
+func RuntimeProjectDir(repoRoot string) string {
+	escaped := EscapePath(repoRoot)
+	if legacy := pathesc.Raw(repoRoot); legacy != escaped {
+		p := filepath.Join(ProjectsDir(), legacy)
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return p
+		}
 	}
-	p = strings.ReplaceAll(p, string(os.PathSeparator), "-")
-	// Windows drive letters and paths include ':' which is invalid in filenames.
-	p = strings.ReplaceAll(p, ":", "-")
-	// Additional Windows-invalid filename characters.
-	p = strings.NewReplacer(
-		"<", "-",
-		">", "-",
-		"\"", "-",
-		"|", "-",
-		"?", "-",
-		"*", "-",
-	).Replace(p)
-	return p
+	return filepath.Join(ProjectsDir(), escaped)
 }
 
 func runtimeProjectDirAbs(repoRoot string) string {
-	return filepath.Join(ProjectsDir(), EscapePath(repoRoot))
+	return RuntimeProjectDir(repoRoot)
 }

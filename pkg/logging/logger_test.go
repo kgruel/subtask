@@ -3,6 +3,7 @@ package logging
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -11,12 +12,30 @@ func TestLogger_PathUsesWorkspaceEscapeConvention(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	l, err := New("/Users/zippo/Code/finality", Options{DebugEnabled: false})
+	const root = "/Users/zippo/Code/finality"
+
+	l, err := New(root, Options{DebugEnabled: false})
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	wantSuffix := filepath.Join(".subtask", "logs", "-Users-zippo-Code-finality.log")
+	// The escaped name is platform-specific, and deliberately so. On Windows a
+	// bare "/Users/..." is drive-relative, so it absolutizes against the current
+	// drive and the drive letter lands in the escaped name ("D--Users-zippo-..."
+	// rather than "-Users-zippo-..."). That is the correct convention, not a
+	// quirk to normalize away: D:\repo and C:\repo are different roots, and
+	// dropping the letter would collide their workspaces and project state.
+	name := "-Users-zippo-Code-finality"
+	if runtime.GOOS == "windows" {
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			t.Fatalf("Abs(%q): %v", root, err)
+		}
+		// e.g. "D:" -> "D-", matching the ':' replacement in the convention.
+		name = strings.ReplaceAll(filepath.VolumeName(abs), ":", "-") + name
+	}
+
+	wantSuffix := filepath.Join(".subtask", "logs", name+".log")
 	if !strings.HasSuffix(l.Path(), wantSuffix) {
 		t.Fatalf("Path()=%q, want suffix %q", l.Path(), wantSuffix)
 	}
