@@ -1,3 +1,8 @@
+## [0.6.1] - 2026-07-15
+
+### Fixed
+- `subtask update` (and the background update checker) authenticates GitHub API requests with `GITHUB_TOKEN`/`GH_TOKEN` when set, avoiding the unauthenticated 60/hour-per-IP limit that returns `403 Forbidden` on shared corporate networks. Rate-limit responses (primary and secondary, 403/429) now produce an actionable error naming the fix and the retry window instead of a bare status.
+
 ## [0.6.0] - 2026-07-15
 
 ### Added
