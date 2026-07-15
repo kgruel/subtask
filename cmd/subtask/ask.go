@@ -94,13 +94,10 @@ func (c *AskCmd) Run() error {
 	var continueFrom string
 	var sessionName string // petname for this session
 	if c.FollowUp != "" {
-		// Validate harness match against the resolved adapter (not the project default).
-		if st, stErr := task.LoadState(c.FollowUp); stErr == nil && st != nil && st.SessionID != "" {
-			if err := enforceTaskHarnessMatch(c.FollowUp, st, r.Adapter); err != nil {
-				return err
-			}
+		continueFrom, sessionName, err = resolveAskContext(c.FollowUp, r.Adapter)
+		if err != nil {
+			return err
 		}
-		continueFrom, sessionName = resolveAskContext(c.FollowUp)
 	}
 
 	// Build prompt with safety prefix
@@ -156,21 +153,45 @@ func ConversationsDir() string {
 }
 
 // resolveAskContext resolves a context string to (sessionID, sessionName).
-// Checks: task name → petname → raw session ID
-func resolveAskContext(ctx string) (sessionID, sessionName string) {
-	// Try as task name first
-	if state, err := task.LoadState(ctx); err == nil && state != nil && state.SessionID != "" {
-		return state.SessionID, ""
+// Checks: task state → task history (portable fallback, used when state.json is
+// gone — after merge/close cleanup, or when a task folder was synced to another
+// machine since internal/ is machine-local) → petname → raw session ID.
+func resolveAskContext(ctx, projectAdapter string) (sessionID, sessionName string, err error) {
+	// Try as task name via state first (fast path, common case).
+	if st, stErr := task.LoadState(ctx); stErr == nil && st != nil && st.SessionID != "" {
+		if err := enforceTaskHarnessMatch(ctx, st, projectAdapter); err != nil {
+			return "", "", err
+		}
+		return st.SessionID, "", nil
+	}
+
+	// state.json missing or empty. If ctx is a real task, recover the last
+	// session from the portable history instead of falling through to
+	// raw-session-ID (which would pass the task name itself as a session ID).
+	if _, loadErr := task.Load(ctx); loadErr == nil {
+		sid, h := lastSessionFromHistory(ctx)
+		if sid == "" {
+			return "", "", fmt.Errorf("task %q has no session to continue\n\n"+
+				"Tip: run 'subtask send %s \"...\"' to dispatch it first, or pass a session ID or petname directly.",
+				ctx, ctx)
+		}
+		if h != "" && projectAdapter != "" && h != projectAdapter {
+			return "", "", fmt.Errorf("task %q was last run with adapter %q, but this project is configured for %q\n\n"+
+				"Sessions are not compatible across adapters.\n"+
+				"Tip: run without --follow-up to start a fresh session.",
+				ctx, h, projectAdapter)
+		}
+		return sid, "", nil
 	}
 
 	// Try as petname (check for .uuid file)
 	uuidPath := filepath.Join(ConversationsDir(), ctx+".uuid")
-	if data, err := os.ReadFile(uuidPath); err == nil {
-		return strings.TrimSpace(string(data)), ctx
+	if data, readErr := os.ReadFile(uuidPath); readErr == nil {
+		return strings.TrimSpace(string(data)), ctx, nil
 	}
 
 	// Assume it's a raw session ID
-	return ctx, ""
+	return ctx, "", nil
 }
 
 // generateSessionName generates a unique petname for a session.
