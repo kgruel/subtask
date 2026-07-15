@@ -41,6 +41,70 @@ func TestBuildPrompt_WorkspaceBlock(t *testing.T) {
 	require.Greater(t, descIdx, wsIdx, "## Workspace should appear before ## Description")
 }
 
+// TestBuildPrompt_RendersEveryPathInSlashForm pins the prompt's path
+// convention: every path BuildPrompt renders is slash-form, on every OS. The
+// worker gets one spelling, and it matches what `git rev-parse --show-toplevel`
+// prints (git emits forward slashes on Windows) — which the ## Workspace block
+// tells the worker to compare cwd against.
+//
+// This can only bite on Windows: filepath.ToSlash is the identity on unix, so
+// dropping a ToSlash call is invisible here and the assertion below is
+// tautological. That is unavoidable — the property does not exist on a platform
+// with no backslash separator — so this test earns its keep on CI, not locally.
+// It is the ratchet for a convention that would otherwise live only in review
+// vigilance: ## Workspace already drifted native once, precisely because the
+// workspace path arrives as a caller argument rather than through the
+// ToSlash'd task-dir path the other sections use.
+func TestBuildPrompt_RendersEveryPathInSlashForm(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+
+	parent := &task.Task{
+		Name:       "parent/slash",
+		Title:      "Parent",
+		BaseBranch: "main",
+	}
+	require.NoError(t, parent.Save())
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(parent.Name), "PLAN.md"), []byte("# Plan\n"), 0o644))
+
+	child := &task.Task{
+		Name:        "child/slash",
+		Title:       "Child",
+		BaseBranch:  "main",
+		FollowUp:    parent.Name,
+		Description: "Child work.",
+	}
+	require.NoError(t, child.Save())
+
+	// A native workspace path, as send.go passes it.
+	ws := filepath.Join(env.RootDir, "workspaces", "ws--1")
+
+	got, err := BuildPrompt(child, ws, false, "", "Go.", nil)
+	require.NoError(t, err)
+
+	// The workspace is rendered in slash form, matching ## Parent Context.
+	require.Contains(t, got, "Your working directory is `"+filepath.ToSlash(ws)+"`.")
+	require.Contains(t, got, filepath.ToSlash(filepath.Join(task.DirAbs(parent.Name), "PLAN.md")))
+
+	// No rendered path carries a native separator. Scoped to the lines that
+	// actually carry paths, since prose elsewhere may legitimately contain one.
+	checked := 0
+	for line := range strings.SplitSeq(got, "\n") {
+		if !strings.Contains(line, "Your working directory is") &&
+			!strings.HasPrefix(line, "Directory:") &&
+			!strings.HasPrefix(line, "- "+parent.Name+":") &&
+			!strings.HasPrefix(line, "- PLAN.md:") &&
+			!strings.HasPrefix(line, "- TASK.md:") {
+			continue
+		}
+		checked++
+		require.NotContains(t, line, `\`, "prompt paths must be slash-form, got a native separator: %q", line)
+	}
+	// The scan is worthless if its filter matches nothing — that would be a
+	// second way for this test to pass vacuously, on top of ToSlash being the
+	// identity on unix.
+	require.GreaterOrEqual(t, checked, 3, "expected to scan the workspace, Directory:, and parent-artifact lines")
+}
+
 func TestBuildPrompt_NoWorkspaceBlockWhenEmpty(t *testing.T) {
 	// Empty workspace string is allowed for non-dispatch contexts (tests
 	// building prompts in isolation, future ad-hoc callers). The block is
