@@ -25,6 +25,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Mirrors the identical step in ci.yml — keep the two in sync (see the
+      # rationale comment there). Consolidating both test jobs into a reusable
+      # workflow is the eventual fix for this duplication.
+      - name: Use a short temp root (Windows path limits)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\t | Out-Null
+          "TMP=C:\t"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TEMP=C:\t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: go test
         run: go test ./...
 
