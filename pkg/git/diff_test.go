@@ -193,6 +193,16 @@ func runtimeIsWindows() bool {
 // renamed to another name also containing " => ". Before this fix, the
 // textual resolveRenamePath heuristic would have misparsed this.
 func TestDiffNumstatRealRepoRenameWithArrow(t *testing.T) {
+	// The point of this test is a real on-disk file whose name contains " => ",
+	// the same token `git diff --numstat` uses to signal a rename — so parsing
+	// must not be fooled by it. '>' is not a legal character in a Windows
+	// filename, so the fixture cannot exist there and the scenario is
+	// unreachable. The -z fixture-byte unit tests cover the parsing itself on
+	// every platform.
+	if runtimeIsWindows() {
+		t.Skip(`filenames containing " => " are unrepresentable on Windows ('>' is invalid); -z fixture tests cover the parsing`)
+	}
+
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q")
 	runGit(t, dir, "config", "user.email", "a@b.com")

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -182,6 +183,14 @@ func TestEnsureLayout_NoLegacyRuntime_NoOp(t *testing.T) {
 }
 
 func TestEnsureLayout_DestUnwritable_ReturnsErrorAndLeavesLegacyUntouched(t *testing.T) {
+	// Injects the failure by chmod'ing the destination read-only, which Windows
+	// does not honour — it ignores the read-only bit for directory creation by
+	// an owning user, so EnsureLayout would succeed and the assertion is
+	// meaningless there. Matches TestApplyStagedAndSyncPlugin_ApplyFailure_NoSync
+	// in cmd/subtask.
+	if runtime.GOOS == "windows" {
+		t.Skip("failure injection relies on unix directory permissions; Windows ignores read-only bits for directory writes")
+	}
 	t.Setenv("SUBTASK_DIR", t.TempDir())
 
 	projectsDir := filepath.Join(task.GlobalDir(), "projects")

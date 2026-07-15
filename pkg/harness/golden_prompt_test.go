@@ -574,10 +574,13 @@ func TestBuildPrompt_ParentContextInjected(t *testing.T) {
 	require.Contains(t, got, "PROGRESS.json:")
 	require.Contains(t, got, "reviews/r.md")
 
-	// Every listed artifact path is absolute (into the lead repo).
+	// Every listed artifact path is absolute (into the lead repo). Prompt paths
+	// are rendered with forward slashes on every OS (filepath.ToSlash in
+	// renderParentContext), so compare against the slash-form of the root.
+	wantRoot := filepath.ToSlash(env.RootDir)
 	for line := range strings.SplitSeq(got, "\n") {
 		if strings.HasPrefix(line, "- ") && strings.Contains(line, ".subtask/tasks/parent--x/") {
-			require.Contains(t, line, env.RootDir, "parent artifact path must be absolute: %q", line)
+			require.Contains(t, line, wantRoot, "parent artifact path must be absolute: %q", line)
 		}
 	}
 

@@ -58,8 +58,23 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 		}
 	})
 
-	// Create temp root (git repo)
+	// Create temp root (git repo).
+	//
+	// Canonicalize it: every product path flows through EvalSymlinks (see
+	// pathesc.Raw, task.canonicalPath), so an un-resolved RootDir does not match
+	// what the code under test actually produces. t.TempDir() hands back the
+	// unresolved spelling on both platforms that matter — /var/... rather than
+	// /private/var/... on macOS, and the 8.3 short name C:\Users\RUNNER~1\...
+	// rather than C:\Users\runneradmin\... on Windows CI.
+	//
+	// On macOS a substring assertion still passed by luck ("/private/var/x"
+	// contains "/var/x"); on Windows it does not, and the mismatch surfaced as a
+	// confusing path-comparison failure. Resolving here means tests compare
+	// against the same spelling the product emits.
 	root := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 
 	// Initialize as git repo
 	initGitRepo(t, root)
