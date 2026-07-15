@@ -41,7 +41,17 @@ Create a new release.
      - **Beta releases**: MUST be on `dev` branch
      - If on wrong branch, stop and tell the user to switch branches first
 
-4. **Push the branch, then create and push the tag** (pushing the tag alone can
+4. **Stamp the CHANGELOG's release date** (stable releases only — skip for
+   beta): replace the top `## [X.Y.Z] - Unreleased` heading with the actual
+   release date, and commit it (fold into the version-bump commit if that
+   commit hasn't been pushed yet; otherwise a standalone commit):
+   ```bash
+   ## [X.Y.Z] - YYYY-MM-DD
+   ```
+   Do this for the version being released now — leave any other
+   still-in-progress `Unreleased` heading alone.
+
+5. **Push the branch, then create and push the tag** (pushing the tag alone can
    publish a release whose commits never made it to `origin` — the branch push
    must land first):
    ```bash
@@ -51,24 +61,24 @@ Create a new release.
    git push origin "$VERSION"
    ```
 
-5. **Monitor release workflow**:
+6. **Monitor release workflow**:
    ```bash
    gh run watch --workflow release.yml --interval 10
    ```
 
-6. **Mark as prerelease** (beta only):
+7. **Mark as prerelease** (beta only):
    ```bash
    gh release edit "$VERSION" --prerelease
    ```
    This ensures the beta won't be picked up by auto-update (which uses `/releases/latest`).
 
-7. **Verify release**:
+8. **Verify release**:
    ```bash
    gh release view "$VERSION"
    gh release view "$VERSION" --json assets --jq '.assets[].name'
    ```
 
-8. **Add release notes**:
+9. **Add release notes**:
    - Read the commit history since the last release
    - Group changes by type (Features, Fixes, Improvements, etc.)
    - Write a concise summary highlighting the most important changes
@@ -93,14 +103,14 @@ Create a new release.
    )"
    ```
 
-9. **Verify Homebrew tap updated** (stable releases only - skip for beta):
+10. **Verify Homebrew tap updated** (stable releases only - skip for beta):
    ```bash
    gh api "repos/zippoxer/homebrew-tap/contents/Formula/subtask.rb?ref=main" --jq .content \
      | base64 --decode \
      | rg "version|url|sha256" -n
    ```
 
-10. **Test Homebrew install** (stable releases only - skip for beta):
+11. **Test Homebrew install** (stable releases only - skip for beta):
     ```bash
     brew fetch --force zippoxer/tap/subtask
     ```

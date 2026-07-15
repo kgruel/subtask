@@ -129,3 +129,40 @@ func TestRefreshPluginAfterSwap_WarnsOnChildFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, stderr, "could not refresh the installed plugin/skill")
 }
+
+func TestRefreshPluginAfterSwapQuiet_InvokesChildWithExe(t *testing.T) {
+	prev := runSyncPluginChild
+	var gotExe string
+	runSyncPluginChild = func(exe string) error {
+		gotExe = exe
+		return nil
+	}
+	t.Cleanup(func() { runSyncPluginChild = prev })
+
+	stdout, stderr, err := captureStdoutStderr(t, func() error {
+		refreshPluginAfterSwapQuiet("/path/to/subtask")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, stdout)
+	require.Empty(t, stderr)
+	require.Equal(t, "/path/to/subtask", gotExe)
+}
+
+func TestRefreshPluginAfterSwapQuiet_LogsInsteadOfPrintingOnFailure(t *testing.T) {
+	prev := runSyncPluginChild
+	runSyncPluginChild = func(exe string) error {
+		return errors.New("boom")
+	}
+	t.Cleanup(func() { runSyncPluginChild = prev })
+
+	// Must not print: a background goroutine calling this could interleave
+	// with an unrelated foreground command's output.
+	stdout, stderr, err := captureStdoutStderr(t, func() error {
+		refreshPluginAfterSwapQuiet("/path/to/subtask")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, stdout)
+	require.Empty(t, stderr)
+}

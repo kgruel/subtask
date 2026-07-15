@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kgruel/subtask/internal/binaryupdate"
+	"github.com/kgruel/subtask/pkg/logging"
 	"github.com/kgruel/subtask/pkg/render"
 )
 
@@ -33,6 +34,18 @@ var runSyncPluginChild = func(exe string) error {
 func refreshPluginAfterSwap(exe string) {
 	if err := runSyncPluginChild(exe); err != nil {
 		printWarning("Updated the binary but could not refresh the installed plugin/skill immediately; the next subtask command will sync them.")
+	}
+}
+
+// refreshPluginAfterSwapQuiet is refreshPluginAfterSwap for update paths that
+// run asynchronously in the background (the auto-updater's goroutine, well
+// after the foreground command has started printing its own output).
+// Printing a warning there would interleave with unrelated output, so
+// failures are logged instead — the next subtask invocation still catches up
+// via the staged/synchronous paths.
+func refreshPluginAfterSwapQuiet(exe string) {
+	if err := runSyncPluginChild(exe); err != nil {
+		logging.Error("update", fmt.Sprintf("could not refresh installed plugin/skill after background binary update: %s", err))
 	}
 }
 

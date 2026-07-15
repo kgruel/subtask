@@ -49,8 +49,10 @@ func startBinaryAutoUpdate() {
 		return
 	}
 
-	// Best-effort: apply any staged update from a previous attempt.
-	_, _ = binaryupdate.TryApplyStaged(exe)
+	// Best-effort: apply any staged update from a previous attempt. This runs
+	// synchronously before the requested command produces any output, so a
+	// refresh warning (if the plugin sync fails) is safe to print here.
+	applyStagedAndSyncPlugin(exe)
 
 	// Don't run the background checker during an explicit update command.
 	if len(os.Args) > 1 && os.Args[1] == "update" {
@@ -112,7 +114,21 @@ func startBinaryAutoUpdate() {
 			}
 			return
 		}
+
+		refreshPluginAfterSwapQuiet(exe)
 	}()
+}
+
+// applyStagedAndSyncPlugin applies any binary staged by a previous update
+// attempt and, on success, keeps the installed plugin/skill in lockstep with
+// it — otherwise the staged apply would leave the binary and plugin
+// mismatched until yet another invocation happened to also stage+apply.
+func applyStagedAndSyncPlugin(exe string) (bool, error) {
+	applied, err := binaryupdate.TryApplyStaged(exe)
+	if applied {
+		refreshPluginAfterSwap(exe)
+	}
+	return applied, err
 }
 
 func autoUpdateStatePath() string {
