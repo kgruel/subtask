@@ -257,7 +257,7 @@ func readArtifactBool(taskDir, artifactRelPath, field string) (bool, error) {
 	if artifactRelPath == "" || field == "" {
 		return false, nil
 	}
-	p := filepath.Join(taskDir, artifactRelPath)
+	p := filepath.Join(taskDir, filepath.FromSlash(artifactRelPath))
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {

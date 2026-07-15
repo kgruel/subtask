@@ -621,6 +621,70 @@ steps:
 	require.Contains(t, err.Error(), "consumes")
 }
 
+func TestValidateArtifactPath(t *testing.T) {
+	// Table-driven, OS-independent: path.Clean's output differs from
+	// filepath.Clean's on Windows (forward vs. backslash), so assertions
+	// below check accept/reject and, where relevant, substring content —
+	// never the raw cleaned separator form.
+	cases := []struct {
+		name    string
+		path    string
+		wantErr string // substring, or "" for accept
+	}{
+		{"nested path", "notes/spec.md", ""},
+		{"deeper nested path", "a/b/c.md", ""},
+		{"single segment", "PLAN.md", ""},
+		{"leading traversal", "../x", "traversal"},
+		{"nested traversal", "a/../../x", "traversal"},
+		{"bare dotdot", "..", "traversal"},
+		{"absolute unix path", "/etc/passwd", "absolute"},
+		{"windows drive slash-form", "C:/tmp/x.md", "absolute"},
+		{"windows drive relative-form", "C:x", "absolute"},
+		{"backslash traversal", "..\\x", "forward slashes"},
+		{"backslash nested", "a\\b", "forward slashes"},
+		{"empty", "", "empty"},
+		{"whitespace only", "   ", "empty"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateArtifactPath(tc.path, "field")
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestParseRoutine_ProducesBackslashRejected(t *testing.T) {
+	data := []byte(`name: bad
+steps:
+  - id: plan
+    agent: planner
+    produces: notes\spec.md
+    advance: auto
+`)
+	_, err := parseRoutine(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "produces")
+	require.Contains(t, err.Error(), "forward slashes")
+}
+
+func TestParseRoutine_ConsumesNestedAllowed(t *testing.T) {
+	data := []byte(`name: ok
+steps:
+  - id: plan
+    agent: planner
+    consumes: [notes/spec.md, a/b/c.md]
+    advance: auto
+`)
+	r, err := parseRoutine(data)
+	require.NoError(t, err)
+	require.Equal(t, []string{"notes/spec.md", "a/b/c.md"}, r.GetStep("plan").Consumes)
+}
+
 func TestParseRoutine_ConsumesOnRegularStepAllowed(t *testing.T) {
 	// Guard against over-broad rejection: a regular step declaring consumes
 	// must still load clean (the gate/terminal rejection is kind-scoped).
