@@ -506,6 +506,65 @@ func TestWait_HardKillMidRun_Exit2(t *testing.T) {
 	assert.Contains(t, stdout, name+"\terror (supervisor died)")
 }
 
+// Revival race: `send --detach` on a merged task claims SupervisorPID in
+// state.json before the reopening event reaches history.jsonl. In that window
+// the tail still says merged while a run is genuinely underway — a live claim
+// must outrank the previous lifecycle's terminal status, or `send --detach X;
+// wait X` returns success against the run it was supposed to wait for.
+func TestWait_Classify_LiveSupervisorOutranksStaleMergedTail(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	name := "fix/revived-merged"
+	seedMerged(t, env, name)
+	// This process is definitionally alive, so IsStale() is false.
+	env.CreateTaskState(name, &task.State{SupervisorPID: os.Getpid()})
+
+	o := classify(name)
+	assert.Equal(t, "working", o.Label)
+	assert.False(t, o.Complete, "a live supervisor claim must not satisfy the barrier")
+	assert.False(t, o.Errored)
+}
+
+func TestWait_Classify_LiveSupervisorOutranksStaleClosedTail(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	name := "fix/revived-closed"
+	seedClosed(t, env, name)
+	env.CreateTaskState(name, &task.State{SupervisorPID: os.Getpid()})
+
+	o := classify(name)
+	assert.Equal(t, "working", o.Label)
+	assert.False(t, o.Complete)
+}
+
+// Converse of the revival race: only a LIVE claim outranks a terminal task
+// status. A task merged with a leftover dead PID in state.json is merged — not
+// a supervisor death — so the stale-PID row must stay below merged/closed.
+func TestWait_Classify_StaleSupervisorDoesNotShadowMerged(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("processAlive uses unix semantics")
+	}
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	name := "fix/merged-stale-pid"
+	seedMerged(t, env, name)
+
+	// Spawn+reap a child to obtain a definitely-dead PID.
+	cmd := exec.Command("sleep", "0.05")
+	require.NoError(t, cmd.Start())
+	deadPID := cmd.Process.Pid
+	require.NoError(t, cmd.Wait())
+	env.CreateTaskState(name, &task.State{SupervisorPID: deadPID})
+
+	code, err, stdout, _ := runWaitCapture(t, &WaitCmd{Tasks: []string{name}})
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+	assert.Contains(t, stdout, name+"\tmerged")
+}
+
 // Read-only proof: waiting over a merged and an errored task must not mutate
 // state.json, history.jsonl, or create/modify the index.
 func TestWait_ReadOnly_NoMutation(t *testing.T) {

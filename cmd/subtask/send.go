@@ -520,7 +520,13 @@ func (c *SendCmd) Run() error {
 	if t.Routine != "" {
 		r, rErr := routine.LoadByName(t.Routine)
 		if rErr != nil {
-			c.releaseSupervisorClaim()
+			// The routine went missing or corrupt while the worker ran: the
+			// advance decision can't be made at all. Same class of failure as a
+			// HandleAutoAdvance error below, so it gets the same durable stamp
+			// (which releases this process's claim in the same locked write) —
+			// otherwise wait/list/show read a clean "replied" with no LastError
+			// and mask the failure entirely.
+			c.recordAutoAdvanceFailure(rErr)
 			return rErr
 		}
 		currentStep := tail.Stage

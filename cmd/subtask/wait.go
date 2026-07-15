@@ -241,18 +241,29 @@ func (c *WaitCmd) run() (int, error) {
 // and returns the task's outcome. Rows are evaluated in order; first match
 // wins. Every st.-dereferencing clause is guarded by st != nil because
 // LoadState returns (nil,nil) for a never-dispatched draft.
+//
+// The live-PID row sits above merged/closed deliberately: a revival (`send
+// --detach` on a merged/closed task) claims SupervisorPID in state.json before
+// it appends the reopening event to history.jsonl, so in that window the tail
+// still reads merged/closed while a run is genuinely underway. A live claim is
+// the fresher fact and wins — otherwise `send --detach X; wait X` would return
+// success against the *previous* lifecycle's terminal status.
+//
+// The stale-PID row stays BELOW merged/closed for the converse reason: a task
+// merged or closed while a leftover dead PID sits in state.json is merged, not
+// a supervisor death. Only a live claim can outrank a terminal task status.
 func classify(name string) taskOutcome {
 	o := taskOutcome{Name: name}
 	st, _ := task.LoadState(name)
 	tail, _ := history.Tail(name)
 
 	switch {
+	case st != nil && st.SupervisorPID != 0 && !st.IsStale():
+		o.Label = "working"
 	case tail.TaskStatus == task.TaskStatusMerged:
 		o.Label, o.Complete = "merged", true
 	case tail.TaskStatus == task.TaskStatusClosed:
 		o.Label, o.Complete = "closed", true
-	case st != nil && st.SupervisorPID != 0 && !st.IsStale():
-		o.Label = "working"
 	case st != nil && st.SupervisorPID != 0 && st.IsStale():
 		// Dead process behind a live PID: replicate the staleness reap's
 		// conclusion live and read-only (IsStale probes processAlive now).

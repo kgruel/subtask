@@ -404,3 +404,72 @@ steps:
 	require.Equal(t, 2, code, "a durably-recorded auto-advance failure is complete-with-error")
 	require.Contains(t, stdout, taskName+"\terror")
 }
+
+// corruptingHarness replies normally but corrupts a file mid-run, simulating
+// the routine being edited/removed while the worker works. The corruption must
+// land inside the run window: prompt-building loads the routine too, so
+// corrupting it before send would fail the send early and never reach the
+// post-reply reload this test is about.
+type corruptingHarness struct {
+	*harness.MockHarness
+	path    string
+	content string
+}
+
+func (h *corruptingHarness) Run(ctx context.Context, cwd, prompt, continueFrom string, cb harness.Callbacks) (*harness.Result, error) {
+	if err := os.WriteFile(h.path, []byte(h.content), 0o644); err != nil {
+		return nil, err
+	}
+	return h.MockHarness.Run(ctx, cwd, prompt, continueFrom, cb)
+}
+
+// Sibling of the above for the other post-reply failure mode: the routine
+// itself becomes unloadable (removed or corrupted) while the worker runs, so
+// the advance decision can't even be attempted. Same durability contract — a
+// bare return would leave a clean "replied" with no LastError, and wait would
+// report a clean reply that never happened.
+func TestSend_AutoAdvanceRoutineReloadError_StampsLastError(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	withOutputMode(t, false)
+
+	routinesDir := filepath.Join(env.RootDir, ".subtask", "routines")
+	require.NoError(t, os.MkdirAll(routinesDir, 0o755))
+	routinePath := filepath.Join(routinesDir, "advgone.yaml")
+	require.NoError(t, os.WriteFile(routinePath, []byte(
+		`name: advgone
+steps:
+  - id: work
+    advance: auto
+  - id: done
+    kind: terminal
+`), 0o644))
+
+	taskName := "adv/routinegone"
+	require.NoError(t, (&DraftCmd{
+		Task:        taskName,
+		Title:       "Routine unloadable at advance time",
+		Description: "routine corrupted while the worker ran",
+		Base:        "main",
+		Routine:     "advgone",
+	}).Run())
+
+	h := &corruptingHarness{
+		MockHarness: harness.NewMockHarness().WithResult("ok", "sess-gone"),
+		path:        routinePath,
+		content:     "name: advgone\nsteps: [[[\n",
+	}
+	err := (&SendCmd{Task: taskName, Prompt: "Go"}).WithHarness(h).Run()
+	require.Error(t, err, "an unloadable routine must surface as an error")
+	require.Contains(t, err.Error(), "invalid YAML")
+
+	st, loadErr := task.LoadState(taskName)
+	require.NoError(t, loadErr)
+	require.NotNil(t, st)
+	require.Contains(t, st.LastError, "auto-advance failed:")
+	require.Equal(t, 0, st.SupervisorPID, "the supervisor claim must be released exactly once")
+
+	code, waitErr, stdout, _ := runWaitCapture(t, &WaitCmd{Tasks: []string{taskName}, Any: true})
+	require.NoError(t, waitErr)
+	require.Equal(t, 2, code, "the recorded failure must not read as a clean reply")
+	require.Contains(t, stdout, taskName+"\terror")
+}
