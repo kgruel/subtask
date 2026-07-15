@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kgruel/subtask/pkg/task"
@@ -16,12 +17,28 @@ type followUpSeed struct {
 
 	// IncompatibleParentHarness, when non-empty, records that the seed degraded
 	// to artifact-only continuity because the parent's session harness differs
-	// from the target adapter AND the parent workspace is gone (merged/closed).
-	// It names the parent's original harness so send.go can warn about the
-	// mismatch. FromSessionID/FromHarness are cleared in this case so no session
-	// resume is attempted; ## Parent Context (keyed on t.FollowUp) carries
-	// continuity forward.
+	// from the target adapter. It names the parent's original harness so
+	// send.go can warn about the mismatch. FromSessionID/FromHarness are
+	// cleared in this case so no session resume is attempted; ## Parent
+	// Context (keyed on t.FollowUp) carries continuity forward.
 	IncompatibleParentHarness string
+
+	// ParentWorkspaceLive records whether the parent's workspace still existed
+	// on disk at resolution time. It only matters for messaging: send.go uses
+	// it to distinguish "parent is live but adapters differ" from "parent was
+	// merged/closed" in the continuity-downgrade warning.
+	ParentWorkspaceLive bool
+}
+
+// workspaceIsLive reports whether path is non-empty and still exists on disk.
+// A stale FromWorkspace (deleted worktree, gc'd path) counts as not-live.
+func workspaceIsLive(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error) {
@@ -72,27 +89,22 @@ func resolveFollowUpSeed(projectAdapter, followUp string) (*followUpSeed, error)
 
 	// Enforce adapter compatibility when known.
 	if strings.TrimSpace(seed.FromHarness) != "" && strings.TrimSpace(projectAdapter) != "" && seed.FromHarness != projectAdapter {
-		// Parent workspace is gone (merged/closed): the session can't be resumed
-		// across adapters anyway, so degrade to artifact-only continuity rather
-		// than hard-failing. Record the parent's original harness (for send.go's
-		// mismatch warning) and clear the session so no cross-adapter resume is
-		// attempted; ## Parent Context carries continuity forward. This keeps the
-		// documented cross-family aggregation flow (e.g. claude parent → codex
-		// child) working once the parent is merged.
-		if strings.TrimSpace(seed.FromWorkspace) == "" {
-			seed.IncompatibleParentHarness = seed.FromHarness
-			seed.FromSessionID = ""
-			seed.FromHarness = ""
-			return seed, nil
-		}
-		// A LIVE parent (workspace intact) with incompatible adapters keeps the
-		// hard error: the session physically exists and could be resumed if the
-		// adapters matched, so surfacing the mismatch is more diagnosable than a
-		// silent degrade.
-		return nil, fmt.Errorf("follow-up %q was last run with adapter %q, but this project is configured for %q\n\n"+
-			"Sessions are not compatible across adapters.\n"+
-			"Tip: run without --follow-up to start a fresh session.",
-			followUp, seed.FromHarness, projectAdapter)
+		// A session recorded by one adapter can never be resumed by another
+		// (claude's session files and codex's session store are incompatible
+		// formats), regardless of whether the parent workspace is still live.
+		// Degrade to artifact-only continuity rather than hard-failing: record
+		// the parent's original harness (for send.go's mismatch warning) and
+		// clear the session so no cross-adapter resume is attempted; ##
+		// Parent Context carries continuity forward. This is what makes the
+		// documented cross-family aggregation flow (e.g. claude parent →
+		// codex child) work — the follow-up never fails for lack of a
+		// resumable session, whether the parent is live, merged, or closed.
+		seed.ParentWorkspaceLive = workspaceIsLive(seed.FromWorkspace)
+		seed.IncompatibleParentHarness = seed.FromHarness
+		seed.FromSessionID = ""
+		seed.FromHarness = ""
+		seed.FromWorkspace = ""
+		return seed, nil
 	}
 
 	return seed, nil

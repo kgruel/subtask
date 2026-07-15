@@ -254,17 +254,20 @@ func TestSend_FollowUpCrossAdapterMergedParent_ArtifactFallback(t *testing.T) {
 	require.True(t, followUpArtifactOnlyStamped(t, child), "the cross-adapter degrade must stamp worker.started provenance")
 }
 
-// TestSend_FollowUpCrossAdapterLiveParent_HardError: a LIVE parent (workspace
-// intact) whose session ran a different adapter keeps today's hard error — the
-// session physically exists and could be resumed if the adapters matched, so
-// the mismatch stays diagnosable instead of silently degrading.
-func TestSend_FollowUpCrossAdapterLiveParent_HardError(t *testing.T) {
+// TestSend_FollowUpCrossAdapterLiveParent_ArtifactFallback: a LIVE parent
+// (workspace intact) whose session ran a different adapter must not hard-fail
+// either — a claude session file can't be resumed by codex regardless of
+// whether the parent workspace still exists, so this degrades to
+// artifact-only continuity just like the merged/closed case, with a warn
+// that makes clear the parent is still live.
+func TestSend_FollowUpCrossAdapterLiveParent_ArtifactFallback(t *testing.T) {
 	env := testutil.NewTestEnv(t, 1)
 	withOutputMode(t, false)
 	setProjectAdapter(t, "codex", "gpt-5-codex")
 
 	parent := "parent/xadapter-live"
 	env.CreateTask(parent, "Parent", "main", "Parent work.")
+	require.NoError(t, os.WriteFile(filepath.Join(task.Dir(parent), "PLAN.md"), []byte("# Plan\n"), 0o644))
 	env.CreateTaskHistory(parent, append(mustHistoryOpen(t, "main"),
 		history.Event{Type: "worker.session", Data: mustJSON(map[string]any{
 			"action": "follow_up", "harness": "claude", "session_id": "sess-parent",
@@ -282,9 +285,21 @@ func TestSend_FollowUpCrossAdapterLiveParent_HardError(t *testing.T) {
 
 	mock := harness.NewMockHarness().WithResult("child reply", "")
 
-	_, _, err = captureStdoutStderr(t, (&SendCmd{Task: child, Prompt: "Aggregate"}).WithHarness(mock).Run)
-	require.Error(t, err, "a live cross-adapter parent must hard-fail")
-	require.Contains(t, err.Error(), "not compatible across adapters")
-	require.Equal(t, 0, mock.RunCallCount(), "the worker must not run on the hard adapter-mismatch error")
-	require.False(t, followUpArtifactOnlyStamped(t, child))
+	_, stderr, err := captureStdoutStderr(t, (&SendCmd{Task: child, Prompt: "Aggregate"}).WithHarness(mock).Run)
+	require.NoError(t, err, "a live cross-adapter parent must not hard-fail")
+
+	require.Equal(t, 1, mock.RunCallCount())
+	require.Empty(t, mock.LastRunCall().ContinueFrom, "no cross-adapter session may be resumed")
+	require.False(t, hasFollowUpSessionEvent(t, child), "no session was seeded")
+
+	prompt := mock.LastRunCall().Prompt
+	require.Contains(t, prompt, "## Parent Context")
+
+	// The warn distinguishes "parent is still live" from the merged/closed
+	// wording, but still names both adapters.
+	require.Contains(t, stderr, "parent is still live")
+	require.Contains(t, stderr, "claude")
+	require.Contains(t, stderr, "codex")
+
+	require.True(t, followUpArtifactOnlyStamped(t, child), "the cross-adapter degrade must stamp worker.started provenance")
 }

@@ -891,8 +891,9 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 				if derr == nil && strings.TrimSpace(dup) != "" {
 					newSessionID = strings.TrimSpace(dup)
 				} else if cfg.Adapter == "claude" {
-					if strings.TrimSpace(followUpSeed.FromWorkspace) == "" {
-						// Parent workspace is gone (merged/closed) → claude's
+					if !workspaceIsLive(followUpSeed.FromWorkspace) {
+						// Parent workspace is gone (merged/closed) or its path no
+						// longer exists on disk (stale/gc'd worktree) → claude's
 						// cwd-keyed session files can't be duplicated. Start the
 						// child on a fresh session; BuildPrompt's "## Parent
 						// Context" block carries the parent's artifacts forward
@@ -975,9 +976,16 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 
 	if followUpArtifactOnly {
 		if followUpSeed != nil && strings.TrimSpace(followUpSeed.IncompatibleParentHarness) != "" {
-			c.warn(fmt.Sprintf(
-				"follow-up %q: parent session is %s, this task runs %s; continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
-				t.FollowUp, followUpSeed.IncompatibleParentHarness, cfg.Adapter))
+			if followUpSeed.ParentWorkspaceLive {
+				c.warn(fmt.Sprintf(
+					"follow-up %q: parent is still live and running %s, but this task runs %s; sessions can't be resumed across adapters.\n"+
+						"  Continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
+					t.FollowUp, followUpSeed.IncompatibleParentHarness, cfg.Adapter))
+			} else {
+				c.warn(fmt.Sprintf(
+					"follow-up %q: parent session is %s, this task runs %s; continuing with its artifacts (TASK.md/PLAN.md/PROGRESS.json and produced files) injected as read-only context.",
+					t.FollowUp, followUpSeed.IncompatibleParentHarness, cfg.Adapter))
+			}
 		} else {
 			c.warn(fmt.Sprintf(
 				"follow-up %q was merged/closed; its %s conversation can't be resumed.\n"+
