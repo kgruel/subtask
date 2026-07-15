@@ -160,8 +160,10 @@ func TestInstallCmd_M9_RepoCheckoutUsesRepoSKILL(t *testing.T) {
 	require.Equal(t, repoContent, got, "installed skill should be repo content, not binary embed")
 	require.NotEqual(t, install.Embedded(), got, "installed skill must NOT be the binary embed")
 
-	// Success message must mention the repo SKILL path.
-	require.Contains(t, stdout, "pkg/install/SKILL.md", "success message should include repo SKILL path")
+	// Success message must mention the repo SKILL path. The message prints a
+	// native path, so build the expectation with the OS separator rather than
+	// hardcoding forward slashes.
+	require.Contains(t, stdout, filepath.Join("pkg", "install", "SKILL.md"), "success message should include repo SKILL path")
 }
 
 // TestInstallCmd_ExistingConfig_ConfigFlagsWarn verifies that re-running install

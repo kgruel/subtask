@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -124,10 +125,15 @@ func TestInstallPluginBinaryTo_FreshInstall(t *testing.T) {
 	_, err = os.Stat(filepath.Join(pluginDir, ".claude-plugin", "plugin.json"))
 	require.NoError(t, err)
 
-	// .sh files are executable.
+	// .sh files are present, and executable where that means anything. Windows
+	// has no exec bit — os.Stat reports mode 0666 for every regular file — so
+	// only the existence check is portable. The rest of the test is, so gate the
+	// assertion rather than skipping the whole thing.
 	info, err := os.Stat(filepath.Join(pluginDir, "scripts", "stop-unread.sh"))
 	require.NoError(t, err)
-	assert.NotZero(t, info.Mode()&0o111, ".sh file should be executable")
+	if runtime.GOOS != "windows" {
+		assert.NotZero(t, info.Mode()&0o111, ".sh file should be executable")
+	}
 
 	// GetPluginStatusFor reflects IsBinaryInstalled.
 	st, err := GetPluginStatusFor(base)

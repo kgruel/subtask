@@ -82,7 +82,7 @@ type repoPaths struct {
 }
 
 func repoMigrationPaths(repoDir string) repoPaths {
-	projectDir := filepath.Join(task.ProjectsDir(), task.EscapePath(repoDir))
+	projectDir := task.RuntimeProjectDir(repoDir)
 	return repoPaths{
 		projectDir:     projectDir,
 		lockPath:       filepath.Join(projectDir, "migrate.lock"),

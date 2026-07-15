@@ -25,6 +25,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The runner's default temp root is ~100 chars
+      # (C:\Users\RUNNER~1\AppData\Local\Temp\<TestName><random>\001), and
+      # t.TempDir() appends the full test name on top. Tests nest a git worktree
+      # under that, and Windows path limits bite well before MAX_PATH: git dies
+      # "'$GIT_DIR' too big" over 220 chars, and `git diff <sha>..<sha>` lstats
+      # the 82-char rev-range against cwd and dies "Filename too long" over 260.
+      #
+      # That depth is an artifact of the runner, not something a real install
+      # reproduces (a normal Windows workspace lands near ~100 chars), so give
+      # the tests a shallow root instead of tuning the product to fit CI. The
+      # product's own guard against deep repos is the escaped-root length cap,
+      # covered directly by internal/pathesc tests — not by these paths
+      # happening to fit.
+      - name: Use a short temp root (Windows path limits)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\t | Out-Null
+          "TMP=C:\t"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TEMP=C:\t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: go test
         run: go test ./...
 

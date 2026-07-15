@@ -13,12 +13,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/kgruel/subtask/internal/relpath"
 	"github.com/kgruel/subtask/pkg/agent"
 	"github.com/kgruel/subtask/pkg/task"
 )
@@ -225,73 +225,27 @@ func pathFor(name string) string {
 	return filepath.Join(RoutinesDir(), name+".yaml")
 }
 
-// resolvePromptFile validates a default_prompt.file path against
-// traversal and returns its absolute location under .subtask/. Mirrors
-// pkg/agent.resolvePromptFile so the trust boundary stays consistent
-// across both primitives.
+// resolvePromptFile validates a default_prompt.file path and returns its
+// absolute location under .subtask/. Shares the shape rules with
+// pkg/agent.resolvePromptFile and with validateArtifactPath below, via
+// internal/relpath.
 func resolvePromptFile(rel string) (string, error) {
-	if rel == "" {
-		return "", fmt.Errorf("default_prompt.file: empty path")
-	}
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("default_prompt.file %q must be relative to .subtask/, not absolute", rel)
-	}
-	cleaned := filepath.Clean(rel)
-	base := task.ProjectDirAbs()
-	abs := filepath.Clean(filepath.Join(base, cleaned))
-	relBack, err := filepath.Rel(base, abs)
-	if err != nil || relBack == ".." || strings.HasPrefix(relBack, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("default_prompt.file %q must stay inside .subtask/ (no `..` traversal)", rel)
-	}
-	return abs, nil
+	return relpath.ResolveUnder(task.ProjectDirAbs(), rel, "default_prompt.file", ".subtask/")
 }
 
-// validateArtifactPath checks that a `produces:` / `consumes:` path is
-// safe to join against the task folder at runtime. A routine can be
-// loaded from a less-trusted source (synced .subtask/ folder, shared
-// routines repo), so the same hardening that gates agent prompt.file
-// applies here: reject absolute paths, traversal, and empty/whitespace.
+// validateArtifactPath checks that a `produces:` / `consumes:` path is safe to
+// join against the task folder at runtime. A routine can be loaded from a
+// less-trusted source (synced .subtask/ folder, shared routines repo), so the
+// same hardening that gates agent prompt.file applies here — it is literally the
+// same validator, in internal/relpath.
 //
-// YAML artifact paths are always slash-separated (that's the authoring
-// convention, independent of the OS running subtask), so validation uses
-// the slash-only "path" package rather than filepath — on Windows,
-// filepath.Clean would rewrite "notes/spec.md" to "notes\spec.md" and
-// then trip the backslash guard below, rejecting a perfectly valid
-// nested path. Backslashes in the ORIGINAL input are rejected first
-// since that's about YAML authoring (forward slashes only), not the
-// local OS's separator.
-//
-// We do not anchor against an actual task folder (it doesn't exist at
-// load time) — pure path-shape validation suffices because the runner
-// always Joins against an absolute task folder under .subtask/tasks/
-// (via filepath.FromSlash so the slash-cleaned result still joins
-// correctly on Windows), and path.Clean has already collapsed any
-// non-escaping `..` segments.
+// Unlike the prompt.file callers this only checks shape, without resolving: the
+// task folder these are joined against does not exist at load time. That
+// suffices because the runner always Joins the validated path against an
+// absolute task folder under .subtask/tasks/ (via filepath.FromSlash, so the
+// slash-cleaned result still joins correctly on Windows).
 func validateArtifactPath(p, field string) error {
-	if strings.TrimSpace(p) == "" {
-		return fmt.Errorf("%s: empty or whitespace-only path", field)
-	}
-	if strings.ContainsAny(p, `\`) {
-		return fmt.Errorf("%s %q must use forward slashes only", field, p)
-	}
-	if filepath.IsAbs(p) || path.IsAbs(p) {
-		return fmt.Errorf("%s %q must be relative to the task folder, not absolute", field, p)
-	}
-	// A Windows drive-absolute path like "C:/tmp/x.md" or "C:x" is neither
-	// filepath.IsAbs nor path.IsAbs on a Unix host, so it would otherwise
-	// slip through here — accepted on Unix, absolute on Windows. A colon
-	// in the first segment is never valid in a portable task-relative
-	// path, so reject it outright rather than relying on the host OS to
-	// recognize its own drive syntax.
-	firstSeg, _, _ := strings.Cut(p, "/")
-	if strings.Contains(firstSeg, ":") {
-		return fmt.Errorf("%s %q must be relative to the task folder, not absolute", field, p)
-	}
-	cleaned := path.Clean(p)
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
-		return fmt.Errorf("%s %q must stay inside the task folder (no `..` traversal)", field, p)
-	}
-	return nil
+	return relpath.Validate(p, field, "the task folder")
 }
 
 // checkRoutineNameField validates that the name: field in a routine YAML,

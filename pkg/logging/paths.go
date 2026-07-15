@@ -3,9 +3,9 @@ package logging
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/kgruel/subtask/internal/homedir"
+	"github.com/kgruel/subtask/internal/pathesc"
 )
 
 // globalDir returns ~/.subtask.
@@ -39,24 +39,11 @@ func projectRoot() string {
 	return cwd
 }
 
-// escapePath matches the workspace naming convention (EscapePath in pkg/task):
-// resolve symlinks (best-effort), then replace path separators and a few filename-invalid characters with '-'.
+// escapePath names this project's log file. It shares the workspace naming
+// convention via internal/pathesc — pkg/task.EscapePath is the same call — so
+// the log for a repo sits under the same escaped root as its workspaces and
+// project state. pkg/task imports this package, so the convention has to come
+// from below both rather than from pkg/task directly.
 func escapePath(p string) string {
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
-	}
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		p = resolved
-	}
-	p = strings.ReplaceAll(p, string(os.PathSeparator), "-")
-	p = strings.ReplaceAll(p, ":", "-")
-	p = strings.NewReplacer(
-		"<", "-",
-		">", "-",
-		"\"", "-",
-		"|", "-",
-		"?", "-",
-		"*", "-",
-	).Replace(p)
-	return p
+	return pathesc.Escape(p)
 }

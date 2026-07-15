@@ -199,7 +199,9 @@ func TestSend_FollowUpNeverDispatchedParent_ArtifactOnly(t *testing.T) {
 
 	prompt := mock.LastRunCall().Prompt
 	require.Contains(t, prompt, "## Parent Context")
-	require.Contains(t, prompt, filepath.Join(task.DirAbs(parent), "PLAN.md"))
+	// Prompts render every path in slash form on every OS (see renderParentContext),
+	// so the expectation is the slash-form of the native path, not filepath.Join's.
+	require.Contains(t, prompt, filepath.ToSlash(filepath.Join(task.DirAbs(parent), "PLAN.md")))
 
 	require.NotContains(t, stderr, "merged/closed", "no session existed to fail to resume, so no degrade warning")
 	require.False(t, followUpArtifactOnlyStamped(t, child), "a never-dispatched parent has no session to degrade from")

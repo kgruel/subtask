@@ -28,7 +28,11 @@ func staleWorkersScriptPath(t *testing.T) string {
 // Returns stdout+stderr combined. Applies any extra env vars.
 func runStaleWorkers(t *testing.T, scriptPath string, extraEnv []string, payloadJSON string) (string, int) {
 	t.Helper()
-	cmd := exec.Command("/bin/bash", scriptPath)
+	// Look bash up on PATH rather than assuming /bin/bash, which is not where it
+	// lives on every unix (NixOS, for one).
+	bash, err := exec.LookPath("bash")
+	require.NoError(t, err, "bash not found on PATH")
+	cmd := exec.Command(bash, scriptPath)
 	cmd.Stdin = strings.NewReader(payloadJSON)
 	cmd.Env = append(os.Environ(), extraEnv...)
 	out, err := cmd.CombinedOutput()
@@ -75,7 +79,27 @@ func skipIfNoJQ(t *testing.T) {
 	}
 }
 
+// skipStaleWorkersOnWindows skips the stale-workers hook tests on Windows.
+//
+// The hook is a bash script, and Claude Code on Windows runs it through
+// git-bash — but this harness does not model that arrangement. It stubs the
+// `subtask` command with a .bat (addStubCommandToPATH), which bash will not
+// resolve via `command -v` since it does not apply PATHEXT. So the script under
+// test would take a different branch than it does in production and the run
+// would prove nothing.
+//
+// The script's own logic is OS-independent and fully covered on unix; what is
+// genuinely Windows-specific — whether Claude Code invokes the hook correctly
+// under git-bash — is outside what this harness exercises on any platform.
+func skipStaleWorkersOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("hook scripts are bash; Claude Code on Windows runs them via git-bash, which this harness's .bat command stubs do not model")
+	}
+}
+
 func TestStaleWorkers_NoSubtaskDir_SilentExit(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -87,6 +111,7 @@ func TestStaleWorkers_NoSubtaskDir_SilentExit(t *testing.T) {
 }
 
 func TestStaleWorkers_FreshWorker_SilentExit(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -103,6 +128,7 @@ func TestStaleWorkers_FreshWorker_SilentExit(t *testing.T) {
 }
 
 func TestStaleWorkers_StaleWorker_EmitsContext(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -122,6 +148,7 @@ func TestStaleWorkers_StaleWorker_EmitsContext(t *testing.T) {
 }
 
 func TestStaleWorkers_FinishedWorker_SilentExit(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -138,6 +165,7 @@ func TestStaleWorkers_FinishedWorker_SilentExit(t *testing.T) {
 }
 
 func TestStaleWorkers_MultipleStale_EmitsAll(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -156,6 +184,7 @@ func TestStaleWorkers_MultipleStale_EmitsAll(t *testing.T) {
 }
 
 func TestStaleWorkers_MalformedHistoryJSONL_DoesNotCrash(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")
@@ -171,6 +200,7 @@ func TestStaleWorkers_MalformedHistoryJSONL_DoesNotCrash(t *testing.T) {
 }
 
 func TestStaleWorkers_CwdFromPayload_TakesPrecedence(t *testing.T) {
+	skipStaleWorkersOnWindows(t)
 	skipIfNoJQ(t)
 	script := staleWorkersScriptPath(t)
 	addStubCommandToPATH(t, "subtask")

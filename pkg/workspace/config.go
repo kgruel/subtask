@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kgruel/subtask/internal/pathesc"
 	"github.com/kgruel/subtask/pkg/subtaskerr"
 	"github.com/kgruel/subtask/pkg/task"
 )
@@ -178,28 +179,48 @@ func (c *Config) Save() error {
 }
 
 // ListWorkspaces discovers workspaces for the current project by globbing.
+//
+// It globs the escaped root under both the current (length-capped) name and, for
+// a root long enough that the two differ, the uncapped name an older subtask
+// would have used. Workspaces created before the cap stay usable and keep their
+// IDs; only newly created ones take the capped name. The two sets share one ID
+// space, so a mixed pool still allocates without collision.
 func ListWorkspaces() ([]Entry, error) {
 	repoRoot := task.ProjectRoot()
-	escapedPath := task.EscapePath(repoRoot)
-	pattern := filepath.Join(task.WorkspacesDir(), escapedPath+"--*")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
+
+	legacy := pathesc.Raw(repoRoot)
+	names := []string{pathesc.Truncate(legacy)}
+	if legacy != names[0] {
+		names = append(names, legacy)
 	}
 
 	var entries []Entry
-	for _, path := range matches {
-		base := filepath.Base(path)
-		// Extract ID from "...-escaped-path--N"
-		if idx := strings.LastIndex(base, "--"); idx != -1 {
-			idStr := base[idx+2:]
-			if id, err := strconv.Atoi(idStr); err == nil {
-				entries = append(entries, Entry{
-					Name: fmt.Sprintf("workspace-%d", id),
-					Path: path,
-					ID:   id,
-				})
+	seen := make(map[string]bool)
+	for _, name := range names {
+		matches, err := filepath.Glob(filepath.Join(task.WorkspacesDir(), name+"--*"))
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range matches {
+			if seen[path] {
+				continue
 			}
+			base := filepath.Base(path)
+			// Extract ID from "...-escaped-path--N"
+			idx := strings.LastIndex(base, "--")
+			if idx == -1 {
+				continue
+			}
+			id, err := strconv.Atoi(base[idx+2:])
+			if err != nil {
+				continue
+			}
+			seen[path] = true
+			entries = append(entries, Entry{
+				Name: fmt.Sprintf("workspace-%d", id),
+				Path: path,
+				ID:   id,
+			})
 		}
 	}
 

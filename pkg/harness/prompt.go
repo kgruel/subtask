@@ -93,7 +93,17 @@ func BuildPrompt(t *task.Task, workspace string, sameWorkspace bool, stage strin
 	// isolation).
 	if workspace != "" {
 		sb.WriteString("\n## Workspace\n")
-		fmt.Fprintf(&sb, "Your working directory is `%s`. This IS your copy of the project — a git worktree of `%s` on branch `%s`.\n", workspace, t.BaseBranch, t.Name)
+		// Slash form, like every other path in this prompt (the Directory: header,
+		// ## Inputs, ## Parent Context). This was the one path rendered natively —
+		// it arrives as a caller argument and was never normalized — which on
+		// Windows put `C:\t\...\workspaces\x--1` and `C:/t/.../.subtask/tasks/...`
+		// in the same prompt, reading as two unrelated roots.
+		//
+		// Slash is also what the worker sees when it follows the instruction below:
+		// `git rev-parse --show-toplevel` prints forward slashes on Windows, so a
+		// natively-rendered workspace would look like a mismatch against it.
+		// No-op on unix.
+		fmt.Fprintf(&sb, "Your working directory is `%s`. This IS your copy of the project — a git worktree of `%s` on branch `%s`.\n", filepath.ToSlash(workspace), t.BaseBranch, t.Name)
 		sb.WriteString("\n")
 		sb.WriteString("- Use paths relative to cwd, or absolute paths under cwd.\n")
 		sb.WriteString("- Never use absolute paths to other clones of this project (e.g. `/Users/.../Code/<projectname>`). Edits outside your worktree will not appear on your task branch and will not merge.\n")
