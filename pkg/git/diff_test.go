@@ -207,6 +207,13 @@ func TestDiffNumstatRealRepoRenameWithArrow(t *testing.T) {
 	runGit(t, dir, "init", "-q")
 	runGit(t, dir, "config", "user.email", "a@b.com")
 	runGit(t, dir, "config", "user.name", "test")
+	// Real commits can spawn detached background maintenance (gc/maintenance
+	// --auto), which races t.TempDir() cleanup and fails it with
+	// ".git/objects: directory not empty" (seen twice in release CI). Pin all
+	// background-process sources off for this fixture repo.
+	runGit(t, dir, "config", "gc.auto", "0")
+	runGit(t, dir, "config", "gc.autoDetach", "false")
+	runGit(t, dir, "config", "maintenance.auto", "false")
 
 	oldName := "old => weird.txt"
 	newName := "new => weird.txt"
