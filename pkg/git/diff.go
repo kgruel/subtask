@@ -14,49 +14,46 @@ type DiffFileStat struct {
 	Status  string // from `git diff --name-status` (e.g. A/M/D/R/C/T/U)
 }
 
-// resolveRenamePath collapses the rename/copy syntax that `git diff --numstat`
-// emits in the path field down to the NEW path, matching how parseNameStatus
-// keys renames. Non-rename paths are returned unchanged.
+// parseNumstat parses the NUL-delimited output of `git diff -z --numstat`.
 //
-//	brace form: "pre/{old => new}/post" -> "pre/new/post"
-//	            "{old => new}"           -> "new"
-//	plain form: "old => new"            -> "new"
-func resolveRenamePath(path string) string {
-	if open := strings.Index(path, "{"); open != -1 {
-		if closeIdx := strings.Index(path[open:], "}"); closeIdx != -1 {
-			closeIdx += open
-			inner := path[open+1 : closeIdx]
-			if arrow := strings.Index(inner, " => "); arrow != -1 {
-				newPart := inner[arrow+len(" => "):]
-				resolved := path[:open] + newPart + path[closeIdx+1:]
-				// Collapse the doubled separator from a degenerate "{old => }".
-				return strings.ReplaceAll(resolved, "//", "/")
-			}
-		}
-		return path
-	}
-	if arrow := strings.Index(path, " => "); arrow != -1 {
-		return path[arrow+len(" => "):]
-	}
-	return path
-}
-
+// Verified against live git (2.53.0): each record is "<added>\t<removed>\t"
+// followed by either a path terminated by NUL (plain add/modify/delete), or
+// an empty field terminated by NUL followed by the old path (NUL-terminated)
+// and the new path (NUL-terminated) for renames/copies. Because paths are
+// never C-quoted under -z, this holds even for filenames containing tabs,
+// braces, or the literal " => " sequence.
 func parseNumstat(out string) []DiffFileStat {
 	if out == "" {
 		return nil
 	}
 
+	tokens := strings.Split(out, "\x00")
+	// Split leaves a trailing empty token after the final NUL.
+	if len(tokens) > 0 && tokens[len(tokens)-1] == "" {
+		tokens = tokens[:len(tokens)-1]
+	}
+
 	var stats []DiffFileStat
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
+	for i := 0; i < len(tokens); i++ {
+		parts := strings.SplitN(tokens[i], "\t", 3)
 		if len(parts) < 3 {
 			continue
 		}
 
-		s := DiffFileStat{Path: resolveRenamePath(parts[2])}
+		var path string
+		if parts[2] != "" {
+			path = parts[2]
+		} else {
+			// Rename/copy: old path, then new path, follow as separate tokens.
+			i++
+			if i+1 >= len(tokens) {
+				break
+			}
+			path = tokens[i+1]
+			i++
+		}
+
+		s := DiffFileStat{Path: path}
 		if parts[0] == "-" || parts[1] == "-" {
 			s.Binary = true
 			stats = append(stats, s)
@@ -80,11 +77,9 @@ func parseNumstat(out string) []DiffFileStat {
 // DiffNameStatus returns per-file status codes compared to baseRef.
 // Includes both committed changes on the current branch and uncommitted changes.
 //
-// Output format:
-// - <status>\t<path>
-// - Renames/copies: R<score>\t<old>\t<new> (we return status "R" for <new>)
+// Output format (see parseNameStatus): NUL-delimited status/path records.
 func DiffNameStatus(dir, baseRef string) (map[string]string, error) {
-	out, err := Output(dir, "diff", "--name-status", baseRef)
+	out, err := Output(dir, "diff", "-z", "--name-status", baseRef)
 	if err != nil {
 		return nil, err
 	}
@@ -93,38 +88,50 @@ func DiffNameStatus(dir, baseRef string) (map[string]string, error) {
 
 // DiffNameStatusRange returns per-file status codes for base..branch.
 func DiffNameStatusRange(dir, baseRef, branchRef string) (map[string]string, error) {
-	out, err := Output(dir, "diff", "--name-status", baseRef+".."+branchRef)
+	out, err := Output(dir, "diff", "-z", "--name-status", baseRef+".."+branchRef)
 	if err != nil {
 		return nil, err
 	}
 	return parseNameStatus(out), nil
 }
 
+// parseNameStatus parses the NUL-delimited output of `git diff -z --name-status`.
+//
+// Verified against live git (2.53.0): each record is a status code (e.g. "A",
+// "M", "D", "R095", "C050") terminated by NUL, followed by one NUL-terminated
+// path (add/modify/delete), or two NUL-terminated paths — old, then new — for
+// renames/copies. We key renames/copies by the new path, matching parseNumstat.
 func parseNameStatus(out string) map[string]string {
 	if out == "" {
 		return map[string]string{}
 	}
+
+	tokens := strings.Split(out, "\x00")
+	if len(tokens) > 0 && tokens[len(tokens)-1] == "" {
+		tokens = tokens[:len(tokens)-1]
+	}
+
 	m := make(map[string]string)
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			continue
-		}
-		st := parts[0]
+	for i := 0; i < len(tokens); i++ {
+		st := tokens[i]
 		if st == "" {
 			continue
 		}
 		code := st[:1]
 		switch code {
 		case "R", "C":
-			if len(parts) >= 3 {
-				m[parts[2]] = code
+			// old path, then new path.
+			if i+2 >= len(tokens) {
+				return m
 			}
+			m[tokens[i+2]] = code
+			i += 2
 		default:
-			m[parts[1]] = code
+			if i+1 >= len(tokens) {
+				return m
+			}
+			m[tokens[i+1]] = code
+			i++
 		}
 	}
 	return m
@@ -133,10 +140,8 @@ func parseNameStatus(out string) map[string]string {
 // DiffNumstat returns per-file diff stats compared to baseRef.
 // Includes both committed changes on the current branch and uncommitted changes.
 func DiffNumstat(dir, baseRef string) ([]DiffFileStat, error) {
-	// git diff --numstat <baseRef>
-	// Output format: <added>\t<removed>\t<file>
-	// Binary files show "-" for both counts.
-	out, err := Output(dir, "diff", "--numstat", baseRef)
+	// git diff -z --numstat <baseRef>, parsed structurally by parseNumstat.
+	out, err := Output(dir, "diff", "-z", "--numstat", baseRef)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +150,7 @@ func DiffNumstat(dir, baseRef string) ([]DiffFileStat, error) {
 
 // DiffNumstatRange returns per-file diff stats for base..branch.
 func DiffNumstatRange(dir, baseRef, branchRef string) ([]DiffFileStat, error) {
-	out, err := Output(dir, "diff", "--numstat", baseRef+".."+branchRef)
+	out, err := Output(dir, "diff", "-z", "--numstat", baseRef+".."+branchRef)
 	if err != nil {
 		return nil, err
 	}
