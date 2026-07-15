@@ -36,3 +36,7 @@ TODO.md
 .claude/scheduled_tasks.lock
 .claude/skills/
 .claude/worktrees/
+
+# Local tool state (serena MCP config, local DuckDB files) — must never enter the release tree
+.serena/
+data/

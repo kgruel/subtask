@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -94,4 +95,37 @@ func TestUpdateCheck_ShowsUpToDate(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Update available: no")
+}
+
+func TestRefreshPluginAfterSwap_InvokesChildWithExeAndEnv(t *testing.T) {
+	prev := runSyncPluginChild
+	var gotExe string
+	runSyncPluginChild = func(exe string) error {
+		gotExe = exe
+		return nil
+	}
+	t.Cleanup(func() { runSyncPluginChild = prev })
+
+	_, stderr, err := captureStdoutStderr(t, func() error {
+		refreshPluginAfterSwap("/path/to/subtask")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	require.Equal(t, "/path/to/subtask", gotExe)
+}
+
+func TestRefreshPluginAfterSwap_WarnsOnChildFailure(t *testing.T) {
+	prev := runSyncPluginChild
+	runSyncPluginChild = func(exe string) error {
+		return errors.New("boom")
+	}
+	t.Cleanup(func() { runSyncPluginChild = prev })
+
+	_, stderr, err := captureStdoutStderr(t, func() error {
+		refreshPluginAfterSwap("/path/to/subtask")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Contains(t, stderr, "could not refresh the installed plugin/skill")
 }

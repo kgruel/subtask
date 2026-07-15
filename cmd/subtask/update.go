@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -13,6 +14,27 @@ import (
 )
 
 var newBinaryUpdateClient = func() *binaryupdate.Client { return binaryupdate.NewClient(nil) }
+
+// runSyncPluginChild re-execs the just-updated binary at exe with
+// internalSyncPluginEnvVar set, so it refreshes the binary-managed
+// plugin/skill with its own (new) embedded assets. Stubbed in tests.
+var runSyncPluginChild = func(exe string) error {
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), internalSyncPluginEnvVar+"=1")
+	return cmd.Run()
+}
+
+// refreshPluginAfterSwap keeps the binary<->plugin version lockstep
+// (CLAUDE.md Releasing section) from ever being observably broken: the
+// process running this code still has the OLD binary's embedded assets, so it
+// re-execs the NEW binary at exe to do the refresh. Best-effort — a failure
+// here does not undo the already-successful binary swap; the plugin will
+// still catch up on the next incidental subtask invocation via runAutoUpdate.
+func refreshPluginAfterSwap(exe string) {
+	if err := runSyncPluginChild(exe); err != nil {
+		printWarning("Updated the binary but could not refresh the installed plugin/skill immediately; the next subtask command will sync them.")
+	}
+}
 
 // UpdateCmd implements 'subtask update'.
 type UpdateCmd struct {
@@ -123,6 +145,8 @@ func (c *UpdateCmd) Run() error {
 		}
 		return err
 	}
+
+	refreshPluginAfterSwap(exe)
 
 	printSuccess(fmt.Sprintf("Updated to v%s", latest))
 	return nil

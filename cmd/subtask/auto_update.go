@@ -10,6 +10,27 @@ import (
 	"github.com/kgruel/subtask/pkg/task"
 )
 
+// internalSyncPluginEnvVar gates a hidden re-exec path (see UpdateCmd.Run):
+// after `subtask update` swaps the binary on disk, the still-running OLD
+// process has the OLD version's embedded plugin/skill assets baked in, so it
+// cannot refresh them itself. It re-execs the just-written new binary with
+// this env var set; the new process runs only the sync below and exits,
+// closing the binary<->plugin lockstep gap immediately instead of leaving it
+// to the next incidental subtask invocation.
+const internalSyncPluginEnvVar = "SUBTASK_INTERNAL_SYNC_PLUGIN"
+
+func runInternalPluginSync() error {
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return err
+	}
+	if homeDir == "" {
+		return fmt.Errorf("could not resolve home directory")
+	}
+	_, err = install.AutoUpdateIfInstalled(homeDir, version)
+	return err
+}
+
 func runAutoUpdate() {
 	if os.Getenv(autoUpdateEnvVar) == "1" {
 		return

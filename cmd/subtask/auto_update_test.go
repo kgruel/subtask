@@ -129,6 +129,40 @@ func TestRunAutoUpdate_InstallCommand_SuppressesStaleWarning(t *testing.T) {
 	require.Empty(t, stderr, "stale-skill warning must be suppressed during install")
 }
 
+func TestRunInternalPluginSync_RefreshesBinaryPlugin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, err := install.InstallPluginBinaryTo(home, "0.4.1")
+	require.NoError(t, err)
+	drifted := filepath.Join(install.PluginPath(home), "hooks", "hooks.json")
+	require.NoError(t, os.WriteFile(drifted, []byte("{}"), 0o644))
+
+	prevVersion := version
+	version = "0.4.2"
+	t.Cleanup(func() { version = prevVersion })
+
+	require.NoError(t, runInternalPluginSync())
+
+	got, err := os.ReadFile(drifted)
+	require.NoError(t, err)
+	require.NotEqual(t, "{}", string(got))
+}
+
+// TestRunInternalPluginSync_HomedirFailure_ReturnsError exercises the
+// failure->non-zero-exit->parent-warning chain as far as the seams allow: if
+// runInternalPluginSync can't even resolve a home directory, it must return
+// an error rather than silently exiting 0 — otherwise a re-exec'd sync
+// failure (see UpdateCmd.refreshPluginAfterSwap) would never surface, leaving
+// the binary and plugin silently out of lockstep.
+func TestRunInternalPluginSync_HomedirFailure_ReturnsError(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+
+	err := runInternalPluginSync()
+	require.Error(t, err)
+}
+
 func TestRunAutoUpdate_AutoUpdateDisabled_SkipsChecks(t *testing.T) {
 	withOutputMode(t, false)
 

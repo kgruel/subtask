@@ -47,6 +47,14 @@ type CLI struct {
 }
 
 func main() {
+	if os.Getenv(internalSyncPluginEnvVar) == "1" {
+		if err := runInternalPluginSync(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if !shouldSkipStartupSideEffects(os.Args) {
 		runAutoUpdate()
 		startBinaryAutoUpdate()

@@ -41,9 +41,12 @@ Create a new release.
      - **Beta releases**: MUST be on `dev` branch
      - If on wrong branch, stop and tell the user to switch branches first
 
-4. **Create and push tag**:
+4. **Push the branch, then create and push the tag** (pushing the tag alone can
+   publish a release whose commits never made it to `origin` — the branch push
+   must land first):
    ```bash
    VERSION=vX.Y.Z  # or vX.Y.Z-beta.N for beta
+   git push origin HEAD
    git tag "$VERSION"
    git push origin "$VERSION"
    ```
