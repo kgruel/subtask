@@ -21,7 +21,7 @@
 - `/release` pushes the current branch before creating and pushing the release tag, instead of pushing the tag alone — a tag-only push could publish a release built from commits that never made it to `origin`.
 - `.serena/` and `data/` (local serena MCP state and local DuckDB files) are now gitignored; they must never enter the release tree.
 
-## [0.5.1] - 2026-07-12
+## [0.5.1] - Unreleased (version bumped on main 2026-07-12, never tagged; these changes first ship in 0.6.0)
 
 ### Added
 - Free-text model input and reasoning-level support for the `claude` adapter in `subtask config`.

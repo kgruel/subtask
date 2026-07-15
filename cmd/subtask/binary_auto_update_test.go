@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,9 @@ func TestApplyStagedAndSyncPlugin_NothingStaged_NoSync(t *testing.T) {
 }
 
 func TestApplyStagedAndSyncPlugin_ApplyFailure_NoSync(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("failure injection relies on unix directory permissions; Windows ignores read-only bits for renames")
+	}
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "subtask")
 	require.NoError(t, os.WriteFile(exe, []byte("old-binary"), 0o755))
