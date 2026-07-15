@@ -68,7 +68,7 @@ var invalidChars = strings.NewReplacer(
 // could be handed two different workspaces depending on how the caller spelled
 // its cwd.
 func Escape(p string) string {
-	return truncate(Raw(p))
+	return Truncate(Raw(p))
 }
 
 // Raw applies the escape convention without the length cap, reproducing the name
@@ -86,11 +86,16 @@ func Raw(p string) string {
 	return invalidChars.Replace(p)
 }
 
-// truncate caps an escaped component at MaxLen, keeping the tail and prefixing a
-// hash of the full string. The tail is the informative end (the repo directory
-// name lives there, not up in /Users/...), and the hash restores the uniqueness
-// that truncation gives up.
-func truncate(esc string) string {
+// Truncate caps an already-escaped component at MaxLen, keeping the tail and
+// prefixing a hash of the full string. The tail is the informative end (the repo
+// directory name lives there, not up in /Users/...), and the hash restores the
+// uniqueness that truncation gives up.
+//
+// Escape is Raw followed by Truncate. Callers that need both the capped name and
+// the pre-cap one — to look for a directory an older subtask created — should
+// call Raw once and Truncate its result, rather than calling Raw and Escape
+// separately: Raw resolves symlinks, and that is a syscall on a hot path.
+func Truncate(esc string) string {
 	if len(esc) <= MaxLen {
 		return esc
 	}

@@ -342,16 +342,15 @@ func EscapePath(p string) string {
 // existing legacy directory and only name new ones with the cap. Roots that fit
 // under the cap escape identically either way and never reach the stat.
 func RuntimeProjectDir(repoRoot string) string {
-	escaped := EscapePath(repoRoot)
-	if legacy := pathesc.Raw(repoRoot); legacy != escaped {
+	// Raw resolves symlinks (a syscall) and this runs on every InternalDir call,
+	// so derive both names from one Raw rather than calling Raw and EscapePath.
+	legacy := pathesc.Raw(repoRoot)
+	escaped := pathesc.Truncate(legacy)
+	if legacy != escaped {
 		p := filepath.Join(ProjectsDir(), legacy)
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
 			return p
 		}
 	}
 	return filepath.Join(ProjectsDir(), escaped)
-}
-
-func runtimeProjectDirAbs(repoRoot string) string {
-	return RuntimeProjectDir(repoRoot)
 }

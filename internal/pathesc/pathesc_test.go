@@ -74,12 +74,12 @@ func TestTruncate_StableNaming(t *testing.T) {
 	const in = "-Users-runneradmin-AppData-Local-Temp-TestPoolAcquire_CreatesFirstWorkspaceWhenNoneExist4057403907-002"
 	const want = "7400b6ee-cquire_CreatesFirstWorkspaceWhenNoneExist4057403907-002"
 
-	got := truncate(in)
+	got := Truncate(in)
 	if got != want {
-		t.Errorf("truncate(%q)\n  = %q\n want %q", in, got, want)
+		t.Errorf("Truncate(%q)\n  = %q\n want %q", in, got, want)
 	}
 	if len(got) > MaxLen {
-		t.Errorf("truncate produced %d chars, want <= %d", len(got), MaxLen)
+		t.Errorf("Truncate produced %d chars, want <= %d", len(got), MaxLen)
 	}
 }
 

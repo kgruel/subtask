@@ -188,8 +188,9 @@ func (c *Config) Save() error {
 func ListWorkspaces() ([]Entry, error) {
 	repoRoot := task.ProjectRoot()
 
-	names := []string{task.EscapePath(repoRoot)}
-	if legacy := pathesc.Raw(repoRoot); legacy != names[0] {
+	legacy := pathesc.Raw(repoRoot)
+	names := []string{pathesc.Truncate(legacy)}
+	if legacy != names[0] {
 		names = append(names, legacy)
 	}
 
