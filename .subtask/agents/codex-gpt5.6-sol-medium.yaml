@@ -1,0 +1,4 @@
+description: Codex GPT-5.6-sol medium reasoning. Cross-adapter final check pass.
+adapter: codex
+model: gpt-5.6-sol
+reasoning: medium
